@@ -1,0 +1,39 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 400m
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+      - '--storage.tsdb.path=/prometheus'
+    volumes:
+      - ../config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 400m
+    environment:
+      GF_SERVER_ROOT_URL: http://${NODE_B_IP}:4000
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+    volumes:
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "4000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  promdata:
+  grafanadata:
