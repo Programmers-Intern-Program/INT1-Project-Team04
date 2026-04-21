@@ -8,14 +8,10 @@ scrape_configs:
     static_configs:
       - targets: ['${NODE_A_IP}:9091']
 
-  - job_name: nextjs
-    static_configs:
-      - targets: ['${NODE_A_IP}:3000']
-
-  - job_name: mcp-server
-    static_configs:
-      - targets: ['${NODE_A_IP}:8081']
-
   - job_name: node-exporter
     static_configs:
       - targets: ['${NODE_A_IP}:9100']
+
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ['${NODE_A_IP}:9187']
