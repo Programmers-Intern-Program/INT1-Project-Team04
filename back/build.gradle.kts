@@ -19,13 +19,29 @@ repositories {
 }
 
 dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-webmvc")
-    compileOnly("org.projectlombok:lombok")
-    annotationProcessor("org.projectlombok:lombok")
-    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
-    testCompileOnly("org.projectlombok:lombok")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testAnnotationProcessor("org.projectlombok:lombok")
+    dependencies {
+        // Web & Core
+        implementation("org.springframework.boot:spring-boot-starter-webmvc")
+        implementation("org.springframework.boot:spring-boot-starter-validation")
+        implementation("org.springframework.boot:spring-boot-starter-actuator")
+        compileOnly("org.projectlombok:lombok")
+        annotationProcessor("org.projectlombok:lombok")
+
+
+        // DB
+        implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+        runtimeOnly("org.postgresql:postgresql")
+
+        // 테스트 환경
+        testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+        testImplementation("org.springframework.boot:spring-boot-testcontainers")
+        testImplementation("org.testcontainers:junit-jupiter")
+        testImplementation("org.testcontainers:postgresql")
+        testCompileOnly("org.projectlombok:lombok")
+        testAnnotationProcessor("org.projectlombok:lombok")
+        testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+    }
+
 }
 
 tasks.withType<Test> {
