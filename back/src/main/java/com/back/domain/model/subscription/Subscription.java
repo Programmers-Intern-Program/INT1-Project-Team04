@@ -1,5 +1,6 @@
 package com.back.domain.model.subscription;
 
+import com.back.domain.model.domain.Domain;
 import com.back.domain.model.user.User;
 
 import java.time.LocalDateTime;
