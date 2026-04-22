@@ -3,6 +3,7 @@ package com.back.domain.adapter.out.persistence.hub;
 import com.back.domain.adapter.out.persistence.common.BaseTimeEntity;
 import com.back.domain.adapter.out.persistence.mcp.McpToolJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
+import com.back.domain.model.hub.AiDataHub;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -62,5 +63,30 @@ public class AiDataHubJpaEntity extends BaseTimeEntity {
         this.content = content;
         this.embedding = embedding;
         this.metadata = metadata;
+    }
+
+    public static AiDataHubJpaEntity from(AiDataHub aiDataHub) {
+        return new AiDataHubJpaEntity(
+                aiDataHub.id(),
+                aiDataHub.user() == null ? null : UserJpaEntity.from(aiDataHub.user()),
+                aiDataHub.mcpTool() == null ? null : McpToolJpaEntity.from(aiDataHub.mcpTool()),
+                aiDataHub.apiType(),
+                aiDataHub.content(),
+                aiDataHub.embedding(),
+                aiDataHub.metadata()
+        );
+    }
+
+    public AiDataHub toDomain() {
+        return new AiDataHub(
+                id,
+                user == null ? null : user.toDomain(),
+                mcpTool == null ? null : mcpTool.toDomain(),
+                apiType,
+                content,
+                embedding,
+                metadata,
+                getCreatedAt()
+        );
     }
 }

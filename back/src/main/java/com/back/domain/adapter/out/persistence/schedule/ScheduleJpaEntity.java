@@ -1,6 +1,7 @@
 package com.back.domain.adapter.out.persistence.schedule;
 
 import com.back.domain.adapter.out.persistence.subscription.SubscriptionJpaEntity;
+import com.back.domain.model.schedule.Schedule;
 import com.back.global.common.UuidGenerator;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -50,5 +51,26 @@ public class ScheduleJpaEntity {
         this.cronExpr = cronExpr;
         this.lastRun = lastRun;
         this.nextRun = nextRun;
+    }
+
+    public static ScheduleJpaEntity from(Schedule schedule) {
+        ScheduleJpaEntity entity = new ScheduleJpaEntity(
+                SubscriptionJpaEntity.from(schedule.subscription()),
+                schedule.cronExpr(),
+                schedule.lastRun(),
+                schedule.nextRun()
+        );
+        entity.id = schedule.id() == null ? UuidGenerator.create() : schedule.id();
+        return entity;
+    }
+
+    public Schedule toDomain() {
+        return new Schedule(
+                id,
+                subscription.toDomain(),
+                cronExpr,
+                lastRun,
+                nextRun
+        );
     }
 }

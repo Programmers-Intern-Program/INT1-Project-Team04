@@ -1,5 +1,6 @@
 package com.back.domain.adapter.out.persistence.domain;
 
+import com.back.domain.model.domain.Domain;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -23,5 +24,14 @@ public class DomainJpaEntity {
 
     public DomainJpaEntity(String name) {
         this.name = name;
+    }
+
+    public static DomainJpaEntity from(Domain domain) {
+        DomainJpaEntity entity = new DomainJpaEntity(domain.name());
+        return entity;
+    }
+
+    public Domain toDomain() {
+        return new Domain(id, name);
     }
 }

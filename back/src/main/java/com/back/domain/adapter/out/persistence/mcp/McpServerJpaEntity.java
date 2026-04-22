@@ -1,5 +1,6 @@
 package com.back.domain.adapter.out.persistence.mcp;
 
+import com.back.domain.model.mcp.McpServer;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -34,5 +35,22 @@ public class McpServerJpaEntity {
         this.name = name;
         this.description = description;
         this.endpoint = endpoint;
+    }
+
+    public static McpServerJpaEntity from(McpServer server) {
+        McpServerJpaEntity entity = new McpServerJpaEntity(
+                server.name(),
+                server.description(),
+                server.endpoint());
+        entity.id = server.id();
+        return entity;
+    }
+
+    public McpServer toDomain() {
+        return new McpServer(
+                id,
+                name,
+                description,
+                endpoint);
     }
 }

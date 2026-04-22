@@ -1,6 +1,7 @@
 package com.back.domain.adapter.out.persistence.user;
 
 import com.back.domain.adapter.out.persistence.common.BaseTimeEntity;
+import com.back.domain.model.user.User;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -28,5 +29,21 @@ public class UserJpaEntity extends BaseTimeEntity {
     public UserJpaEntity(String email, String discordToken) {
         this.email = email;
         this.discordToken = discordToken;
+    }
+
+    public static UserJpaEntity from(User user) {
+        UserJpaEntity entity = new UserJpaEntity(
+                user.email(),
+                user.discordToken());
+        entity.id = user.id();
+        return entity;
+    }
+
+    public User toDomain() {
+        return new User(
+                id,
+                email,
+                discordToken,
+                getCreatedAt());
     }
 }

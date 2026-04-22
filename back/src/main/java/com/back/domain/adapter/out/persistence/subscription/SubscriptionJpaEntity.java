@@ -3,6 +3,7 @@ package com.back.domain.adapter.out.persistence.subscription;
 import com.back.domain.adapter.out.persistence.common.BaseTimeEntity;
 import com.back.domain.adapter.out.persistence.domain.DomainJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
+import com.back.domain.model.subscription.Subscription;
 import com.back.global.common.UuidGenerator;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -45,5 +46,27 @@ public class SubscriptionJpaEntity extends BaseTimeEntity {
         this.domain = domain;
         this.query = query;
         this.active = active;
+    }
+
+    public static SubscriptionJpaEntity from(Subscription subscription) {
+        SubscriptionJpaEntity entity = new SubscriptionJpaEntity(
+                UserJpaEntity.from(subscription.user()),
+                DomainJpaEntity.from(subscription.domain()),
+                subscription.query(),
+                subscription.active()
+        );
+        entity.id = subscription.id() == null ? UuidGenerator.create() : subscription.id();
+        return entity;
+    }
+
+    public Subscription toDomain() {
+        return new Subscription(
+                id,
+                user.toDomain(),
+                domain.toDomain(),
+                query,
+                active,
+                getCreatedAt()
+        );
     }
 }

@@ -3,6 +3,7 @@ package com.back.domain.adapter.out.persistence.notification;
 import com.back.domain.adapter.out.persistence.hub.AiDataHubJpaEntity;
 import com.back.domain.adapter.out.persistence.schedule.ScheduleJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
+import com.back.domain.model.notification.Notification;
 import com.back.domain.model.notification.NotificationStatus;
 import com.back.global.common.UuidGenerator;
 import jakarta.persistence.*;
@@ -65,5 +66,32 @@ public class NotificationJpaEntity {
         this.message = message;
         this.sentAt = sentAt;
         this.status = status;
+    }
+
+    public static NotificationJpaEntity from(Notification notification) {
+        NotificationJpaEntity entity = new NotificationJpaEntity(
+                ScheduleJpaEntity.from(notification.schedule()),
+                UserJpaEntity.from(notification.user()),
+                notification.aiDataHub() == null ? null : AiDataHubJpaEntity.from(notification.aiDataHub()),
+                notification.channel(),
+                notification.message(),
+                notification.sentAt(),
+                notification.status()
+        );
+        entity.id = notification.id() == null ? UuidGenerator.create() : notification.id();
+        return entity;
+    }
+
+    public Notification toDomain() {
+        return new Notification(
+                id,
+                schedule.toDomain(),
+                user.toDomain(),
+                aiDataHub == null ? null : aiDataHub.toDomain(),
+                channel,
+                message,
+                sentAt,
+                status
+        );
     }
 }

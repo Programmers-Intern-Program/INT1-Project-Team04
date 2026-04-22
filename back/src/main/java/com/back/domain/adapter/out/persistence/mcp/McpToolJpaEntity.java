@@ -1,6 +1,7 @@
 package com.back.domain.adapter.out.persistence.mcp;
 
 import com.back.domain.adapter.out.persistence.domain.DomainJpaEntity;
+import com.back.domain.model.mcp.McpTool;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -46,5 +47,26 @@ public class McpToolJpaEntity {
         this.name = name;
         this.description = description;
         this.inputSchema = inputSchema;
+    }
+
+    public static McpToolJpaEntity from(McpTool tool) {
+        McpToolJpaEntity entity = new McpToolJpaEntity(
+                McpServerJpaEntity.from(tool.server()),
+                DomainJpaEntity.from(tool.domain()),
+                tool.name(),
+                tool.description(),
+                tool.inputSchema());
+        entity.id = tool.id();
+        return entity;
+    }
+
+    public McpTool toDomain() {
+        return new McpTool(
+                id,
+                server.toDomain(),
+                domain.toDomain(),
+                name,
+                description,
+                inputSchema);
     }
 }
