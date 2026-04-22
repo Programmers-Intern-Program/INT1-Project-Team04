@@ -3,6 +3,8 @@ package com.back.domain.adapter.out.persistence.mcp;
 import com.back.domain.application.port.out.ExecuteMcpToolPort;
 import com.back.domain.application.result.McpExecutionResult;
 import com.back.domain.model.mcp.McpTool;
+import com.back.global.error.ApiException;
+import com.back.global.error.ErrorCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 

@@ -14,6 +14,7 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 
 /**
  * [Persistence Entity] AI 데이터 허브 테이블과 매핑되는 엔티티
@@ -47,6 +48,7 @@ public class AiDataHubJpaEntity extends BaseTimeEntity {
     private String embedding;
 
     @Column(columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String metadata;
 
     public AiDataHubJpaEntity(String id,

@@ -1,8 +1,6 @@
 package com.back.domain.adapter.out.persistence.subscription;
 
 import com.back.domain.application.port.out.SaveSubscriptionPort;
-import com.back.domain.adapter.out.persistence.domain.DomainJpaEntity;
-import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.subscription.Subscription;
 import com.back.domain.model.user.User;
@@ -22,14 +20,7 @@ public class SubscriptionPersistenceAdapter implements SaveSubscriptionPort {
 
     @Override
     public Subscription save(Subscription subscription) {
-        SubscriptionJpaEntity saved = subscriptionJpaRepository.save(
-            new SubscriptionJpaEntity(
-                UserJpaEntity.from(subscription.user()),
-                DomainJpaEntity.from(subscription.domain()),
-                subscription.query(),
-                subscription.active()
-            )
-        );
+        SubscriptionJpaEntity saved = subscriptionJpaRepository.save(SubscriptionJpaEntity.from(subscription));
 
         return new Subscription(
             saved.getId(),

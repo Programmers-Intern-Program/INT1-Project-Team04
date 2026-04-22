@@ -28,6 +28,7 @@ public class DomainJpaEntity {
 
     public static DomainJpaEntity from(Domain domain) {
         DomainJpaEntity entity = new DomainJpaEntity(domain.name());
+        entity.id = domain.id();
         return entity;
     }
 

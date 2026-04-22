@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 
 /**
  * MCP 서버가 제공하는 Tool 정보를 저장하는 엔티티입니다.
@@ -35,6 +36,7 @@ public class McpToolJpaEntity {
     private String description;
 
     @Column(name = "input_schema", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String inputSchema;
 
     public McpToolJpaEntity(McpServerJpaEntity server,
