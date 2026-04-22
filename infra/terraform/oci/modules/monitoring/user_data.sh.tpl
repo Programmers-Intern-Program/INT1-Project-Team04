@@ -25,7 +25,7 @@ usermod -aG docker ubuntu
 
 echo "=== [2/3] 네트워크 및 디렉터리 생성 ==="
 docker network create monitor-net || true
-mkdir -p ${project_dir}
-chown ubuntu:ubuntu ${project_dir}
+mkdir -p ${project_dir}/docker
+chown -R ubuntu:ubuntu ${project_dir}
 
 echo "=== [3/3] 완료 (파일 업로드 및 서비스 기동은 Terraform이 처리) ==="

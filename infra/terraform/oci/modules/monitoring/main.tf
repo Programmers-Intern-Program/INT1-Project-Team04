@@ -147,7 +147,12 @@ resource "null_resource" "deploy_monitoring" {
   }
 
   provisioner "file" {
-    source      = "${path.root}/../../docker/"
+    source      = "${path.root}/../../docker/monitor/"
+    destination = "${var.project_dir}/docker"
+  }
+
+  provisioner "file" {
+    source      = "${path.root}/../../docker/config"
     destination = "${var.project_dir}/docker"
   }
 
@@ -160,7 +165,7 @@ resource "null_resource" "deploy_monitoring" {
       "GRAFANA_DOMAIN=${var.grafana_domain}",
       "",
     ])
-    destination = "${var.project_dir}/docker/monitor/.env"
+    destination = "${var.project_dir}/docker/.env"
   }
 
   provisioner "remote-exec" {
@@ -177,7 +182,7 @@ resource "null_resource" "deploy_monitoring" {
       "sed -i 's|$${NODE_A_IP}|${var.app_server_ip}|g' ${var.project_dir}/docker/config/prometheus/prometheus.yml",
       "sed -i 's|$${NODE_A_IP}|${var.app_server_ip}|g' ${var.project_dir}/docker/config/grafana/provisioning/datasources/datasources.yml",
 
-      "cd ${var.project_dir}/docker/monitor && sudo docker compose --env-file .env up -d",
+      "cd ${var.project_dir}/docker && sudo docker compose --env-file .env up -d",
       "echo '✅ 모니터링 서비스 기동 완료'"
     ]
   }
