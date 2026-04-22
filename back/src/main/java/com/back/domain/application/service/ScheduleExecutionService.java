@@ -90,7 +90,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 schedule.subscription(),
                 schedule.cronExpr(),
                 now,
-                now.plusHours(1)
+                CronScheduleCalculator.nextRun(schedule.cronExpr(), now)
         ));
     }
 }
