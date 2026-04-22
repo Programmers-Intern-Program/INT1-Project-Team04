@@ -21,3 +21,25 @@ management:
     health:
       probes:
         enabled: true
+
+app:
+  frontend:
+    base-url: ${APP_FRONTEND_BASE_URL:http://localhost:3000}
+  auth:
+    session-cookie-name: ${APP_AUTH_SESSION_COOKIE_NAME:SESSION}
+    state-cookie-name: ${APP_AUTH_STATE_COOKIE_NAME:OAUTH_STATE}
+    session-days: ${APP_AUTH_SESSION_DAYS:14}
+    secure-cookies: ${APP_AUTH_SECURE_COOKIES:false}
+  oauth:
+    kakao:
+      client-id: ${APP_OAUTH_KAKAO_CLIENT_ID:}
+      client-secret: ${APP_OAUTH_KAKAO_CLIENT_SECRET:}
+      redirect-uri: ${APP_OAUTH_KAKAO_REDIRECT_URI:http://localhost:8080/api/auth/oauth/kakao/callback}
+    google:
+      client-id: ${APP_OAUTH_GOOGLE_CLIENT_ID:}
+      client-secret: ${APP_OAUTH_GOOGLE_CLIENT_SECRET:}
+      redirect-uri: ${APP_OAUTH_GOOGLE_REDIRECT_URI:http://localhost:8080/api/auth/oauth/google/callback}
+    discord:
+      client-id: ${APP_OAUTH_DISCORD_CLIENT_ID:}
+      client-secret: ${APP_OAUTH_DISCORD_CLIENT_SECRET:}
+      redirect-uri: ${APP_OAUTH_DISCORD_REDIRECT_URI:http://localhost:8080/api/auth/oauth/discord/callback}
