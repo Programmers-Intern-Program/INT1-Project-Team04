@@ -5,5 +5,5 @@ import com.back.domain.application.result.SubscriptionResult;
 
 public interface CreateSubscriptionUseCase {
 
-    SubscriptionResult create(CreateSubscriptionCommand command);
+    SubscriptionResult createForUser(Long userId, CreateSubscriptionCommand command);
 }

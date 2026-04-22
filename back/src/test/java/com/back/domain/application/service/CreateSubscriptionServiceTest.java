@@ -37,8 +37,7 @@ class CreateSubscriptionServiceTest {
                 saveSchedulePort
         );
 
-        SubscriptionResult result = service.create(new CreateSubscriptionCommand(
-                user.id(),
+        SubscriptionResult result = service.createForUser(user.id(), new CreateSubscriptionCommand(
                 domain.id(),
                 "강남구 아파트 실거래가",
                 "0 0 * * * *"
@@ -66,8 +65,7 @@ class CreateSubscriptionServiceTest {
                 schedule -> schedule
         );
 
-        assertThatThrownBy(() -> service.create(new CreateSubscriptionCommand(
-                1L,
+        assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
                 10L,
                 "강남구 아파트 실거래가",
                 "0 0 * * * *"
@@ -87,8 +85,7 @@ class CreateSubscriptionServiceTest {
                 schedule -> schedule
         );
 
-        assertThatThrownBy(() -> service.create(new CreateSubscriptionCommand(
-                1L,
+        assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
                 10L,
                 "강남구 아파트 실거래가",
                 "0 0 * * * *"
@@ -109,8 +106,7 @@ class CreateSubscriptionServiceTest {
                 schedule -> schedule
         );
 
-        assertThatThrownBy(() -> service.create(new CreateSubscriptionCommand(
-                1L,
+        assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
                 10L,
                 "강남구 아파트 실거래가",
                 "invalid cron"
