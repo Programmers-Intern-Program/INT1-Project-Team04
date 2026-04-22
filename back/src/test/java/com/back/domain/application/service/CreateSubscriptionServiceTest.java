@@ -78,6 +78,27 @@ class CreateSubscriptionServiceTest {
     }
 
     @Test
+    @DisplayName("Application: 존재하지 않는 도메인으로 구독을 생성하면 예외를 발생시킨다")
+    void throwsWhenDomainDoesNotExist() {
+        CreateSubscriptionService service = new CreateSubscriptionService(
+                new FakeLoadUserPort(new User(1L, "user@example.com", "token", LocalDateTime.now())),
+                new FakeLoadDomainPort(null),
+                subscription -> subscription,
+                schedule -> schedule
+        );
+
+        assertThatThrownBy(() -> service.create(new CreateSubscriptionCommand(
+                1L,
+                10L,
+                "강남구 아파트 실거래가",
+                "0 0 * * * *"
+        )))
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.DOMAIN_NOT_FOUND);
+    }
+
+    @Test
     @DisplayName("Application: 유효하지 않은 cron 표현식은 구독 저장 전에 거부한다")
     void rejectsInvalidCronExpressionBeforeSaving() {
         FakeSaveSubscriptionPort saveSubscriptionPort = new FakeSaveSubscriptionPort();

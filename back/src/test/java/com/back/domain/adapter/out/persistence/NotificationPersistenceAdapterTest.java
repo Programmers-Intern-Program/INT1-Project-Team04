@@ -78,7 +78,7 @@ class NotificationPersistenceAdapterTest {
                 ),
                 new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
                 null,
-                "KAKAO",
+                "DISCORD",
                 "새 알림",
                 null,
                 NotificationStatus.PENDING

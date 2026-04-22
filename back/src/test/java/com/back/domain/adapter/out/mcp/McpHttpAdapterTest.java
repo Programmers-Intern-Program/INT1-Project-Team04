@@ -1,9 +1,11 @@
 package com.back.domain.adapter.out.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.back.domain.adapter.out.persistence.mcp.McpHttpAdapter;
@@ -11,6 +13,8 @@ import com.back.domain.application.result.McpExecutionResult;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.mcp.McpServer;
 import com.back.domain.model.mcp.McpTool;
+import com.back.global.error.ApiException;
+import com.back.global.error.ErrorCode;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -58,6 +62,31 @@ class McpHttpAdapterTest {
         assertThat(result.apiType()).isEqualTo("REAL_ESTATE");
         assertThat(result.content()).isEqualTo("result content");
         assertThat(result.metadata()).contains("mcp");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("Adapter: MCP 서버 요청이 실패하면 표준 API 예외로 변환한다")
+    void throwsApiExceptionWhenMcpServerFails() {
+        RestClient.Builder builder = RestClient.builder();
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        McpHttpAdapter adapter = new McpHttpAdapter(builder);
+        McpTool tool = new McpTool(
+                1L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                new Domain(1L, "real-estate"),
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+
+        server.expect(requestTo("http://localhost:8090/tools/execute"))
+                .andRespond(withServerError());
+
+        assertThatThrownBy(() -> adapter.execute(tool, "강남구 아파트 실거래가"))
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.MCP_REQUEST_FAILED);
         server.verify();
     }
 }

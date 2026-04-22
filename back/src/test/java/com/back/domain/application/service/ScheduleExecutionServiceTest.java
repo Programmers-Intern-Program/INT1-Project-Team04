@@ -1,6 +1,7 @@
 package com.back.domain.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.back.domain.application.port.out.ExecuteMcpToolPort;
 import com.back.domain.application.port.out.LoadDueSchedulesPort;
@@ -19,6 +20,8 @@ import com.back.domain.model.notification.NotificationStatus;
 import com.back.domain.model.schedule.Schedule;
 import com.back.domain.model.subscription.Subscription;
 import com.back.domain.model.user.User;
+import com.back.global.error.ApiException;
+import com.back.global.error.ErrorCode;
 import java.time.LocalDateTime;
 import java.time.Month;
 import java.util.ArrayList;
@@ -72,6 +75,8 @@ class ScheduleExecutionServiceTest {
         assertThat(saveAiDataHubPort.saved).hasSize(1);
         assertThat(saveNotificationPort.saved).extracting(Notification::status)
                 .contains(NotificationStatus.PENDING, NotificationStatus.SENT);
+        assertThat(saveNotificationPort.saved).extracting(Notification::channel)
+                .containsOnly("DISCORD");
         assertThat(saveSchedulePort.saved).hasSize(1);
         assertThat(saveSchedulePort.saved.get(0).lastRun()).isNotNull();
         assertThat(saveSchedulePort.saved.get(0).nextRun()).isAfter(saveSchedulePort.saved.get(0).lastRun());
@@ -109,6 +114,102 @@ class ScheduleExecutionServiceTest {
         assertThat(saveSchedulePort.saved.get(0).nextRun().getMonth()).isEqualTo(Month.JANUARY);
         assertThat(saveSchedulePort.saved.get(0).nextRun().getDayOfMonth()).isEqualTo(1);
         assertThat(saveSchedulePort.saved.get(0).nextRun().getHour()).isZero();
+    }
+
+    @Test
+    @DisplayName("Application: 도메인에 연결된 MCP 도구가 없으면 예외를 발생시킨다")
+    void throwsWhenMcpToolDoesNotExist() {
+        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                domainId -> Optional.empty(),
+                new FakeExecuteMcpToolPort(),
+                new FakeSaveAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                new FakeSaveSchedulePort()
+        );
+
+        assertThatThrownBy(service::runDueSchedules)
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.MCP_TOOL_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("Application: 알림 전송에 실패하면 FAILED 상태로 저장한다")
+    void savesFailedNotificationWhenSendingFails() {
+        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                new FakeExecuteMcpToolPort(),
+                new FakeSaveAiDataHubPort(),
+                saveNotificationPort,
+                notification -> false,
+                new FakeSaveSchedulePort()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(saveNotificationPort.saved).extracting(Notification::status)
+                .contains(NotificationStatus.PENDING, NotificationStatus.FAILED);
+        assertThat(saveNotificationPort.saved.get(1).sentAt()).isNull();
+        assertThat(saveNotificationPort.saved.get(1).channel()).isEqualTo("DISCORD");
+    }
+
+    @Test
+    @DisplayName("Application: MCP 실행이 실패하면 후속 저장을 수행하지 않고 예외를 전파한다")
+    void stopsWhenMcpExecutionFails() {
+        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeSaveAiDataHubPort saveAiDataHubPort = new FakeSaveAiDataHubPort();
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                (mcpTool, query) -> {
+                    throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+                },
+                saveAiDataHubPort,
+                saveNotificationPort,
+                notification -> true,
+                saveSchedulePort
+        );
+
+        assertThatThrownBy(service::runDueSchedules)
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.MCP_REQUEST_FAILED);
+        assertThat(saveAiDataHubPort.saved).isEmpty();
+        assertThat(saveNotificationPort.saved).isEmpty();
+        assertThat(saveSchedulePort.saved).isEmpty();
     }
 
     private record FakeLoadDueSchedulesPort(Schedule schedule) implements LoadDueSchedulesPort {
