@@ -76,7 +76,7 @@ services:
 
   # ── Langfuse (self-hosted) ─────────────────────────────────
   langfuse-web:
-    image: ghcr.io/langfuse/langfuse:latest
+    image: ghcr.io/langfuse/langfuse:2.7.12 #V3는 clickhouse 필요
     container_name: prod-langfuse-web
     restart: always
     deploy:
@@ -100,7 +100,7 @@ services:
         condition: service_healthy
 
   langfuse-worker:
-    image: ghcr.io/langfuse/langfuse-worker:latest
+    image: ghcr.io/langfuse/langfuse-worker:2.7.12
     container_name: prod-langfuse-worker
     restart: always
     deploy:
