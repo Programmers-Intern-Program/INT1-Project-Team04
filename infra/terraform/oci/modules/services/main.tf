@@ -142,7 +142,7 @@ resource "null_resource" "deploy" {
       "sudo docker image prune -af",
       "sudo docker network create prod-net 2>/dev/null || true",
       # mcp-server는 CI/CD 첫 배포 후 이미지 생성 — 나머지 인프라 서비스만 기동
-      "cd ${var.project_dir} && sudo docker compose -f infra/docker/prod/docker-compose.yml --env-file infra/docker/prod/.env up -d postgres redis langfuse-web langfuse-worker nginx-proxy-manager loki promtail node-exporter postgres-exporter",
+      "cd ${var.project_dir} && sudo docker compose -f infra/docker/prod/docker-compose.yml --env-file infra/docker/prod/.env up -d postgres redis langfuse-clickhouse langfuse-web langfuse-worker nginx-proxy-manager loki promtail node-exporter postgres-exporter",
       "echo '✅ 주 서버 인프라 서비스 기동 완료'"
     ]
   }

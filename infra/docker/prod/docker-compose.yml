@@ -74,9 +74,36 @@ services:
       postgres:
         condition: service_healthy
 
+  # ── ClickHouse (Langfuse V3) ──────────────────────────────────
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:23
+    container_name: prod-langfuse-clickhouse
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    networks:
+      - prod-net
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - clickhousedata:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Langfuse (self-hosted) ─────────────────────────────────
   langfuse-web:
-    image: ghcr.io/langfuse/langfuse:2.7.12 #V3는 clickhouse 필요
+    image: ghcr.io/langfuse/langfuse:latest
     container_name: prod-langfuse-web
     restart: always
     deploy:
@@ -85,6 +112,7 @@ services:
           memory: 1g
     environment:
       DATABASE_URL: postgresql://${PG_USER}:${PG_PASSWORD}@prod-postgres:5432/langfuse
+      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:8123/langfuse
       NEXTAUTH_URL: https://${LANGFUSE_DOMAIN}
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
       SALT: ${LANGFUSE_SALT}
@@ -98,9 +126,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
 
   langfuse-worker:
-    image: ghcr.io/langfuse/langfuse-worker:2.7.12
+    image: ghcr.io/langfuse/langfuse-worker:latest
     container_name: prod-langfuse-worker
     restart: always
     deploy:
@@ -109,6 +139,7 @@ services:
           memory: 1g
     environment:
       DATABASE_URL: postgresql://${PG_USER}:${PG_PASSWORD}@prod-postgres:5432/langfuse
+      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:8123/langfuse
       REDIS_CONNECTION_STRING: redis://:${REDIS_PASSWORD}@prod-redis:6379
       SALT: ${LANGFUSE_SALT}
       TZ: Asia/Seoul
@@ -118,6 +149,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      langfuse-clickhouse:
         condition: service_healthy
 
   # ── Reverse Proxy ─────────────────────────────────────────
@@ -229,3 +262,4 @@ volumes:
   lokidata:
   npmdata:
   npmcerts:
+  clickhousedata:
