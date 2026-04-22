@@ -4,6 +4,7 @@ import com.back.domain.application.port.out.SaveNotificationPort;
 import com.back.domain.model.notification.Notification;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * [Persistence Adapter] Notification 데이터를 DB에 저장하는 어댑터
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Component;
 public class NotificationPersistenceAdapter implements SaveNotificationPort {
     private final NotificationJpaRepository notificationJpaRepository;
 
+    @Transactional
     public Notification save(Notification notification) {
         NotificationJpaEntity saved = notificationJpaRepository.save(NotificationJpaEntity.from(notification));
         return saved.toDomain();

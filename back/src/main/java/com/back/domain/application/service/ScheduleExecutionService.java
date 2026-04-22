@@ -67,7 +67,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 schedule,
                 schedule.subscription().user(),
                 aiDataHub,
-                "KAKAO",
+                "DISCORD",
                 result.content(),
                 null,
                 NotificationStatus.PENDING

@@ -7,6 +7,7 @@ import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 /**
  * [Infrastructure Adapter] 외부 MCP 서버와 HTTP 통신을 담당하는 어댑터
@@ -22,11 +23,16 @@ public class McpHttpAdapter implements ExecuteMcpToolPort {
     }
 
     public McpExecutionResult execute(McpTool tool, String query) {
-        McpToolResponse response = restClient.post()
-                .uri(tool.server().endpoint())
-                .body(new McpToolRequest(tool.name(), query))
-                .retrieve()
-                .body(McpToolResponse.class);
+        McpToolResponse response;
+        try {
+            response = restClient.post()
+                    .uri(tool.server().endpoint())
+                    .body(new McpToolRequest(tool.name(), query))
+                    .retrieve()
+                    .body(McpToolResponse.class);
+        } catch (RestClientException exception) {
+            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+        }
 
         if (response == null) {
             throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);

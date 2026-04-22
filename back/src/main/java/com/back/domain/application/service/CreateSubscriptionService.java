@@ -16,12 +16,14 @@ import com.back.global.error.ErrorCode;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * [Domain Service] 구독 생성 요청을 처리하고 최초 실행 스케줄을 등록하는 Service
  */
 @Service
 @RequiredArgsConstructor
+@Transactional
 public class CreateSubscriptionService implements CreateSubscriptionUseCase {
 
     private final LoadUserPort loadUserPort;
