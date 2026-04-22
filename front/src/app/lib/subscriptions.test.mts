@@ -6,7 +6,6 @@ import {
   buildSubscriptionPayload,
   CADENCE_PRESETS,
   createSubscription,
-  DEFAULT_USER_ID,
   DOMAIN_PRESETS,
   getApiBaseUrl,
   validateSubscriptionForm,
@@ -96,7 +95,6 @@ describe("subscription form helpers", () => {
     });
 
     assert.deepEqual(payload, {
-      userId: DEFAULT_USER_ID,
       domainId: 3,
       query: "강남 투룸 전세 시세 바뀌면 알려줘",
       cronExpr: "0 0 * * * *",
@@ -118,7 +116,6 @@ describe("subscription form helpers", () => {
 
 describe("subscription API client", () => {
   const payload: CreateSubscriptionRequest = {
-    userId: 1,
     domainId: 3,
     query: "넥슨 Java 3년 이상 채용 뜨면 알려줘",
     cronExpr: "0 0 * * * *",
@@ -134,6 +131,7 @@ describe("subscription API client", () => {
 
       assert.equal(input, "http://api.test/api/subscriptions");
       assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
       assert.equal(headers["Content-Type"], "application/json");
       assert.equal(init?.body, JSON.stringify(payload));
 

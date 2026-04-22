@@ -24,7 +24,6 @@ export type SubscriptionFormState = {
 };
 
 export type CreateSubscriptionRequest = {
-  userId: number;
   domainId: number;
   query: string;
   cronExpr: string;
@@ -86,8 +85,6 @@ export const CHANNEL_PRESETS: ChannelPreset[] = [
   },
 ];
 
-export const DEFAULT_USER_ID = 1;
-
 export function validateSubscriptionForm(
   form: SubscriptionFormState,
 ): Record<string, string> {
@@ -106,7 +103,6 @@ export function buildSubscriptionPayload(
   const cadence = CADENCE_PRESETS.find((preset) => preset.id === form.cadenceId);
 
   return {
-    userId: DEFAULT_USER_ID,
     domainId: form.selectedDomainId,
     query: form.query.trim(),
     cronExpr: cadence?.cronExpr ?? CADENCE_PRESETS[0].cronExpr,
@@ -156,6 +152,7 @@ export async function createSubscription(
   try {
     const response = await fetcher(`${baseUrl}/api/subscriptions`, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
