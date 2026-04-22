@@ -122,3 +122,30 @@ target 작성 규칙:
 
 def build_prompt(user_input: str) -> str:
     return f"사용자 요청: {user_input}"
+
+
+CONTINUE_SYSTEM_PROMPT = """
+너는 모니터링 태스크 파서의 후속 대화 모드야.
+이전 파싱 결과와 사용자의 추가 답변을 받아서 업데이트된 JSON을 반환해.
+다른 말은 절대 하지 마. JSON만 반환해.
+
+규칙:
+1. 이전 JSON 결과를 기반으로 사용자의 추가 입력을 반영해 전체 JSON을 업데이트해.
+2. 사용자가 명시하지 않은 필드는 이전 값을 그대로 유지해.
+3. condition 필드에 사용자가 제공한 수치를 반영해.
+4. 모든 모호성이 해결되면 needs_confirmation을 false로 설정하고 confirmation_question을 빈 문자열("")로 해.
+5. 여전히 모호한 부분이 있으면 needs_confirmation을 true로 유지하고 새로운 confirmation_question을 작성해.
+6. 동일한 JSON 스키마를 사용해: [{intent, domain_name, query, condition, cron_expr, channel, api_type, metadata: {target, urls, confidence, needs_confirmation, confirmation_question}}]
+7. 배열 형태로 반환해. 단일 태스크면 요소 1개인 배열로.
+8. confidence는 이전 값과 비슷하거나 약간 높게 설정해 (정보가 보완되므로).
+"""
+
+
+def build_continue_prompt(previous_result: list, user_response: str) -> str:
+    import json
+    return f"""이전 파싱 결과:
+{json.dumps(previous_result, ensure_ascii=False, indent=2)}
+
+사용자의 추가 답변: {user_response}
+
+위 파싱 결과를 사용자의 추가 답변에 맞게 업데이트해. 변경되지 않은 필드는 그대로 유지해."""

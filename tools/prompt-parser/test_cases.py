@@ -47,3 +47,89 @@ TEST_CASES = [
     {"input": "강남 투룸 시세!!!! 바뀌면 알려줘ㅠㅠ", "expect_domain": "부동산"},
     {"input": "테슬ㄹ라 주가 5프로 오르면", "expect_intent": "reject"},
 ]
+
+
+MULTI_TURN_TEST_CASES = [
+    # 1. 퍼센티지 응답 (Strategy C)
+    {
+        "initial_input": "강남 집값 좀 많이 오르면 알려줘",
+        "follow_ups": [
+            {"response": "4% 이상 오르면", "expect_strategy": "C"}
+        ],
+        "expect_condition": "4.0% 이상 변동",
+        "expect_needs_confirm": False,
+        "expect_domain": "부동산"
+    },
+
+    # 2. 채널 선택 (Strategy C)
+    {
+        "initial_input": "집값 알려줘",
+        "follow_ups": [
+            {"response": "텔레그램으로 보내줘", "expect_strategy": "A"}
+        ],
+        "expect_channel": "telegram",
+        "expect_domain": "부동산"
+    },
+
+    # 3. 지역 변경 (Strategy A)
+    {
+        "initial_input": "강남 투룸 시세 바뀌면 알려줘",
+        "follow_ups": [
+            {"response": "강남 말고 서초로 바꿔줘", "expect_strategy": "A"}
+        ],
+        "expect_domain": "부동산",
+    },
+
+    # 4. 퍼센티지 + 채널 변경 (C → A)
+    {
+        "initial_input": "강남 집값 오르면 알려줘",
+        "follow_ups": [
+            {"response": "5% 이상", "expect_strategy": "C"},
+            {"response": "디스코드 말고 이메일로 바꿔줘", "expect_strategy": "A"}
+        ],
+        "expect_condition": "5.0% 이상 변동",
+        "expect_channel": "email",
+    },
+
+    # 5. Yes 확인 (Strategy C)
+    {
+        "initial_input": "아까 등록한 강남 시세 알림 취소해줘",
+        "follow_ups": [
+            {"response": "네 맞아요", "expect_strategy": "C"}
+        ],
+        "expect_needs_confirm": False
+    },
+
+    # 6. 금액 조건 (Strategy A)
+    {
+        "initial_input": "마포구 원룸 월세 알려줘",
+        "follow_ups": [
+            {"response": "30만원 이하로 내려가면", "expect_strategy": "A"}
+        ],
+        "expect_domain": "부동산",
+    },
+
+    # 7. 최대 턴 초과 강제 완료
+    {
+        "initial_input": "집값 알려줘",
+        "follow_ups": [
+            {"response": "음...", "expect_strategy": "A"},
+            {"response": "그냥...", "expect_strategy": "A"},
+            {"response": "아무거나", "expect_strategy": "A"},
+        ],
+        "expect_needs_confirm": False
+    },
+
+    # 8. 복합 필드 업데이트 (Strategy A)
+    {
+        "initial_input": "채용공고 알려줘",
+        "follow_ups": [
+            {
+                "response": "백엔드 포지션에 경력 3년 이상, 네이버 채용공고면 매시간 체크해주고 이메일로 알려줘",
+                "expect_strategy": "A"
+            }
+        ],
+        "expect_domain": "채용",
+        "expect_channel": "email",
+    },
+]
