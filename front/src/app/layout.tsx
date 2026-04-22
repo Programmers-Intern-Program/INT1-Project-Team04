@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "지켜봐줄게",
   description:
-    "부동산, 법률, 채용, 경매 변화를 AI 에이전트가 대신 감시하는 모니터링 서비스",
+    "부동산, 법률, 채용, 경매 변화를 한곳에서 등록하고 확인하는 알림 서비스",
 };
 
 export default function RootLayout({

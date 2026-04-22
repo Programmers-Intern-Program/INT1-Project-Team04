@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
   buildSubscriptionPayload,
   CADENCE_PRESETS,
   createSubscription,
+  DEFAULT_USER_ID,
   DOMAIN_PRESETS,
   getApiBaseUrl,
   validateSubscriptionForm,
@@ -13,6 +15,56 @@ import {
 } from "./subscriptions.ts";
 
 describe("subscription form helpers", () => {
+  it("does not expose AI-flavored explanatory copy in the product UI", () => {
+    const sourceFiles = [
+      new URL("../components/subscription-mvp.tsx", import.meta.url),
+      new URL("../layout.tsx", import.meta.url),
+      new URL("./subscriptions.ts", import.meta.url),
+    ];
+    const source = sourceFiles
+      .map((file) => readFileSync(file, "utf8"))
+      .join("\n");
+    const bannedCopy = [
+      "AI monitoring agent",
+      "AI 데이터",
+      "AI 에이전트",
+      "에이전트",
+      "자연어",
+      "MVP",
+      "백엔드",
+      "등록 미리보기",
+      ">cron<",
+      "브리핑",
+    ];
+
+    assert.deepEqual(
+      bannedCopy.filter((copy) => source.includes(copy)),
+      [],
+    );
+  });
+
+  it("does not expose user or domain ID inputs in the product UI", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-mvp.tsx", import.meta.url),
+      "utf8",
+    );
+    const bannedCopy = [
+      "사용자 ID",
+      "도메인 ID",
+      'htmlFor="userId"',
+      'htmlFor="domainId"',
+      'id="userId"',
+      'id="domainId"',
+      "JSON.stringify",
+      "<pre",
+    ];
+
+    assert.deepEqual(
+      bannedCopy.filter((copy) => source.includes(copy)),
+      [],
+    );
+  });
+
   it("defines the four MVP domain presets with stable backend IDs", () => {
     assert.deepEqual(
       DOMAIN_PRESETS.map((domain) => [domain.id, domain.label]),
@@ -39,31 +91,27 @@ describe("subscription form helpers", () => {
   it("builds the backend subscription payload from form state", () => {
     const payload = buildSubscriptionPayload({
       query: "  강남 투룸 전세 시세 바뀌면 알려줘  ",
-      userId: "1",
-      domainId: "1",
+      selectedDomainId: 3,
       cadenceId: "hourly",
     });
 
     assert.deepEqual(payload, {
-      userId: 1,
-      domainId: 1,
+      userId: DEFAULT_USER_ID,
+      domainId: 3,
       query: "강남 투룸 전세 시세 바뀌면 알려줘",
       cronExpr: "0 0 * * * *",
     });
   });
 
-  it("returns field errors for empty query and invalid IDs", () => {
+  it("returns a field error only for an empty query", () => {
     const errors = validateSubscriptionForm({
       query: " ",
-      userId: "0",
-      domainId: "abc",
+      selectedDomainId: 1,
       cadenceId: "hourly",
     });
 
     assert.deepEqual(errors, {
       query: "감시할 요청을 입력해 주세요.",
-      userId: "사용자 ID는 1 이상의 숫자여야 합니다.",
-      domainId: "도메인 ID는 1 이상의 숫자여야 합니다.",
     });
   });
 });
@@ -154,7 +202,7 @@ describe("subscription API client", () => {
       ok: false,
       error: {
         code: "NETWORK_ERROR",
-        message: "백엔드 서버에 연결할 수 없습니다.",
+        message: "서버에 연결할 수 없습니다.",
       },
     });
   });

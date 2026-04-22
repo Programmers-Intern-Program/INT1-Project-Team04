@@ -19,8 +19,7 @@ type SubmitState = "idle" | "submitting";
 
 const DEFAULT_FORM: SubscriptionFormState = {
   query: "강남 투룸 전세 시세 바뀌면 알려줘",
-  userId: "1",
-  domainId: "1",
+  selectedDomainId: 1,
   cadenceId: "hourly",
 };
 
@@ -33,9 +32,9 @@ export function SubscriptionMvp() {
 
   const selectedDomain = useMemo(
     () =>
-      DOMAIN_PRESETS.find((domain) => domain.id === Number(form.domainId)) ??
+      DOMAIN_PRESETS.find((domain) => domain.id === form.selectedDomainId) ??
       DOMAIN_PRESETS[0],
-    [form.domainId],
+    [form.selectedDomainId],
   );
   const selectedCadence = useMemo(
     () =>
@@ -74,16 +73,12 @@ export function SubscriptionMvp() {
         <aside className="flex flex-col gap-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="space-y-3">
             <p className="text-sm font-semibold text-emerald-700">
-              AI monitoring agent
+              관심사 알림
             </p>
             <div>
               <h1 className="text-3xl font-bold tracking-normal text-zinc-950">
                 지켜봐줄게
               </h1>
-              <p className="mt-3 text-sm leading-6 text-zinc-600">
-                부동산, 법률, 채용, 경매 변화를 놓치지 않도록 필요한
-                신호만 등록합니다.
-              </p>
             </div>
           </div>
 
@@ -99,13 +94,12 @@ export function SubscriptionMvp() {
                   onClick={() => {
                     setForm((current) => ({
                       ...current,
-                      domainId: String(domain.id),
+                      selectedDomainId: domain.id,
                       query: current.query.trim() ? current.query : domain.example,
                     }));
-                    setErrors((current) => ({ ...current, domainId: "" }));
                   }}
                   className={classNames(
-                    "min-h-28 rounded-lg border p-4 text-left transition",
+                    "rounded-lg border p-4 text-left transition",
                     isActive
                       ? "border-emerald-700 bg-emerald-50 text-emerald-950"
                       : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:border-zinc-300 hover:bg-white",
@@ -113,9 +107,6 @@ export function SubscriptionMvp() {
                 >
                   <span className="block text-sm font-semibold">
                     {domain.label}
-                  </span>
-                  <span className="mt-2 block text-xs leading-5 text-zinc-600">
-                    {domain.description}
                   </span>
                 </button>
               );
@@ -129,22 +120,19 @@ export function SubscriptionMvp() {
               <div className="flex flex-wrap items-end justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-zinc-500">
-                    자연어 태스크 등록
+                    알림 조건 등록
                   </p>
                   <h2 className="mt-1 text-2xl font-bold tracking-normal text-zinc-950">
                     어떤 변화를 지켜볼까요?
                   </h2>
                 </div>
-                <span className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
-                  MVP
-                </span>
               </div>
 
               <label
                 htmlFor="query"
                 className="text-sm font-semibold text-zinc-800"
               >
-                감시 요청
+                요청 내용
               </label>
               <textarea
                 id="query"
@@ -196,14 +184,6 @@ export function SubscriptionMvp() {
                         <span className="block text-sm font-semibold">
                           {cadence.label}
                         </span>
-                        <span
-                          className={classNames(
-                            "mt-1 block text-xs leading-5",
-                            isActive ? "text-zinc-300" : "text-zinc-500",
-                          )}
-                        >
-                          {cadence.description}
-                        </span>
                       </button>
                     );
                   })}
@@ -234,9 +214,6 @@ export function SubscriptionMvp() {
                         <span className="block text-sm font-semibold">
                           {channel.label}
                         </span>
-                        <span className="mt-1 block text-xs leading-5 text-zinc-500">
-                          {channel.description}
-                        </span>
                       </button>
                     );
                   })}
@@ -244,70 +221,12 @@ export function SubscriptionMvp() {
               </fieldset>
             </div>
 
-            <div className="grid gap-4 border-t border-zinc-200 pt-5 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label
-                  htmlFor="userId"
-                  className="text-sm font-semibold text-zinc-800"
-                >
-                  사용자 ID
-                </label>
-                <input
-                  id="userId"
-                  type="number"
-                  min="1"
-                  value={form.userId}
-                  onChange={(event) => {
-                    setForm((current) => ({
-                      ...current,
-                      userId: event.target.value,
-                    }));
-                    setErrors((current) => ({ ...current, userId: "" }));
-                  }}
-                  className="h-11 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 outline-none transition focus:border-emerald-700 focus:bg-white focus:ring-4 focus:ring-emerald-100"
-                />
-                {errors.userId ? (
-                  <p role="alert" className="text-sm font-medium text-red-700">
-                    {errors.userId}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-2">
-                <label
-                  htmlFor="domainId"
-                  className="text-sm font-semibold text-zinc-800"
-                >
-                  도메인 ID
-                </label>
-                <input
-                  id="domainId"
-                  type="number"
-                  min="1"
-                  value={form.domainId}
-                  onChange={(event) => {
-                    setForm((current) => ({
-                      ...current,
-                      domainId: event.target.value,
-                    }));
-                    setErrors((current) => ({ ...current, domainId: "" }));
-                  }}
-                  className="h-11 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 outline-none transition focus:border-emerald-700 focus:bg-white focus:ring-4 focus:ring-emerald-100"
-                />
-                {errors.domainId ? (
-                  <p role="alert" className="text-sm font-medium text-red-700">
-                    {errors.domainId}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-
             <button
               type="submit"
               disabled={submitState === "submitting"}
               className="mt-auto h-12 rounded-lg bg-emerald-700 px-5 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
             >
-              {submitState === "submitting" ? "등록 중..." : "감시 태스크 등록"}
+              {submitState === "submitting" ? "등록 중..." : "알림 등록"}
             </button>
           </form>
         </section>
@@ -317,7 +236,7 @@ export function SubscriptionMvp() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold text-zinc-500">
-                  등록 미리보기
+                  등록 내용
                 </p>
                 <h2 className="mt-1 text-xl font-bold tracking-normal">
                   {selectedDomain.label}
@@ -336,16 +255,16 @@ export function SubscriptionMvp() {
                 </dd>
               </div>
               <div className="flex items-start justify-between gap-4">
-                <dt className="text-zinc-500">cron</dt>
+                <dt className="text-zinc-500">반복 설정</dt>
                 <dd className="font-mono text-xs font-semibold text-zinc-900">
                   {previewPayload.cronExpr}
                 </dd>
               </div>
+              <div className="grid gap-1">
+                <dt className="text-zinc-500">요청</dt>
+                <dd className="leading-6 text-zinc-900">{form.query}</dd>
+              </div>
             </dl>
-
-            <pre className="mt-5 max-h-72 overflow-auto rounded-lg bg-zinc-950 p-4 text-xs leading-5 text-zinc-100">
-              {JSON.stringify(previewPayload, null, 2)}
-            </pre>
           </section>
 
           <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
@@ -368,7 +287,7 @@ export function SubscriptionMvp() {
               )
             ) : (
               <div className="mt-4 rounded-lg border border-dashed border-zinc-300 p-4 text-sm leading-6 text-zinc-500">
-                백엔드 응답이 여기에 표시됩니다.
+                등록 후 상태가 여기에 표시됩니다.
               </div>
             )}
           </section>
@@ -386,7 +305,7 @@ function SuccessResult({
   return (
     <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
       <p className="text-sm font-bold text-emerald-950">
-        감시 태스크가 등록되었습니다.
+        알림이 등록되었습니다.
       </p>
       <dl className="mt-4 grid gap-3 text-sm">
         <ResultRow label="subscription" value={result.data.id} />
