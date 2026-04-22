@@ -114,7 +114,7 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ubuntu
           key: ${{ secrets.SSH_KEY }}
-          source: "infra/prod/docker-compose.yml,infra/config/"
+          source: "infra/docker/prod/docker-compose.yml,infra/docker/config/"
           target: "~/app/"
 
       - name: Blue-Green Switch via SSH
@@ -139,7 +139,7 @@ jobs:
             set -e
 
             # ── .env 복원 ──────────────────────────────────────
-            echo "$DOT_ENV_B64" | base64 --decode > ~/app/infra/prod/.env
+            echo "$DOT_ENV_B64" | base64 --decode > ~/app/infra/docker/prod/.env
 
             # ── 이미지 경로 ────────────────────────────────────
             BE_IMAGE=$(echo "ghcr.io/${REPO_OWNER}/${REPO_NAME}-backend" | tr '[:upper:]' '[:lower:]')
@@ -149,8 +149,8 @@ jobs:
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
             # ── 인프라 서비스 기동 (멱등) ──────────────────────
-            docker compose -f ~/app/infra/prod/docker-compose.yml \
-              --env-file ~/app/infra/prod/.env \
+            docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
+              --env-file ~/app/infra/docker/prod/.env \
               up -d --remove-orphans
 
             # ── Blue/Green 슬롯 판정 ───────────────────────────
@@ -186,7 +186,7 @@ jobs:
               "${FE_IMAGE}:${IMAGE_TAG}"
 
             # .env 즉시 삭제 (헬스체크 전에 제거)
-            rm -f ~/app/infra/prod/.env
+            rm -f ~/app/infra/docker/prod/.env
 
             # ── 헬스체크 ───────────────────────────────────────
             echo "Green BE 헬스체크 대기..."
