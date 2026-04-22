@@ -49,7 +49,7 @@ class McpHttpAdapterTest {
                 {
                   "apiType": "REAL_ESTATE",
                   "content": "result content",
-                  "metadata": "{\"source\":\"mcp\"}"
+                  "metadata": "{\\"source\\":\\"mcp\\"}"
                 }
                 """, MediaType.APPLICATION_JSON));
 

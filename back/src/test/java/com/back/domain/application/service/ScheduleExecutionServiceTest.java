@@ -20,6 +20,7 @@ import com.back.domain.model.schedule.Schedule;
 import com.back.domain.model.subscription.Subscription;
 import com.back.domain.model.user.User;
 import java.time.LocalDateTime;
+import java.time.Month;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -74,6 +75,40 @@ class ScheduleExecutionServiceTest {
         assertThat(saveSchedulePort.saved).hasSize(1);
         assertThat(saveSchedulePort.saved.get(0).lastRun()).isNotNull();
         assertThat(saveSchedulePort.saved.get(0).nextRun()).isAfter(saveSchedulePort.saved.get(0).lastRun());
+    }
+
+    @Test
+    @DisplayName("Application: 스케줄 실행 후 저장된 cron 표현식 기준으로 다음 실행 시각을 갱신한다")
+    void updatesNextRunByCronExpression() {
+        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 0 1 1 *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                new FakeExecuteMcpToolPort(),
+                new FakeSaveAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                saveSchedulePort
+        );
+
+        service.runDueSchedules();
+
+        assertThat(saveSchedulePort.saved).hasSize(1);
+        assertThat(saveSchedulePort.saved.get(0).nextRun().getMonth()).isEqualTo(Month.JANUARY);
+        assertThat(saveSchedulePort.saved.get(0).nextRun().getDayOfMonth()).isEqualTo(1);
+        assertThat(saveSchedulePort.saved.get(0).nextRun().getHour()).isZero();
     }
 
     private record FakeLoadDueSchedulesPort(Schedule schedule) implements LoadDueSchedulesPort {

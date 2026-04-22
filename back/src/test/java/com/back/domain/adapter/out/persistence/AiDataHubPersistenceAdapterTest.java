@@ -20,13 +20,13 @@ import com.back.domain.model.user.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.context.annotation.Import;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
-@DataJpaTest
+@SpringBootTest
 @ActiveProfiles("test")
-@Import(AiDataHubPersistenceAdapter.class)
+@Transactional
 @DisplayName("Persistence: AI 데이터 허브 영속성 어댑터 테스트")
 class AiDataHubPersistenceAdapterTest {
 

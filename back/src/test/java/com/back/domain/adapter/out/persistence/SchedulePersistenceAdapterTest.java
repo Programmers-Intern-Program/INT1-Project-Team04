@@ -19,13 +19,13 @@ import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
-import org.springframework.context.annotation.Import;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
 
-@DataJpaTest
+@SpringBootTest
 @ActiveProfiles("test")
-@Import(SchedulePersistenceAdapter.class)
+@Transactional
 @DisplayName("Persistence: 스케줄 영속성 어댑터 테스트")
 class SchedulePersistenceAdapterTest {
 
@@ -57,7 +57,7 @@ class SchedulePersistenceAdapterTest {
                         null,
                         new Subscription(
                                 subscription.getId(),
-                                new User(user.getId(), user.getEmail(), user.getKakaoToken(), user.getCreatedAt()),
+                                new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
                                 new Domain(domain.getId(), domain.getName()),
                                 subscription.getQuery(),
                                 subscription.isActive(),
@@ -73,5 +73,49 @@ class SchedulePersistenceAdapterTest {
         assertThat(saved.subscription().id()).isEqualTo(subscription.getId());
         assertThat(saved.nextRun()).isEqualTo(nextRun);
         assertThat(scheduleJpaRepository.findById(saved.id())).isPresent();
+    }
+
+    @Test
+    @DisplayName("Persistence: 실행 시각이 지난 스케줄 목록을 도메인 모델로 조회한다")
+    void loadsDueSchedules() {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("due-user@example.com", "token"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("law"));
+        SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(new SubscriptionJpaEntity(user, domain, "개정 법률", true));
+        Schedule savedDueSchedule = schedulePersistenceAdapter.save(
+                new Schedule(
+                        null,
+                        new Subscription(
+                                subscription.getId(),
+                                new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                                new Domain(domain.getId(), domain.getName()),
+                                subscription.getQuery(),
+                                subscription.isActive(),
+                                subscription.getCreatedAt()
+                        ),
+                        "0 0 * * * *",
+                        null,
+                        LocalDateTime.now().minusMinutes(1)
+                )
+        );
+        schedulePersistenceAdapter.save(
+                new Schedule(
+                        null,
+                        new Subscription(
+                                subscription.getId(),
+                                new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                                new Domain(domain.getId(), domain.getName()),
+                                subscription.getQuery(),
+                                subscription.isActive(),
+                                subscription.getCreatedAt()
+                        ),
+                        "0 0 * * * *",
+                        null,
+                        LocalDateTime.now().plusHours(1)
+                )
+        );
+
+        assertThat(schedulePersistenceAdapter.loadDueSchedules(LocalDateTime.now()))
+                .extracting(Schedule::id)
+                .containsExactly(savedDueSchedule.id());
     }
 }
