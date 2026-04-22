@@ -59,6 +59,10 @@ public class SubscriptionJpaEntity extends BaseTimeEntity {
         return entity;
     }
 
+    public void deactivate() {
+        this.active = false;
+    }
+
     public Subscription toDomain() {
         return new Subscription(
                 id,
