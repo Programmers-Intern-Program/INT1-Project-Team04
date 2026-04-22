@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import {
@@ -104,5 +105,40 @@ describe("auth API helpers", () => {
         ["http://api.test/api/members/me", "DELETE", "include"],
       ],
     );
+  });
+});
+
+describe("auth UI source rules", () => {
+  it("does not expose regular password login or registration UI", () => {
+    const source =
+      readFileSync(new URL("../page.tsx", import.meta.url), "utf8") +
+      readFileSync(
+        new URL("../components/subscription-mvp.tsx", import.meta.url),
+        "utf8",
+      );
+
+    const bannedCopy = [
+      "비밀번호",
+      "회원가입",
+      "아이디 로그인",
+      "password",
+      "signup",
+    ];
+
+    assert.deepEqual(
+      bannedCopy.filter((copy) => source.includes(copy)),
+      [],
+    );
+  });
+
+  it("renders the three social login providers", () => {
+    const source = readFileSync(
+      new URL("../page.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("카카오"), true);
+    assert.equal(source.includes("Google"), true);
+    assert.equal(source.includes("Discord"), true);
   });
 });

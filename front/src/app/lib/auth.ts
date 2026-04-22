@@ -1,5 +1,3 @@
-import { getApiBaseUrl } from "./subscriptions.ts";
-
 export type OAuthProvider = "kakao" | "google" | "discord";
 
 export type Member = {
@@ -34,6 +32,13 @@ export function buildOAuthLoginUrl(
   baseUrl = getApiBaseUrl(),
 ): string {
   return `${baseUrl.replace(/\/$/, "")}/api/auth/oauth/${provider}/authorize`;
+}
+
+export function getApiBaseUrl(): string {
+  return (
+    process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
+    "http://localhost:8080"
+  );
 }
 
 export async function getCurrentMember(

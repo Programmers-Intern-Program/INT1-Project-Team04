@@ -23,7 +23,11 @@ const DEFAULT_FORM: SubscriptionFormState = {
   cadenceId: "hourly",
 };
 
-export function SubscriptionMvp() {
+export function SubscriptionMvp({
+  onUnauthenticated,
+}: {
+  onUnauthenticated?: () => void;
+}) {
   const [form, setForm] = useState<SubscriptionFormState>(DEFAULT_FORM);
   const [channelId, setChannelId] = useState<ChannelId>("discord");
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -63,13 +67,16 @@ export function SubscriptionMvp() {
 
     setSubmitState("submitting");
     const response = await createSubscription(buildSubscriptionPayload(form));
+    if (!response.ok && response.error.code === "UNAUTHENTICATED") {
+      onUnauthenticated?.();
+    }
     setResult(response);
     setSubmitState("idle");
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] text-zinc-950">
-      <div className="mx-auto grid min-h-screen w-full max-w-7xl gap-5 px-4 py-5 md:px-6 lg:grid-cols-[300px_minmax(0,1fr)_360px]">
+    <section className="bg-[#f7f7f4] text-zinc-950">
+      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 md:px-6 lg:grid-cols-[300px_minmax(0,1fr)_360px]">
         <aside className="flex flex-col gap-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="space-y-3">
             <p className="text-sm font-semibold text-emerald-700">
@@ -293,7 +300,7 @@ export function SubscriptionMvp() {
           </section>
         </aside>
       </div>
-    </main>
+    </section>
   );
 }
 
