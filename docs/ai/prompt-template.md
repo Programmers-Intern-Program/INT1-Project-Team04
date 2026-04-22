@@ -11,8 +11,8 @@ applies_to: monitoring-task-parser
 ## 1. 문서 개요
 
 - 문서명: AI 프롬프트 템플릿 설계서 — 모니터링 태스크 파서
-- 버전: v0.3
-- 작성 목적: 사용자의 자연어 모니터링 요청을 구조화된 JSON으로 파싱하는 프롬프트의 입력 변수, 출력 스키마, ERD 매핑, 검증 규칙, 재시도 정책을 정의한다.
+- 버전: v0.4
+- 작성 목적: 사용자의 자연어 모니터링 요청을 구조화된 JSON으로 파싱하는 프롬프트의 입력 변수, 출력 스키마, ERD 매핑, 검증 규칙, 재시도 정책, 다중 턴 대화 흐름을 정의한다.
 - 적용 범위: 모니터링 태스크 파서 1차 MVP
 
 ## 2. 문서 목표
@@ -539,6 +539,8 @@ def build_prompt(user_input: str) -> str:
 | 삭제/수정 요청 처리가 있는가? | O | delete/modify intent |
 | 무관/미지원 입력 처리가 있는가? | O | reject intent |
 | Few-shot 예시가 있는가? | O | 6개 예시 포함 |
+| 다중 턴 대화가 지원되는가? | O | Strategy C(프로그래밍) + A(AI 히스토리) 혼합 |
+| 세션 관리가 있는가? | O | ConversationSession (최대 3턴) |
 
 ---
 
@@ -583,9 +585,203 @@ def build_prompt(user_input: str) -> str:
 |------|------------|------------|
 | max_tokens | 1000 | **2048** (복수 태스크 배열 응답 고려) |
 
+### 9.6 v0.3 → v0.4 변경 내역 (다중 턴 대화 추가)
+
+| 항목 | v0.3 | v0.4 | 변경 사유 |
+|------|------|------|----------|
+| 다중 턴 대화 | 없음 | **Strategy C + A 혼합** | needs_confirmation에 대한 사용자 답변 처리 |
+| CONTINUE_SYSTEM_PROMPT | 없음 | **후속 대화용 시스템 프롬프트** | Strategy A에서 이전 결과 기반 업데이트 지시 |
+| ConversationSession | 없음 | **세션 상태 클래스** | 다중 턴 대화 상태 관리 (최대 3턴) |
+| 프로그래밍 병합 | 없음 | **percentage/channel/boolean 감지** | AI 호출 없이 즉시 응답 |
+| 테스트 | 단일 턴 22개 | **+ 다중 턴 14개** | 멀티 턴 시나리오 검증 |
+
+| 항목 | v0.2 (이전) | v0.3 (현재) |
+|------|------------|------------|
+| max_tokens | 1000 | **2048** (복수 태스크 배열 응답 고려) |
+
 ---
 
-## 10. 추천 다음 단계
+## 10. 다중 턴 대화 (Multi-Turn)
+
+### 10.1 개요
+
+1차 파싱 결과에서 `needs_confirmation: true`가 반환되면, 사용자의 추가 답변을 받아 결과를 업데이트한다. 두 가지 전략을 혼합하여 사용한다.
+
+### 10.2 전략 비교
+
+| | Strategy C (프로그래밍 병합) | Strategy A (AI 대화 히스토리) |
+|---|---|---|
+| **비용** | 무료 (API 미호출) | API 1회 호출 |
+| **속도** | 즉시 | 네트워크 지연 |
+| **처리 가능** | 퍼센티지, 채널, Yes/No | 모든 자연어 변경 |
+| **판별 기준** | confirmation_question 키워드 매칭 | C에서 감지 실패시 자동 폴백 |
+
+### 10.3 전체 호출 흐름
+
+```text
+사용자: "강남 집값 오르면 알려줘"
+  ↓ start_session()
+  ↓ call_api() → GLM API (SYSTEM_PROMPT)
+  ← 1차 결과: { condition:"", needs_confirmation:true, question:"몇 % 이상 변동 시?" }
+  ↓
+  화면에 confirmation_question 표시
+  ↓
+사용자: "4% 이상 오르면"
+  ↓ continue_task(session, "4% 이상 오르면")
+  ↓
+  ┌─ Strategy C 시도 ─────────────────────────┐
+  │ _detect_percentage("4% 이상 오르면") → 4.0 │
+  │ _is_threshold_question("몇 % 이상 변동") → true │
+  │ condition = "4.0% 이상 변동"               │
+  │ needs_confirmation = false                 │
+  │ return 업데이트 결과 (API 호출 없음)       │
+  └────────────────────────────────────────────┘
+  ↓
+최종 결과: { condition:"4.0% 이상 변동", needs_confirmation:false }
+```
+
+### 10.4 Strategy C: 프로그래밍 방식 병합
+
+confirmation_question의 내용을 분석하여 사용자 응답을 자동 병합한다.
+
+#### 감지 패턴
+
+| 패턴 | 감지 함수 | 예시 입력 | 결과 |
+|------|----------|----------|------|
+| 퍼센티지 | `_detect_percentage()` | "4%", "5프로", "3.5퍼센트" | condition 업데이트 |
+| 채널 | `_detect_channel()` | "디스코드", "이메일", "텔레그램" | channel 업데이트 |
+| Yes/No | `_detect_boolean()` | "네", "맞아요", "아니요" | needs_confirmation 업데이트 |
+
+#### 질문 분류 휴리스틱
+
+감지된 값이 어떤 질문에 대한 답인지 판별한다.
+
+```python
+# 임계값 질문인지 확인 (% 언급 → percentage 감지 적용)
+_is_threshold_question(question) → "%", "프로", "퍼센트", "몇", "수치", "기준" 포함 여부
+
+# 채널 질문인지 확인 (채널 언급 → channel 감지 적용)
+_is_channel_question(question) → "채널", "디스코드", "이메일", "텔레그램", "어디로" 포함 여부
+
+# Yes/No 질문인지 확인
+_is_boolean_question(question) → "할까요?", "맞나요?", "보여드릴까요?" 포함 여부
+```
+
+### 10.5 Strategy A: 대화 히스토리 기반 병합
+
+Strategy C로 처리할 수 없는 복잡한 응답은 전체 대화 히스토리를 AI에 전달한다.
+
+#### CONTINUE_SYSTEM_PROMPT (후속 대화용 시스템 프롬프트)
+
+```text
+너는 모니터링 태스크 파서의 후속 대화 모드야.
+이전 파싱 결과와 사용자의 추가 답변을 받아서 업데이트된 JSON을 반환해.
+다른 말은 절대 하지 마. JSON만 반환해.
+
+규칙:
+1. 이전 JSON 결과를 기반으로 사용자의 추가 입력을 반영해 전체 JSON을 업데이트해.
+2. 사용자가 명시하지 않은 필드는 이전 값을 그대로 유지해.
+3. condition 필드에 사용자가 제공한 수치를 반영해.
+4. 모든 모호성이 해결되면 needs_confirmation을 false로 설정.
+5. 여전히 모호하면 needs_confirmation을 true로 유지하고 새 confirmation_question 작성.
+6. 동일한 JSON 스키마 사용, 항상 배열로 반환.
+7. confidence는 이전 값보다 약간 높게 설정.
+```
+
+#### API 호출 구조
+
+```python
+messages = [
+    {"role": "system",      "content": CONTINUE_SYSTEM_PROMPT},
+    {"role": "user",        "content": "사용자 요청: 강남 집값 오르면 알려줘"},
+    {"role": "assistant",   "content": "[{ ... condition:'', needs_confirmation:true ... }]"},
+    {"role": "user",        "content": "강남 말고 서초로 바꿔줘"}  # ← 새로운 사용자 응답
+]
+```
+
+### 10.6 세션 관리
+
+```python
+@dataclass
+class ConversationSession:
+    session_id: str              # 고유 세션 ID
+    original_input: str          # 최초 사용자 입력
+    messages: list               # 대화 히스토리 [{role, content}, ...]
+    current_result: list         # 현재 JSON 결과
+    turn_count: int              # 확인 라운드 수
+    max_turns: int = 3           # 최대 라운드 (초과시 강제 완료)
+    is_complete: bool            # 모든 confirmation 해결 여부
+```
+
+| 함수 | 역할 |
+|------|------|
+| `start_session(user_input)` | 1차 파싱 → 세션 생성 |
+| `continue_task(session, user_response)` | Strategy C 시도 → 실패시 A 폴백 → 세션 업데이트 |
+
+### 10.7 멀티 턴 시나리오 예시
+
+**시나리오 1: 퍼센티지 응답 (Strategy C)**
+
+```text
+1차: "강남 집값 오르면" → condition:"", question:"몇 % 이상 변동 시?"
+2차: "4% 이상 오르면" → condition:"4.0% 이상 변동", needs_confirmation:false
+```
+
+**시나리오 2: 복합 변경 (C → A)**
+
+```text
+1차: "강남 집값 오르면" → condition:"", question:"몇 % 이상?"
+2차: "5% 이상" → condition:"5.0% 이상 변동" (Strategy C)
+3차: "디스코드 말고 이메일로 바꿔줘" → channel:"email" (Strategy A)
+```
+
+**시나리오 3: reject → 지원 도메인 전환 (Strategy A)**
+
+```text
+1차: "테슬라 주가 오르면" → intent:"reject", domain:"주식"
+2차: "그럼 강남 아파트 시세로 대신 해줘" → intent:"create", domain:"부동산" (Strategy A)
+```
+
+**시나리오 4: 복수 태스크 일괄 조건 (Strategy C)**
+
+```text
+1차: "강남이랑 서초 둘 다 시세 알려줘" → 2개 태스크, condition:""
+2차: "5% 이상 변동하면" → 두 태스크 모두 condition:"5.0% 이상 변동" (Strategy C)
+```
+
+**시나리오 5: 최대 턴 초과 강제 완료**
+
+```text
+1차: "집값 알려줘" → condition:"", question:"어느 지역?"
+2차: "음..." → AI 폴백, 여전히 모호 (Strategy A)
+3차: "그냥..." → AI 폴백, 여전히 모호 (Strategy A)
+4차: "아무거나" → max_turns(3) 초과 → 강제로 needs_confirmation=false
+```
+
+### 10.8 멀티 턴 테스트 케이스
+
+`python runner.py --multi`로 실행. 총 14개 시나리오.
+
+| # | 초기 입력 | 후속 응답 | 예상 전략 | 검증 항목 |
+|---|----------|----------|----------|----------|
+| 1 | 강남 집값 좀 많이 오르면 | 4% 이상 오르면 | C | condition |
+| 2 | 집값 알려줘 | 텔레그램으로 보내줘 | A | channel |
+| 3 | 강남 투룸 시세 바뀌면 | 강남 말고 서초로 | A | domain |
+| 4 | 강남 집값 오르면 | 5% 이상 → 이메일로 | C→A | condition+channel |
+| 5 | 아까 등록한 알림 취소해줘 | 네 맞아요 | C | needs_confirm=false |
+| 6 | 마포구 원룸 월세 알려줘 | 30만원 이하로 | A | condition |
+| 7 | 집값 알려줘 | 음...→그냥...→아무거나 | A×3 | 강제 완료 |
+| 8 | 채용공고 알려줘 | 백엔드+경력3년+이메일 | A | domain+channel |
+| 9 | 강남 투룸 시세 바뀌면 | 3프로 이상 변동하면 | C | condition |
+| 10 | 야 강남 집값 오르면ㅋㅋ | 10% 이상 오르면 | C | condition |
+| 11 | 강남이랑 서초 둘 다 | 5% 이상 변동하면 | C | condition (2개) |
+| 12 | 주말에는 쉬고 평일만 | 강남 시세, 오전 8시로 | A | domain |
+| 13 | 강남 투룸 시세!!!! 바뀌면ㅠㅠ | 7% 이상 변동하면 | C | condition |
+| 14 | 테슬라 주가 5% 오르면 | 강남 아파트로 대신 | A | domain=부동산 |
+
+---
+
+## 11. 추천 다음 단계
 
 - `domain_name` → `domain_id` 매핑 로직 구현 (지원 4개 도메인만 INSERT, 미지원은 reject 응답)
 - intent별 DB 저장 분기 로직 구현 (create/delete/modify/reject)
