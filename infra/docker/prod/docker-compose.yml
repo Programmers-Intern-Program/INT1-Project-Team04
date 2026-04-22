@@ -221,7 +221,7 @@ services:
 networks:
   prod-net:
     name: prod-net
-    external: true   # 서버 최초 세팅 시 수동 생성: docker network create prod-net
+    external: true   # terraform apply 또는 수동: docker network create prod-net
 
 volumes:
   pgdata:

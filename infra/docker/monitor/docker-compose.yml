@@ -47,7 +47,7 @@ services:
 networks:
   monitor-net:
     name: monitor-net
-    external: true   # 서버 최초 세팅 시: docker network create monitor-net
+    external: true   # terraform apply 또는 수동: docker network create monitor-net
 
 volumes:
   promdata:

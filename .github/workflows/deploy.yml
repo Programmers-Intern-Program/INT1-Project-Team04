@@ -169,10 +169,12 @@ jobs:
             # ── GHCR 로그인 ────────────────────────────────────
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
-            # ── 인프라 서비스 기동 (멱등) ──────────────────────
+            # ── 인프라 서비스 기동 (멱등, mcp-server 제외 — 별도 파이프라인에서 빌드) ──
             docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
               --env-file ~/app/infra/docker/prod/.env \
-              up -d --remove-orphans
+              up -d --remove-orphans \
+              postgres redis langfuse-web langfuse-worker nginx-proxy-manager \
+              loki promtail node-exporter postgres-exporter
 
             # ── Blue/Green 슬롯 판정 ───────────────────────────
             if docker ps --format '{{.Names}}' | grep -q "^be_a$"; then
@@ -213,7 +215,7 @@ jobs:
             echo "Green BE 헬스체크 대기..."
             MAX_WAIT=90; INTERVAL=5; ELAPSED=0
             GREEN_BE_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$GREEN_BE")
-            until curl -sf "http://${GREEN_BE_IP}:8080/actuator/health" | grep -q '"status":"UP"'; do
+            until curl -sf "http://${GREEN_BE_IP}:9091/actuator/health" | grep -q '"status":"UP"'; do
               if [ "$ELAPSED" -ge "$MAX_WAIT" ]; then
                 echo "헬스체크 실패 (${MAX_WAIT}s 초과)"
                 docker logs "$GREEN_BE" --tail 50
