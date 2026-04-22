@@ -3,6 +3,7 @@ package com.back.domain.adapter.out.persistence.user;
 import com.back.domain.adapter.out.persistence.common.BaseTimeEntity;
 import com.back.domain.model.user.User;
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,30 +21,45 @@ public class UserJpaEntity extends BaseTimeEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(unique = true)
     private String email;
 
-    @Column(name = "discord_token", columnDefinition = "TEXT")
-    private String discordToken;
+    @Column(length = 100)
+    private String nickname;
 
-    public UserJpaEntity(String email, String discordToken) {
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    public UserJpaEntity(String email, String nickname) {
         this.email = email;
-        this.discordToken = discordToken;
+        this.nickname = nickname;
     }
 
     public static UserJpaEntity from(User user) {
         UserJpaEntity entity = new UserJpaEntity(
                 user.email(),
-                user.discordToken());
+                user.nickname());
         entity.id = user.id();
+        entity.deletedAt = user.deletedAt();
         return entity;
+    }
+
+    public void updateNickname(String nickname) {
+        this.nickname = nickname;
+    }
+
+    public void withdraw() {
+        this.email = null;
+        this.nickname = null;
+        this.deletedAt = LocalDateTime.now();
     }
 
     public User toDomain() {
         return new User(
                 id,
                 email,
-                discordToken,
-                getCreatedAt());
+                nickname,
+                getCreatedAt(),
+                deletedAt);
     }
 }

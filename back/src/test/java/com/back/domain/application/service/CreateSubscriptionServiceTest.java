@@ -26,7 +26,7 @@ class CreateSubscriptionServiceTest {
     @Test
     @DisplayName("Application: 구독 생성 요청을 저장하고 초기 실행 스케줄을 생성한다")
     void createsSubscriptionAndInitialSchedule() {
-        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         FakeSaveSubscriptionPort saveSubscriptionPort = new FakeSaveSubscriptionPort();
         FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
@@ -81,7 +81,7 @@ class CreateSubscriptionServiceTest {
     @DisplayName("Application: 존재하지 않는 도메인으로 구독을 생성하면 예외를 발생시킨다")
     void throwsWhenDomainDoesNotExist() {
         CreateSubscriptionService service = new CreateSubscriptionService(
-                new FakeLoadUserPort(new User(1L, "user@example.com", "token", LocalDateTime.now())),
+                new FakeLoadUserPort(new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null)),
                 new FakeLoadDomainPort(null),
                 subscription -> subscription,
                 schedule -> schedule
@@ -103,7 +103,7 @@ class CreateSubscriptionServiceTest {
     void rejectsInvalidCronExpressionBeforeSaving() {
         FakeSaveSubscriptionPort saveSubscriptionPort = new FakeSaveSubscriptionPort();
         CreateSubscriptionService service = new CreateSubscriptionService(
-                new FakeLoadUserPort(new User(1L, "user@example.com", "token", LocalDateTime.now())),
+                new FakeLoadUserPort(new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null)),
                 new FakeLoadDomainPort(new Domain(10L, "real-estate")),
                 saveSubscriptionPort,
                 schedule -> schedule

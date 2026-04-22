@@ -57,7 +57,7 @@ class SchedulePersistenceAdapterTest {
                         null,
                         new Subscription(
                                 subscription.getId(),
-                                new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
                                 new Domain(domain.getId(), domain.getName()),
                                 subscription.getQuery(),
                                 subscription.isActive(),
@@ -86,7 +86,7 @@ class SchedulePersistenceAdapterTest {
                         null,
                         new Subscription(
                                 subscription.getId(),
-                                new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
                                 new Domain(domain.getId(), domain.getName()),
                                 subscription.getQuery(),
                                 subscription.isActive(),
@@ -102,7 +102,7 @@ class SchedulePersistenceAdapterTest {
                         null,
                         new Subscription(
                                 subscription.getId(),
-                                new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
                                 new Domain(domain.getId(), domain.getName()),
                                 subscription.getQuery(),
                                 subscription.isActive(),
