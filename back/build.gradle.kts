@@ -30,6 +30,7 @@ dependencies {
     dependencies {
         // Web & Core
         implementation("org.springframework.boot:spring-boot-starter-webmvc")
+        implementation("com.fasterxml.jackson.core:jackson-databind")
         implementation("org.springframework.boot:spring-boot-starter-validation")
         implementation("org.springframework.boot:spring-boot-starter-actuator")
         compileOnly("org.projectlombok:lombok")
@@ -57,5 +58,13 @@ dependencies {
 }
 
 tasks.withType<Test> {
-    useJUnitPlatform()
+    useJUnitPlatform {
+        excludeTags("ai-manual")
+    }
+}
+
+tasks.register<Test>("aiTest") {
+    useJUnitPlatform {
+        includeTags("ai-manual")
+    }
 }
