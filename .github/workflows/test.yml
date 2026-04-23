@@ -2,9 +2,9 @@ name: Test & Coverage
 
 on:
   pull_request:
-    branches: [main, dev]
+    branches: [main, develop]
   push:
-    branches: [dev]
+    branches: [develop]
 
 jobs:
   test:
@@ -21,7 +21,7 @@ jobs:
       - name: Check if backend files changed
         id: changes
         run: |
-          if git diff --name-only origin/${{ github.base_ref || 'dev' }}...HEAD | grep -q "^backend/"; then
+          if git diff --name-only origin/${{ github.base_ref || 'dev' }}...HEAD | grep -q "^back/"; then
             echo "backend=true" >> $GITHUB_OUTPUT
           else
             echo "backend=false" >> $GITHUB_OUTPUT
@@ -31,11 +31,11 @@ jobs:
         if: steps.changes.outputs.backend == 'false'
         run: echo "백엔드 코드 변경 없음 — 테스트 건너뜁니다."
 
-      - name: Set up JDK 25
+      - name: Set up JDK 21
         if: steps.changes.outputs.backend == 'true'
         uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
 
       - name: Setup Gradle
@@ -55,11 +55,11 @@ jobs:
 
       - name: Grant execute permission for gradlew
         if: steps.changes.outputs.backend == 'true'
-        run: chmod +x backend/gradlew
+        run: chmod +x back/gradlew
 
       - name: Run tests
         if: steps.changes.outputs.backend == 'true'
-        working-directory: ./backend
+        working-directory: ./back
         env:
           SPRING_PROFILES_ACTIVE: test
         run: ./gradlew test jacocoTestReport
@@ -69,13 +69,13 @@ jobs:
         if: failure() && steps.changes.outputs.backend == 'true'
         with:
           name: test-report
-          path: backend/build/reports/tests/
+          path: back/build/reports/tests/
 
       - name: JaCoCo coverage report (PR comment)
         uses: madrapps/jacoco-report@v1.6.1
         if: github.event_name == 'pull_request' && steps.changes.outputs.backend == 'true'
         with:
-          paths: backend/build/reports/jacoco/test/jacocoTestReport.xml
+          paths: back/build/reports/jacoco/test/jacocoTestReport.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           title: "Test Coverage Report"
           update-comment: true
@@ -85,7 +85,7 @@ jobs:
       - name: JaCoCo coverage summary
         if: always() && steps.changes.outputs.backend == 'true'
         run: |
-          XML="backend/build/reports/jacoco/test/jacocoTestReport.xml"
+          XML="back/build/reports/jacoco/test/jacocoTestReport.xml"
           if [ ! -f "$XML" ]; then
             printf '## 🧪 Test Coverage\n\n> ⚠️ JaCoCo report not found — tests may have failed.\n' >> "$GITHUB_STEP_SUMMARY"
             exit 0
