@@ -99,11 +99,12 @@ jobs:
       - name: Parse DOT_ENV_PROD
         id: parse
         run: |
-          HOST=$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^HOST=' | cut -d= -f2-)
-          NPM_EMAIL=$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^NPM_EMAIL=' | cut -d= -f2-)
-          NPM_PASSWORD=$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^NPM_PASSWORD=' | cut -d= -f2-)
-          FE_DOMAIN=$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^FE_DOMAIN=' | cut -d= -f2-)
-          BE_DOMAIN=$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^BE_DOMAIN=' | cut -d= -f2-)
+          strip() { echo "$1" | sed 's/[[:space:]]*#.*$//' | tr -d '[:space:]'; }
+          HOST=$(strip "$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^HOST=' | cut -d= -f2-)")
+          NPM_EMAIL=$(strip "$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^NPM_EMAIL=' | cut -d= -f2-)")
+          NPM_PASSWORD=$(strip "$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^NPM_PASSWORD=' | cut -d= -f2-)")
+          FE_DOMAIN=$(strip "$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^FE_DOMAIN=' | cut -d= -f2-)")
+          BE_DOMAIN=$(strip "$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | grep -E '^BE_DOMAIN=' | cut -d= -f2-)")
           DOT_ENV_B64=$(printf '%s' "${{ secrets.DOT_ENV_PROD }}" | base64 -w0)
 
           echo "DEPLOY_HOST=$HOST"         >> $GITHUB_ENV

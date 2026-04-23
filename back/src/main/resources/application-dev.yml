@@ -1,4 +1,9 @@
 spring:
+  config:
+    import:
+      - optional:file:.env.dev[.properties]
+      - optional:file:../.env.dev[.properties]
+      - optional:file:../../.env.dev[.properties]
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/appdb}
     username: ${DB_USERNAME:devuser}
