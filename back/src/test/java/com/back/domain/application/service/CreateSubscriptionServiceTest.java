@@ -145,6 +145,7 @@ class CreateSubscriptionServiceTest {
                     subscription.user(),
                     subscription.domain(),
                     subscription.query(),
+                    subscription.intent(),
                     subscription.active(),
                     LocalDateTime.now()
             );

@@ -46,20 +46,13 @@ class SchedulePersistenceAdapterTest extends IntegrationTestBase {
     void savesScheduleThroughAdapterWithSubscription() {
         UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("user@example.com", "token"));
         DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
-        SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(new SubscriptionJpaEntity(user, domain, "강남구 아파트 실거래가", true));
+        SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(new SubscriptionJpaEntity(user, domain, "강남구 아파트 실거래가", "create", true));
 
         LocalDateTime nextRun = LocalDateTime.now().plusHours(1);
         Schedule saved = schedulePersistenceAdapter.save(
                 new Schedule(
                         null,
-                        new Subscription(
-                                subscription.getId(),
-                                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
-                                new Domain(domain.getId(), domain.getName()),
-                                subscription.getQuery(),
-                                subscription.isActive(),
-                                subscription.getCreatedAt()
-                        ),
+                        subscription.toDomain(),
                         "0 0 * * * *",
                         null,
                         nextRun
@@ -77,18 +70,11 @@ class SchedulePersistenceAdapterTest extends IntegrationTestBase {
     void loadsDueSchedules() {
         UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("due-user@example.com", "token"));
         DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("law"));
-        SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(new SubscriptionJpaEntity(user, domain, "개정 법률", true));
+        SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(new SubscriptionJpaEntity(user, domain, "개정 법률", "create", true));
         Schedule savedDueSchedule = schedulePersistenceAdapter.save(
                 new Schedule(
                         null,
-                        new Subscription(
-                                subscription.getId(),
-                                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
-                                new Domain(domain.getId(), domain.getName()),
-                                subscription.getQuery(),
-                                subscription.isActive(),
-                                subscription.getCreatedAt()
-                        ),
+                        subscription.toDomain(),
                         "0 0 * * * *",
                         null,
                         LocalDateTime.now().minusMinutes(1)
@@ -97,14 +83,7 @@ class SchedulePersistenceAdapterTest extends IntegrationTestBase {
         schedulePersistenceAdapter.save(
                 new Schedule(
                         null,
-                        new Subscription(
-                                subscription.getId(),
-                                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
-                                new Domain(domain.getId(), domain.getName()),
-                                subscription.getQuery(),
-                                subscription.isActive(),
-                                subscription.getCreatedAt()
-                        ),
+                        subscription.toDomain(),
                         "0 0 * * * *",
                         null,
                         LocalDateTime.now().plusHours(1)
