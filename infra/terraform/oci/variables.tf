@@ -119,6 +119,10 @@ variable "langfuse_public_key" {
   type      = string
   sensitive = true
 }
+variable "langfuse_encryption_key" {
+  type      = string
+  sensitive = true
+}
 
 # ── Grafana ───────────────────────────────────────────────────────────────────
 variable "grafana_password" {
