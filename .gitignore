@@ -20,3 +20,17 @@ Thumbs.db
 ### Misc ###
 *.pem
 *.key
+
+## AI SETTING ##
+.claude
+
+## Terraform ##
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+*.tfvars
+*.tfvars.json
+
