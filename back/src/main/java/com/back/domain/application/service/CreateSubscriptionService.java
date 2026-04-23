@@ -44,6 +44,7 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
                 user,
                 domain,
                 command.query(),
+                "create",
                 true,
                 null
         ));
