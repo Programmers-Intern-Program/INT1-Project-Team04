@@ -1,8 +1,0 @@
-spring:
-  datasource:
-    url: jdbc:tc:postgresql:18:///int1_local
-    driver-class-name: org.testcontainers.jdbc.ContainerDatabaseDriver
-  jpa:
-    hibernate:
-      ddl-auto: create-drop
-    show-sql: false
