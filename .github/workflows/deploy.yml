@@ -151,6 +151,9 @@ jobs:
           script: |
             set -e
 
+            # ── 필수 도구 설치 ─────────────────────────────────
+            command -v jq >/dev/null 2>&1 || sudo apt-get install -y -q jq
+
             # ── .env 복원 ──────────────────────────────────────
             mkdir -p ~/app/infra/docker/prod
             echo "$DOT_ENV_B64" | base64 --decode > ~/app/infra/docker/prod/.env
