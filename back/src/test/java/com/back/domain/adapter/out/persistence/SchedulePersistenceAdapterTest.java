@@ -14,20 +14,17 @@ import com.back.domain.model.domain.Domain;
 import com.back.domain.model.schedule.Schedule;
 import com.back.domain.model.subscription.Subscription;
 import com.back.domain.model.user.User;
+import com.back.support.IntegrationTestBase;
 import java.time.LocalDateTime;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
 @DisplayName("Persistence: 스케줄 영속성 어댑터 테스트")
-class SchedulePersistenceAdapterTest {
+class SchedulePersistenceAdapterTest extends IntegrationTestBase {
 
     @Autowired
     private UserJpaRepository userJpaRepository;

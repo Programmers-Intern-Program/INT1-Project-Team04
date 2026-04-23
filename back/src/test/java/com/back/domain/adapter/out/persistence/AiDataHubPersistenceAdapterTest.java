@@ -17,18 +17,15 @@ import com.back.domain.model.hub.AiDataHub;
 import com.back.domain.model.mcp.McpServer;
 import com.back.domain.model.mcp.McpTool;
 import com.back.domain.model.user.User;
+import com.back.support.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
 @DisplayName("Persistence: AI 데이터 허브 영속성 어댑터 테스트")
-class AiDataHubPersistenceAdapterTest {
+class AiDataHubPersistenceAdapterTest extends IntegrationTestBase {
 
     @Autowired
     private UserJpaRepository userJpaRepository;

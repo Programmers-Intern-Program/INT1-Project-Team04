@@ -10,18 +10,15 @@ import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.application.command.CreateSubscriptionCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.result.SubscriptionResult;
+import com.back.support.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
 @DisplayName("Application Integration: 구독 생성 유스케이스 테스트")
-class CreateSubscriptionIntegrationTest {
+class CreateSubscriptionIntegrationTest extends IntegrationTestBase {
 
     @Autowired
     private CreateSubscriptionUseCase createSubscriptionUseCase;

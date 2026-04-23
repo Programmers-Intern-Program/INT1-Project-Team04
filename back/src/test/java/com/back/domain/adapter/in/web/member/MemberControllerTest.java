@@ -7,6 +7,7 @@ import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaRepository;
 import com.back.domain.application.service.SessionTokenService;
+import com.back.support.IntegrationTestBase;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -15,17 +16,9 @@ import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
 @DisplayName("Web: 회원 API 테스트")
-class MemberControllerTest {
-
-    @LocalServerPort
-    private int port;
+class MemberControllerTest extends IntegrationTestBase {
 
     @Autowired
     private UserJpaRepository userJpaRepository;
@@ -116,7 +109,4 @@ class MemberControllerTest {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    private String baseUrl() {
-        return "http://localhost:" + port;
-    }
 }

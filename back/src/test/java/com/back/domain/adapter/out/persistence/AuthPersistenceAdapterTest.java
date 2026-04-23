@@ -9,19 +9,16 @@ import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaReposi
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaRepository;
 import com.back.domain.model.user.OAuthProvider;
+import com.back.support.IntegrationTestBase;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
 @DisplayName("Persistence: OAuth 연결과 세션 테스트")
-class AuthPersistenceAdapterTest {
+class AuthPersistenceAdapterTest extends IntegrationTestBase {
 
     @Autowired
     private UserJpaRepository userJpaRepository;
