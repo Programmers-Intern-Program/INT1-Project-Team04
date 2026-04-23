@@ -21,11 +21,16 @@ Thumbs.db
 *.pem
 *.key
 
-### Terraform ###
-infra/terraform/**/.terraform/
-infra/terraform/**/terraform.tfstate
-infra/terraform/**/terraform.tfstate.backup
-infra/terraform/**/terraform.tfvars
-infra/terraform/**/.terraform.lock*
-infra/terraform/**/.terraform.tfstate*
+## AI SETTING ##
 .claude
+
+## Terraform ##
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+*.tfvars
+*.tfvars.json
+
