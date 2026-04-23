@@ -75,21 +75,21 @@ export function SubscriptionMvp({
   }
 
   return (
-    <section className="bg-[#f7f7f4] text-zinc-950">
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 md:px-6 lg:grid-cols-[300px_minmax(0,1fr)_360px]">
+    <section className="text-zinc-950">
+      <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="flex flex-col gap-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="space-y-3">
             <p className="text-sm font-semibold text-emerald-700">
               관심사 알림
             </p>
             <div>
-              <h1 className="text-3xl font-bold tracking-normal text-zinc-950">
-                지켜봐줄게
-              </h1>
+              <h2 className="text-2xl font-bold tracking-normal text-zinc-950">
+                감시 영역
+              </h2>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+          <div className="grid grid-cols-2 gap-2 xl:grid-cols-1">
             {DOMAIN_PRESETS.map((domain) => {
               const isActive = selectedDomain.id === domain.id;
 
@@ -106,7 +106,7 @@ export function SubscriptionMvp({
                     }));
                   }}
                   className={classNames(
-                    "rounded-lg border p-4 text-left transition",
+                    "min-h-14 rounded-lg border px-4 py-3 text-left transition",
                     isActive
                       ? "border-emerald-700 bg-emerald-50 text-emerald-950"
                       : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:border-zinc-300 hover:bg-white",
@@ -121,7 +121,7 @@ export function SubscriptionMvp({
           </div>
         </aside>
 
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
+        <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
           <form onSubmit={handleSubmit} className="flex h-full flex-col gap-6">
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -274,7 +274,7 @@ export function SubscriptionMvp({
           </form>
         </section>
 
-        <aside className="flex flex-col gap-4">
+        <aside className="grid gap-4 md:grid-cols-2 xl:col-span-2">
           <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
