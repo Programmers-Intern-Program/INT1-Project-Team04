@@ -14,13 +14,14 @@ import {
   type SubscriptionFormState,
 } from "../lib/subscriptions";
 
-type ChannelId = (typeof CHANNEL_PRESETS)[number]["id"];
 type SubmitState = "idle" | "submitting";
 
 const DEFAULT_FORM: SubscriptionFormState = {
   query: "강남 투룸 전세 시세 바뀌면 알려줘",
   selectedDomainId: 1,
   cadenceId: "hourly",
+  notificationChannel: "DISCORD_DM",
+  notificationTargetAddress: "",
 };
 
 export function SubscriptionMvp({
@@ -29,7 +30,6 @@ export function SubscriptionMvp({
   onUnauthenticated?: () => void;
 }) {
   const [form, setForm] = useState<SubscriptionFormState>(DEFAULT_FORM);
-  const [channelId, setChannelId] = useState<ChannelId>("discord");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<CreateSubscriptionResult | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
@@ -48,9 +48,9 @@ export function SubscriptionMvp({
   );
   const selectedChannel = useMemo(
     () =>
-      CHANNEL_PRESETS.find((channel) => channel.id === channelId) ??
+      CHANNEL_PRESETS.find((channel) => channel.id === form.notificationChannel) ??
       CHANNEL_PRESETS[0],
-    [channelId],
+    [form.notificationChannel],
   );
   const previewPayload = useMemo(() => buildSubscriptionPayload(form), [form]);
 
@@ -203,14 +203,23 @@ export function SubscriptionMvp({
                 </legend>
                 <div className="grid gap-2">
                   {CHANNEL_PRESETS.map((channel) => {
-                    const isActive = channel.id === channelId;
+                    const isActive = channel.id === form.notificationChannel;
 
                     return (
                       <button
                         key={channel.id}
                         type="button"
                         aria-pressed={isActive}
-                        onClick={() => setChannelId(channel.id)}
+                        onClick={() => {
+                          setForm((current) => ({
+                            ...current,
+                            notificationChannel: channel.id,
+                          }));
+                          setErrors((current) => ({
+                            ...current,
+                            notificationTargetAddress: "",
+                          }));
+                        }}
                         className={classNames(
                           "rounded-lg border px-4 py-3 text-left transition",
                           isActive
@@ -225,6 +234,33 @@ export function SubscriptionMvp({
                     );
                   })}
                 </div>
+                <label
+                  htmlFor="notificationTargetAddress"
+                  className="block text-sm font-semibold text-zinc-800"
+                >
+                  {selectedChannel.targetLabel}
+                </label>
+                <input
+                  id="notificationTargetAddress"
+                  value={form.notificationTargetAddress}
+                  placeholder={selectedChannel.targetPlaceholder}
+                  onChange={(event) => {
+                    setForm((current) => ({
+                      ...current,
+                      notificationTargetAddress: event.target.value,
+                    }));
+                    setErrors((current) => ({
+                      ...current,
+                      notificationTargetAddress: "",
+                    }));
+                  }}
+                  className="h-11 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-4 text-sm outline-none transition focus:border-sky-700 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                />
+                {errors.notificationTargetAddress ? (
+                  <p role="alert" className="text-sm font-medium text-red-700">
+                    {errors.notificationTargetAddress}
+                  </p>
+                ) : null}
               </fieldset>
             </div>
 
@@ -259,6 +295,12 @@ export function SubscriptionMvp({
                 <dt className="text-zinc-500">알림</dt>
                 <dd className="font-semibold text-zinc-900">
                   {selectedChannel.label}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-zinc-500">수신</dt>
+                <dd className="break-all font-semibold text-zinc-900">
+                  {form.notificationTargetAddress || "-"}
                 </dd>
               </div>
               <div className="flex items-start justify-between gap-4">

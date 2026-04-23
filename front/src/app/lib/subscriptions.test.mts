@@ -5,6 +5,7 @@ import { describe, it } from "node:test";
 import {
   buildSubscriptionPayload,
   CADENCE_PRESETS,
+  CHANNEL_PRESETS,
   createSubscription,
   DOMAIN_PRESETS,
   getApiBaseUrl,
@@ -87,29 +88,47 @@ describe("subscription form helpers", () => {
     );
   });
 
+  it("maps notification channels to backend enum values", () => {
+    assert.deepEqual(
+      CHANNEL_PRESETS.map((channel) => [channel.id, channel.label]),
+      [
+        ["DISCORD_DM", "Discord"],
+        ["TELEGRAM_DM", "Telegram"],
+        ["EMAIL", "Email"],
+      ],
+    );
+  });
+
   it("builds the backend subscription payload from form state", () => {
     const payload = buildSubscriptionPayload({
       query: "  강남 투룸 전세 시세 바뀌면 알려줘  ",
       selectedDomainId: 3,
       cadenceId: "hourly",
+      notificationChannel: "TELEGRAM_DM",
+      notificationTargetAddress: "  123456789  ",
     });
 
     assert.deepEqual(payload, {
       domainId: 3,
       query: "강남 투룸 전세 시세 바뀌면 알려줘",
       cronExpr: "0 0 * * * *",
+      notificationChannel: "TELEGRAM_DM",
+      notificationTargetAddress: "123456789",
     });
   });
 
-  it("returns a field error only for an empty query", () => {
+  it("returns field errors for an empty query and empty notification target", () => {
     const errors = validateSubscriptionForm({
       query: " ",
       selectedDomainId: 1,
       cadenceId: "hourly",
+      notificationChannel: "EMAIL",
+      notificationTargetAddress: " ",
     });
 
     assert.deepEqual(errors, {
       query: "감시할 요청을 입력해 주세요.",
+      notificationTargetAddress: "알림을 받을 대상을 입력해 주세요.",
     });
   });
 });
@@ -119,6 +138,8 @@ describe("subscription API client", () => {
     domainId: 3,
     query: "넥슨 Java 3년 이상 채용 뜨면 알려줘",
     cronExpr: "0 0 * * * *",
+    notificationChannel: "DISCORD_DM",
+    notificationTargetAddress: "987654321",
   };
 
   it("uses localhost backend when no public API base URL is set", () => {

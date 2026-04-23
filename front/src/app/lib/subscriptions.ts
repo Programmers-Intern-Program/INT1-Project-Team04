@@ -13,20 +13,26 @@ export type CadencePreset = {
 };
 
 export type ChannelPreset = {
-  id: "discord" | "email" | "kakao";
+  id: "DISCORD_DM" | "TELEGRAM_DM" | "EMAIL";
   label: string;
+  targetLabel: string;
+  targetPlaceholder: string;
 };
 
 export type SubscriptionFormState = {
   query: string;
   selectedDomainId: number;
   cadenceId: CadencePresetId;
+  notificationChannel: ChannelPreset["id"];
+  notificationTargetAddress: string;
 };
 
 export type CreateSubscriptionRequest = {
   domainId: number;
   query: string;
   cronExpr: string;
+  notificationChannel: ChannelPreset["id"];
+  notificationTargetAddress: string;
 };
 
 export const DOMAIN_PRESETS: DomainPreset[] = [
@@ -72,16 +78,22 @@ export const CADENCE_PRESETS: CadencePreset[] = [
 
 export const CHANNEL_PRESETS: ChannelPreset[] = [
   {
-    id: "discord",
+    id: "DISCORD_DM",
     label: "Discord",
+    targetLabel: "Discord 사용자 ID",
+    targetPlaceholder: "987654321",
   },
   {
-    id: "email",
+    id: "TELEGRAM_DM",
+    label: "Telegram",
+    targetLabel: "Telegram chat_id",
+    targetPlaceholder: "123456789",
+  },
+  {
+    id: "EMAIL",
     label: "Email",
-  },
-  {
-    id: "kakao",
-    label: "Kakao",
+    targetLabel: "이메일 주소",
+    targetPlaceholder: "user@example.com",
   },
 ];
 
@@ -92,6 +104,10 @@ export function validateSubscriptionForm(
 
   if (!form.query.trim()) {
     errors.query = "감시할 요청을 입력해 주세요.";
+  }
+
+  if (!form.notificationTargetAddress.trim()) {
+    errors.notificationTargetAddress = "알림을 받을 대상을 입력해 주세요.";
   }
 
   return errors;
@@ -106,6 +122,8 @@ export function buildSubscriptionPayload(
     domainId: form.selectedDomainId,
     query: form.query.trim(),
     cronExpr: cadence?.cronExpr ?? CADENCE_PRESETS[0].cronExpr,
+    notificationChannel: form.notificationChannel,
+    notificationTargetAddress: form.notificationTargetAddress.trim(),
   };
 }
 
