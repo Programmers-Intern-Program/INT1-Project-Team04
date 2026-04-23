@@ -88,3 +88,7 @@ variable "langfuse_public_key" {
   sensitive = true
 }
 variable "langfuse_domain" { type = string }
+variable "langfuse_encryption_key" {
+  type      = string
+  sensitive = true
+}
