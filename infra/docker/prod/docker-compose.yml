@@ -116,6 +116,7 @@ services:
       CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:9000/langfuse
       CLICKHOUSE_USER: langfuse
       CLICKHOUSE_PASSWORD: langfuse_password
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       NEXTAUTH_URL: https://${LANGFUSE_DOMAIN}
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
       SALT: ${LANGFUSE_SALT}
@@ -146,6 +147,7 @@ services:
       CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:9000/langfuse
       CLICKHOUSE_USER: langfuse
       CLICKHOUSE_PASSWORD: langfuse_password
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
       REDIS_CONNECTION_STRING: redis://:${REDIS_PASSWORD}@prod-redis:6379
       SALT: ${LANGFUSE_SALT}
       TZ: Asia/Seoul
