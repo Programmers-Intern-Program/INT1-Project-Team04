@@ -1,0 +1,36 @@
+### IDE ###
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+### OS ###
+.DS_Store
+Thumbs.db
+
+### Env & Secrets ###
+*.env
+*.env.*
+!.env.example
+
+### Logs ###
+*.log
+
+### Misc ###
+*.pem
+*.key
+
+## AI SETTING ##
+.claude
+
+## Terraform ##
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfplan
+*.tfvars
+*.tfvars.json
+

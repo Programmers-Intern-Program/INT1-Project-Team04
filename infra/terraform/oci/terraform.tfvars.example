@@ -1,0 +1,53 @@
+# OCI 인증
+tenancy_ocid     = "ocid1.tenancy.oc1..xxxxxxxxxx"
+user_ocid        = "ocid1.user.oc1..xxxxxxxxxx"
+fingerprint      = "xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx"
+private_key_path = "~/.oci/oci_api_key.pem"
+region           = "us-phoenix-1"
+compartment_ocid = "ocid1.compartment.oc1..xxxxxxxxxx"
+
+# 공통
+repo_url             = "https://github.com/Programmers-Intern-Program/INT1-Project-Team04.git"
+ssh_public_key       = "ssh-rsa AAAAB3NzaC1yc2E..."
+ssh_private_key_path = "~/.ssh/id_rsa"
+admin_cidr           = "0.0.0.0/0"
+
+# 주 서버 (고정 IP, 삭제 안 함)
+app_server_ip                         = "0.0.0.0"
+app_server_vcn_ocid                   = "ocid1.vcn.oc1..xxxxxxxxxx"
+app_server_default_security_list_ocid = "ocid1.securitylist.oc1..xxxxxxxxxx"
+app_server_instance_ocid              = "ocid1.instance.oc1..xxxxxxxxxx"
+app_server_project_dir                = "/home/ubuntu/app"
+extra_ingress_ports                   = []
+
+# GitHub
+github_org = "your-github-org"
+
+# 도메인
+fe_domain      = "app.example.com"
+be_domain      = "api.example.com"
+grafana_domain = "grafana.example.com"
+langfuse_domain = "langfuse.example.com"
+
+# Nginx Proxy Manager
+npm_email    = "admin@example.com"
+npm_password = "changeme"
+
+# PostgreSQL
+pg_user     = "appuser"
+pg_password = "changeme"
+
+# Redis
+redis_password = "changeme"
+
+# Langfuse
+langfuse_nextauth_secret = "changeme-32chars-random-string"
+langfuse_salt            = "changeme-32chars-random-string"
+langfuse_secret_key      = "sk-lf-changeme"
+langfuse_public_key      = "pk-lf-changeme"
+
+# Grafana
+grafana_password = "changeme"
+
+# 모니터링 서버 (destroy/apply로 재생성)
+monitoring_availability_domain = "aJIE:PHX-AD-2"

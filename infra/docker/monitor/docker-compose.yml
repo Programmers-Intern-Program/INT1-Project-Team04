@@ -1,0 +1,54 @@
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: monitor-prometheus
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-remote-write-receiver'
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - monitor-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: monitor-grafana
+    restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 400m
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_SERVER_ROOT_URL: https://${GRAFANA_DOMAIN}
+      TZ: Asia/Seoul
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ../config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - monitor-net
+    depends_on:
+      - prometheus
+
+networks:
+  monitor-net:
+    name: monitor-net
+    external: true   # terraform apply 또는 수동: docker network create monitor-net
+
+volumes:
+  promdata:
+  grafanadata:
