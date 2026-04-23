@@ -68,7 +68,7 @@ resource "null_resource" "prepare" {
 
       "if ! command -v docker &>/dev/null; then curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker ubuntu && echo '✅ Docker 설치 완료'; fi",
 
-      "sudo apt-get install -y iptables-persistent 2>/dev/null || true",
+      "sudo apt-get install -y iptables-persistent jq 2>/dev/null || true",
       "for port in 22 80 443 81 9100 9187 9091 3100 ${join(" ", var.extra_ingress_ports)}; do sudo iptables -C INPUT -m state --state NEW -p tcp --dport $port -j ACCEPT 2>/dev/null || sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport $port -j ACCEPT; done",
       "sudo netfilter-persistent save 2>/dev/null || true",
 
