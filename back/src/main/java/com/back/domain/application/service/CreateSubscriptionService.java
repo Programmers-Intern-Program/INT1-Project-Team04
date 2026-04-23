@@ -4,10 +4,14 @@ import com.back.domain.application.command.CreateSubscriptionCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadUserPort;
+import com.back.domain.application.port.out.SaveNotificationEndpointPort;
+import com.back.domain.application.port.out.SaveNotificationPreferencePort;
 import com.back.domain.application.port.out.SaveSchedulePort;
 import com.back.domain.application.port.out.SaveSubscriptionPort;
 import com.back.domain.application.result.SubscriptionResult;
 import com.back.domain.model.domain.Domain;
+import com.back.domain.model.notification.NotificationEndpoint;
+import com.back.domain.model.notification.NotificationPreference;
 import com.back.domain.model.schedule.Schedule;
 import com.back.domain.model.subscription.Subscription;
 import com.back.domain.model.user.User;
@@ -30,6 +34,8 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
     private final LoadDomainPort loadDomainPort;
     private final SaveSubscriptionPort saveSubscriptionPort;
     private final SaveSchedulePort saveSchedulePort;
+    private final SaveNotificationEndpointPort saveNotificationEndpointPort;
+    private final SaveNotificationPreferencePort saveNotificationPreferencePort;
 
     @Override
     public SubscriptionResult createForUser(Long userId, CreateSubscriptionCommand command) {
@@ -55,6 +61,8 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
                 nextRun
         ));
 
+        saveNotificationSettingsIfPresent(user, subscription, command);
+
         return new SubscriptionResult(
                 subscription.id(),
                 subscription.user().id(),
@@ -66,5 +74,31 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
                 schedule.cronExpr(),
                 schedule.nextRun()
         );
+    }
+
+    private void saveNotificationSettingsIfPresent(
+            User user,
+            Subscription subscription,
+            CreateSubscriptionCommand command
+    ) {
+        if (command.notificationChannel() == null
+                || command.notificationTargetAddress() == null
+                || command.notificationTargetAddress().isBlank()) {
+            return;
+        }
+
+        saveNotificationEndpointPort.save(new NotificationEndpoint(
+                null,
+                user.id(),
+                command.notificationChannel(),
+                command.notificationTargetAddress().trim(),
+                true
+        ));
+        saveNotificationPreferencePort.save(new NotificationPreference(
+                null,
+                subscription.id(),
+                command.notificationChannel(),
+                true
+        ));
     }
 }
