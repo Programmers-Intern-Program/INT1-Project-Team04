@@ -65,6 +65,18 @@ jobs:
           echo "BE_IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_BE }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
           echo "FE_IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_FE }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
+      - name: Parse frontend build env
+        env:
+          DOT_ENV_PROD: ${{ secrets.DOT_ENV_PROD }}
+        run: |
+          strip() { echo "$1" | sed 's/[[:space:]]*#.*$//' | tr -d '[:space:]'; }
+          NEXT_PUBLIC_API_BASE_URL=$(strip "$(printf '%s' "$DOT_ENV_PROD" | grep -E '^NEXT_PUBLIC_API_BASE_URL=' | cut -d= -f2-)")
+          if [ -z "$NEXT_PUBLIC_API_BASE_URL" ]; then
+            echo "NEXT_PUBLIC_API_BASE_URL is required in DOT_ENV_PROD"
+            exit 1
+          fi
+          echo "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" >> $GITHUB_ENV
+
       - name: Build and push Backend
         uses: docker/build-push-action@v6
         with:
@@ -86,6 +98,8 @@ jobs:
           tags: |
             ${{ env.FE_IMAGE }}:${{ needs.calculate-tag.outputs.tag_name }}
             ${{ env.FE_IMAGE }}:latest
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=${{ env.NEXT_PUBLIC_API_BASE_URL }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
@@ -203,7 +217,7 @@ jobs:
               --network prod-net \
               --memory=1g \
               -e NODE_ENV=production \
-              -e API_BASE_URL="http://${GREEN_BE}:8080" \
+              -e NEXT_PUBLIC_API_BASE_URL="https://${BE_DOMAIN}" \
               "${FE_IMAGE}:${IMAGE_TAG}"
 
             # .env 즉시 삭제
