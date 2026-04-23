@@ -190,6 +190,7 @@ jobs:
               --memory=4g \
               --env-file ~/app/infra/docker/prod/.env \
               -e JAVA_OPTS="-Xms512m -Xmx3500m" \
+              -e SPRING_PROFILES_ACTIVE=prod \
               -p 9091:8080 \
               "${BE_IMAGE}:${IMAGE_TAG}"
 
