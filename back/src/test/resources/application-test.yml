@@ -10,3 +10,11 @@ spring:
     mcp:
       client:
         enabled: false
+
+# AI Parser 테스트용 더미 설정
+ai-parser:
+  base-url: http://localhost:9999
+  api-key: test-api-key
+  model: glm-4.5-test
+  max-tokens: 2048
+  temperature: 0.3
