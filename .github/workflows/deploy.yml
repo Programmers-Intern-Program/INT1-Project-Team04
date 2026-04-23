@@ -165,6 +165,11 @@ jobs:
             # ── GHCR 로그인 ────────────────────────────────────
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
+            # ── Langfuse 기동 ──────────────────────────────────
+            docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
+              --env-file ~/app/infra/docker/prod/.env \
+              up -d langfuse-clickhouse langfuse-web langfuse-worker
+
             # ── Blue/Green 슬롯 판정 ───────────────────────────
             if docker ps --format '{{.Names}}' | grep -q "^be_a$"; then
               BLUE_BE="be_a"; GREEN_BE="be_b"
@@ -182,12 +187,16 @@ jobs:
             # ── Green 기동 ─────────────────────────────────────
             docker rm -f "$GREEN_BE" "$GREEN_FE" 2>/dev/null || true
 
+            # be_a=9091, be_b=9092 (슬롯별 고정 포트 — Prometheus 스크래핑용)
+            [ "$GREEN_BE" = "be_a" ] && BE_METRICS_PORT=9091 || BE_METRICS_PORT=9092
+
             docker run -d --name "$GREEN_BE" \
               --network prod-net \
               --memory=4g \
               --env-file ~/app/infra/docker/prod/.env \
               -e JAVA_OPTS="-Xms512m -Xmx3500m" \
               -e SPRING_PROFILES_ACTIVE=prod \
+              -p ${BE_METRICS_PORT}:8080 \
               "${BE_IMAGE}:${IMAGE_TAG}"
 
             docker run -d --name "$GREEN_FE" \

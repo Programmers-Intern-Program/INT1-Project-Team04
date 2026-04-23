@@ -16,7 +16,8 @@ locals {
     { description = "NPM UI",                protocol = "6", source = var.admin_cidr,               sourceType = "CIDR_BLOCK", isStateless = false, tcpOptions = { destinationPortRange = { min = 81,   max = 81   } } },
     { description = "Node Exporter",         protocol = "6", source = "${var.monitoring_ip}/32",    sourceType = "CIDR_BLOCK", isStateless = false, tcpOptions = { destinationPortRange = { min = 9100, max = 9100 } } },
     { description = "PG Exporter",           protocol = "6", source = "${var.monitoring_ip}/32",    sourceType = "CIDR_BLOCK", isStateless = false, tcpOptions = { destinationPortRange = { min = 9187, max = 9187 } } },
-    { description = "Spring Boot Actuator",  protocol = "6", source = "${var.monitoring_ip}/32",    sourceType = "CIDR_BLOCK", isStateless = false, tcpOptions = { destinationPortRange = { min = 9091, max = 9091 } } },
+    { description = "Spring Boot Actuator A", protocol = "6", source = "${var.monitoring_ip}/32",    sourceType = "CIDR_BLOCK", isStateless = false, tcpOptions = { destinationPortRange = { min = 9091, max = 9091 } } },
+    { description = "Spring Boot Actuator B", protocol = "6", source = "${var.monitoring_ip}/32",    sourceType = "CIDR_BLOCK", isStateless = false, tcpOptions = { destinationPortRange = { min = 9092, max = 9092 } } },
     { description = "Loki",                  protocol = "6", source = "${var.monitoring_ip}/32",    sourceType = "CIDR_BLOCK", isStateless = false, tcpOptions = { destinationPortRange = { min = 3100, max = 3100 } } },
   ]
   extra_ingress_rules = [for p in var.extra_ingress_ports : {
@@ -51,7 +52,8 @@ resource "null_resource" "security_rules" {
 # ── Step 1: 서버 준비 (Docker, 네트워크, 방화벽, Swap) ────────────────────────
 resource "null_resource" "prepare" {
   triggers = {
-    repo_url = var.repo_url
+    repo_url      = var.repo_url
+    iptables_ports = join(",", concat([22, 80, 443, 81, 9100, 9187, 9091, 9092, 3100], var.extra_ingress_ports))
   }
 
   connection {
@@ -69,7 +71,7 @@ resource "null_resource" "prepare" {
       "if ! command -v docker &>/dev/null; then curl -fsSL https://get.docker.com | sudo sh && sudo usermod -aG docker ubuntu && echo '✅ Docker 설치 완료'; fi",
 
       "sudo apt-get install -y iptables-persistent jq 2>/dev/null || true",
-      "for port in 22 80 443 81 9100 9187 9091 3100 ${join(" ", var.extra_ingress_ports)}; do sudo iptables -C INPUT -m state --state NEW -p tcp --dport $port -j ACCEPT 2>/dev/null || sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport $port -j ACCEPT; done",
+      "for port in 22 80 443 81 9100 9187 9091 9092 3100 ${join(" ", var.extra_ingress_ports)}; do sudo iptables -C INPUT -m state --state NEW -p tcp --dport $port -j ACCEPT 2>/dev/null || sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport $port -j ACCEPT; done",
       "sudo netfilter-persistent save 2>/dev/null || true",
 
       "sudo docker network create prod-net 2>/dev/null || true",
@@ -112,6 +114,7 @@ resource "null_resource" "upload_files" {
       "LANGFUSE_SECRET_KEY=${var.langfuse_secret_key}",
       "LANGFUSE_PUBLIC_KEY=${var.langfuse_public_key}",
       "LANGFUSE_DOMAIN=${var.langfuse_domain}",
+      "LANGFUSE_ENCRYPTION_KEY=${var.langfuse_encryption_key}",
       "",
     ])
     destination = "${var.project_dir}/infra/docker/prod/.env"
