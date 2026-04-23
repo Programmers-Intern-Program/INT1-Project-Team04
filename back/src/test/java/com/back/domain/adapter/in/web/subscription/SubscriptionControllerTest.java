@@ -9,6 +9,7 @@ import com.back.domain.adapter.out.persistence.user.UserSessionJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.application.service.SessionTokenService;
+import com.back.support.IntegrationTestBase;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -17,17 +18,9 @@ import java.time.LocalDateTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
 @DisplayName("Web: 구독 생성 API 테스트")
-class SubscriptionControllerTest {
-
-    @LocalServerPort
-    private int port;
+class SubscriptionControllerTest extends IntegrationTestBase {
 
     @Autowired
     private UserJpaRepository userJpaRepository;
@@ -107,7 +100,7 @@ class SubscriptionControllerTest {
 
     private HttpResponse<String> postSubscription(String body, String cookieHeader) throws Exception {
         HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/subscriptions"))
+                .uri(URI.create(baseUrl() + "/api/subscriptions"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body));
 

@@ -4,18 +4,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
+import com.back.support.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
 @DisplayName("Persistence: 사용자 저장소 테스트")
-class UserPersistenceAdapterTest {
+class UserPersistenceAdapterTest extends IntegrationTestBase {
 
     @Autowired
     private UserJpaRepository userJpaRepository;

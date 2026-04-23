@@ -9,18 +9,15 @@ import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaReposi
 import com.back.domain.application.result.OAuthLoginResult;
 import com.back.domain.model.user.OAuthProvider;
 import com.back.domain.model.user.OAuthUserProfile;
+import com.back.support.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
-@SpringBootTest
-@ActiveProfiles("test")
 @Transactional
 @DisplayName("Application: OAuth 로그인 서비스 테스트")
-class OAuthLoginServiceTest {
+class OAuthLoginServiceTest extends IntegrationTestBase {
 
     @Autowired
     private OAuthLoginService oauthLoginService;
