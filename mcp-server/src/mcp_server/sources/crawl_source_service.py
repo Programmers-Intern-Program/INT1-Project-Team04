@@ -1,6 +1,6 @@
 """크롤링 호출 서비스 레이어 골격.
 
-Phase 1 시점에는 인터페이스만 확정. 실제 Playwright/HTTP 호출은 Phase 3-3 (`crawl_page`) 에서 구현.
+인터페이스만 확정. 실제 Playwright/HTTP 호출은 `crawl_page` 에서 구현.
 
 규약:
 - 도구는 직접 playwright/httpx 를 쓰지 말고 이 fetch() 만 호출한다.
@@ -23,7 +23,7 @@ async def fetch(
 ) -> RawResult:
     """등록된 crawl_source 1건을 호출하고 결과를 RawResult 로 반환.
 
-    현재 (Phase 1) 는 골격만 제공. render_mode 분기와 실제 호출은 Phase 3-3 에서 구현.
+    현재는 골격만 제공. render_mode 분기와 실제 호출은 추후 구현.
 
     Raises:
         SourceNotFoundError: 등록되지 않은 source_id.

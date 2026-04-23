@@ -1,6 +1,6 @@
 """crawl_source_service.fetch() 단위 테스트.
 
-Phase 1 시점에는 골격만 — 실제 렌더링은 NotImplemented (Phase 3-3 에서 구현).
+현재는 골격만 — 실제 렌더링은 추후 구현.
 검증 항목:
 1) source_id 로딩
 2) 미구현 시 SourceFetchError 발생

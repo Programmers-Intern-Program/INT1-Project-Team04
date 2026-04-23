@@ -1,7 +1,7 @@
 """테스트 공용 fixture.
 
 SQLite in-memory 비동기 DB 를 사용해 모델/세션을 격리 테스트한다.
-실제 Postgres 통합 테스트는 별도 (testcontainers, Phase 4).
+실제 Postgres 통합 테스트는 별도 (testcontainers)
 """
 
 from collections.abc import AsyncIterator

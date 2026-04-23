@@ -1,7 +1,7 @@
 """MVP 마이그레이션 스크립트.
 
 설정된 PG_URL DB에 mcp 내부 테이블 4종을 생성한다.
-운영 마이그레이션은 추후 alembic 도입 검토 
+운영 마이그레이션은 추후 alembic 도입 검토
 
 사용법:
     cd mcp-server

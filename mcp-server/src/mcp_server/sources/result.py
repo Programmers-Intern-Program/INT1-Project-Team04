@@ -15,7 +15,7 @@ class RawResult(BaseModel):
     """외부 데이터 소스 호출 1회 결과.
 
     도구는 이 결과를 받아 도메인 정규화 (`domains/<domain>/normalizer.py`) 를 거친 뒤
-    Tool 반환 공통 스키마 (README 2번 항목) 로 변환해 백엔드에 전달한다.
+    Tool 반환 공통 스키마 로 변환해 백엔드에 전달한다.
     """
 
     source_type: SourceType
