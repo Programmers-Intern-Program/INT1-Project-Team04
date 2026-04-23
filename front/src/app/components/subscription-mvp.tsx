@@ -14,13 +14,14 @@ import {
   type SubscriptionFormState,
 } from "../lib/subscriptions";
 
-type ChannelId = (typeof CHANNEL_PRESETS)[number]["id"];
 type SubmitState = "idle" | "submitting";
 
 const DEFAULT_FORM: SubscriptionFormState = {
   query: "강남 투룸 전세 시세 바뀌면 알려줘",
   selectedDomainId: 1,
   cadenceId: "hourly",
+  notificationChannel: "DISCORD_DM",
+  notificationTargetAddress: "",
 };
 
 export function SubscriptionMvp({
@@ -29,7 +30,6 @@ export function SubscriptionMvp({
   onUnauthenticated?: () => void;
 }) {
   const [form, setForm] = useState<SubscriptionFormState>(DEFAULT_FORM);
-  const [channelId, setChannelId] = useState<ChannelId>("discord");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<CreateSubscriptionResult | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
@@ -48,9 +48,9 @@ export function SubscriptionMvp({
   );
   const selectedChannel = useMemo(
     () =>
-      CHANNEL_PRESETS.find((channel) => channel.id === channelId) ??
+      CHANNEL_PRESETS.find((channel) => channel.id === form.notificationChannel) ??
       CHANNEL_PRESETS[0],
-    [channelId],
+    [form.notificationChannel],
   );
   const previewPayload = useMemo(() => buildSubscriptionPayload(form), [form]);
 
@@ -75,21 +75,21 @@ export function SubscriptionMvp({
   }
 
   return (
-    <section className="bg-[#f7f7f4] text-zinc-950">
-      <div className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 md:px-6 lg:grid-cols-[300px_minmax(0,1fr)_360px]">
+    <section className="text-zinc-950">
+      <div className="grid gap-4 xl:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="flex flex-col gap-4 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
           <div className="space-y-3">
             <p className="text-sm font-semibold text-emerald-700">
               관심사 알림
             </p>
             <div>
-              <h1 className="text-3xl font-bold tracking-normal text-zinc-950">
-                지켜봐줄게
-              </h1>
+              <h2 className="text-2xl font-bold tracking-normal text-zinc-950">
+                감시 영역
+              </h2>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+          <div className="grid grid-cols-2 gap-2 xl:grid-cols-1">
             {DOMAIN_PRESETS.map((domain) => {
               const isActive = selectedDomain.id === domain.id;
 
@@ -106,7 +106,7 @@ export function SubscriptionMvp({
                     }));
                   }}
                   className={classNames(
-                    "rounded-lg border p-4 text-left transition",
+                    "min-h-14 rounded-lg border px-4 py-3 text-left transition",
                     isActive
                       ? "border-emerald-700 bg-emerald-50 text-emerald-950"
                       : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:border-zinc-300 hover:bg-white",
@@ -121,7 +121,7 @@ export function SubscriptionMvp({
           </div>
         </aside>
 
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
+        <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
           <form onSubmit={handleSubmit} className="flex h-full flex-col gap-6">
             <div className="flex flex-col gap-3">
               <div className="flex flex-wrap items-end justify-between gap-3">
@@ -203,14 +203,23 @@ export function SubscriptionMvp({
                 </legend>
                 <div className="grid gap-2">
                   {CHANNEL_PRESETS.map((channel) => {
-                    const isActive = channel.id === channelId;
+                    const isActive = channel.id === form.notificationChannel;
 
                     return (
                       <button
                         key={channel.id}
                         type="button"
                         aria-pressed={isActive}
-                        onClick={() => setChannelId(channel.id)}
+                        onClick={() => {
+                          setForm((current) => ({
+                            ...current,
+                            notificationChannel: channel.id,
+                          }));
+                          setErrors((current) => ({
+                            ...current,
+                            notificationTargetAddress: "",
+                          }));
+                        }}
                         className={classNames(
                           "rounded-lg border px-4 py-3 text-left transition",
                           isActive
@@ -225,6 +234,33 @@ export function SubscriptionMvp({
                     );
                   })}
                 </div>
+                <label
+                  htmlFor="notificationTargetAddress"
+                  className="block text-sm font-semibold text-zinc-800"
+                >
+                  {selectedChannel.targetLabel}
+                </label>
+                <input
+                  id="notificationTargetAddress"
+                  value={form.notificationTargetAddress}
+                  placeholder={selectedChannel.targetPlaceholder}
+                  onChange={(event) => {
+                    setForm((current) => ({
+                      ...current,
+                      notificationTargetAddress: event.target.value,
+                    }));
+                    setErrors((current) => ({
+                      ...current,
+                      notificationTargetAddress: "",
+                    }));
+                  }}
+                  className="h-11 w-full rounded-lg border border-zinc-300 bg-zinc-50 px-4 text-sm outline-none transition focus:border-sky-700 focus:bg-white focus:ring-4 focus:ring-sky-100"
+                />
+                {errors.notificationTargetAddress ? (
+                  <p role="alert" className="text-sm font-medium text-red-700">
+                    {errors.notificationTargetAddress}
+                  </p>
+                ) : null}
               </fieldset>
             </div>
 
@@ -238,7 +274,7 @@ export function SubscriptionMvp({
           </form>
         </section>
 
-        <aside className="flex flex-col gap-4">
+        <aside className="grid gap-4 md:grid-cols-2 xl:col-span-2">
           <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -259,6 +295,12 @@ export function SubscriptionMvp({
                 <dt className="text-zinc-500">알림</dt>
                 <dd className="font-semibold text-zinc-900">
                   {selectedChannel.label}
+                </dd>
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <dt className="text-zinc-500">수신</dt>
+                <dd className="break-all font-semibold text-zinc-900">
+                  {form.notificationTargetAddress || "-"}
                 </dd>
               </div>
               <div className="flex items-start justify-between gap-4">
