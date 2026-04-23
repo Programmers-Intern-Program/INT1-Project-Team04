@@ -2,6 +2,7 @@ import org.gradle.kotlin.dsl.testImplementation
 
 plugins {
     java
+    jacoco
     id("org.springframework.boot") version "4.0.5"
     id("io.spring.dependency-management") version "1.1.7"
 }
@@ -46,7 +47,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.boot:spring-boot-starter-data-jpa")
-        testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:postgresql")
     testImplementation("org.testcontainers:jdbc")
@@ -69,9 +70,6 @@ tasks.register<Test>("aiTest") {
     useJUnitPlatform {
         includeTags("ai-manual")
     }
-
-    useJUnitPlatform()
-    finalizedBy(tasks.jacocoTestReport)
 }
 
 tasks.jacocoTestReport {
