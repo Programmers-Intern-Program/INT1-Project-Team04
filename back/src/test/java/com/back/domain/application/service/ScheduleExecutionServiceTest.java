@@ -39,7 +39,7 @@ class ScheduleExecutionServiceTest {
     void runsDueScheduleAndSavesHubNotificationAndSchedule() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
-        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
         McpTool tool = new McpTool(
                 100L,
@@ -87,7 +87,7 @@ class ScheduleExecutionServiceTest {
     void updatesNextRunByCronExpression() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
-        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 0 1 1 *", null, LocalDateTime.now().minusMinutes(1));
         McpTool tool = new McpTool(
                 100L,
@@ -121,7 +121,7 @@ class ScheduleExecutionServiceTest {
     void throwsWhenMcpToolDoesNotExist() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
-        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
@@ -144,7 +144,7 @@ class ScheduleExecutionServiceTest {
     void savesFailedNotificationWhenSendingFails() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
-        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
         McpTool tool = new McpTool(
                 100L,
@@ -178,7 +178,7 @@ class ScheduleExecutionServiceTest {
     void stopsWhenMcpExecutionFails() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
-        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
         McpTool tool = new McpTool(
                 100L,

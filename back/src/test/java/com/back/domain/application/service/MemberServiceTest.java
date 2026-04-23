@@ -60,7 +60,7 @@ class MemberServiceTest extends IntegrationTestBase {
         UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("withdraw@example.com", "탈퇴대상"));
         DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("withdraw-domain"));
         SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(
-                new SubscriptionJpaEntity(user, domain, "탈퇴 테스트", true)
+                new SubscriptionJpaEntity(user, domain, "탈퇴 테스트", "create", true)
         );
         connectionRepository.save(new UserOAuthConnectionJpaEntity(
                 user,

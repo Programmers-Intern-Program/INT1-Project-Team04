@@ -53,7 +53,7 @@ class NotificationPersistenceAdapterTest extends IntegrationTestBase {
     void savesNotificationThroughAdapterWithoutAiDataHub() {
         UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("user@example.com", "token"));
         DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("law"));
-        SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(new SubscriptionJpaEntity(user, domain, "개정 법률", true));
+        SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(new SubscriptionJpaEntity(user, domain, "개정 법률", "create", true));
         ScheduleJpaEntity schedule = scheduleJpaRepository.save(new ScheduleJpaEntity(subscription, "0 0 * * * *", null, LocalDateTime.now().plusHours(1)));
 
         Notification saved = notificationPersistenceAdapter.save(
@@ -61,19 +61,12 @@ class NotificationPersistenceAdapterTest extends IntegrationTestBase {
                 null,
                 new Schedule(
                     schedule.getId(),
-                    new Subscription(
-                        subscription.getId(),
-                        new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
-                        new Domain(domain.getId(), domain.getName()),
-                        subscription.getQuery(),
-                        subscription.isActive(),
-                        subscription.getCreatedAt()
-                    ),
+                    subscription.toDomain(),
                     schedule.getCronExpr(),
                     schedule.getLastRun(),
                     schedule.getNextRun()
                 ),
-                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
+                user.toDomain(),
                 null,
                 "DISCORD",
                 "새 알림",
