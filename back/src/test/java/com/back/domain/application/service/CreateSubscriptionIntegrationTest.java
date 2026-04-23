@@ -38,11 +38,10 @@ class CreateSubscriptionIntegrationTest {
     @Test
     @DisplayName("Application Integration: 구독과 최초 스케줄을 실제 영속성 어댑터로 저장한다")
     void createsSubscriptionAndInitialSchedule() {
-        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("integration-user@example.com", "discord-token"));
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("integration-user@example.com", "통합사용자"));
         DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("integration-real-estate"));
 
-        SubscriptionResult result = createSubscriptionUseCase.create(new CreateSubscriptionCommand(
-                user.getId(),
+        SubscriptionResult result = createSubscriptionUseCase.createForUser(user.getId(), new CreateSubscriptionCommand(
                 domain.getId(),
                 "강남구 아파트 실거래가",
                 "0 0 * * * *"

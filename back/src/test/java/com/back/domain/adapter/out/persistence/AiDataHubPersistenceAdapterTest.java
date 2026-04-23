@@ -59,7 +59,7 @@ class AiDataHubPersistenceAdapterTest {
         AiDataHub saved = aiDataHubPersistenceAdapter.save(
                 new AiDataHub(
                         "11111111-1111-1111-1111-111111111111",
-                        new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                        new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
                         new McpTool(
                                 tool.getId(),
                                 new McpServer(server.getId(), server.getName(), server.getDescription(), server.getEndpoint()),

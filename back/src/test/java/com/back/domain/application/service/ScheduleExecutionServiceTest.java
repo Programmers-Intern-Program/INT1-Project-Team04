@@ -37,7 +37,7 @@ class ScheduleExecutionServiceTest {
     @Test
     @DisplayName("Application: 예정된 스케줄을 실행하면 [AI 분석 -> 데이터 저장 -> 알림 발송 -> 다음 스케줄 갱신] 프로세스가 통합적으로 수행된다")
     void runsDueScheduleAndSavesHubNotificationAndSchedule() {
-        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
@@ -85,7 +85,7 @@ class ScheduleExecutionServiceTest {
     @Test
     @DisplayName("Application: 스케줄 실행 후 저장된 cron 표현식 기준으로 다음 실행 시각을 갱신한다")
     void updatesNextRunByCronExpression() {
-        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 0 1 1 *", null, LocalDateTime.now().minusMinutes(1));
@@ -119,7 +119,7 @@ class ScheduleExecutionServiceTest {
     @Test
     @DisplayName("Application: 도메인에 연결된 MCP 도구가 없으면 예외를 발생시킨다")
     void throwsWhenMcpToolDoesNotExist() {
-        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
@@ -142,7 +142,7 @@ class ScheduleExecutionServiceTest {
     @Test
     @DisplayName("Application: 알림 전송에 실패하면 FAILED 상태로 저장한다")
     void savesFailedNotificationWhenSendingFails() {
-        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
@@ -176,7 +176,7 @@ class ScheduleExecutionServiceTest {
     @Test
     @DisplayName("Application: MCP 실행이 실패하면 후속 저장을 수행하지 않고 예외를 전파한다")
     void stopsWhenMcpExecutionFails() {
-        User user = new User(1L, "user@example.com", "token", LocalDateTime.now());
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));

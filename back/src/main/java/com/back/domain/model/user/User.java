@@ -8,7 +8,11 @@ import java.time.LocalDateTime;
 public record User(
         Long id,
         String email,
-        String discordToken,
-        LocalDateTime createdAt
+        String nickname,
+        LocalDateTime createdAt,
+        LocalDateTime deletedAt
 ) {
+    public boolean isActive() {
+        return deletedAt == null;
+    }
 }

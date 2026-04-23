@@ -20,8 +20,9 @@ public class UserPersistenceAdapter implements LoadUserPort {
                 .map(entity -> new User(
                         entity.getId(),
                         entity.getEmail(),
-                        entity.getDiscordToken(),
-                        entity.getCreatedAt()
+                        entity.getNickname(),
+                        entity.getCreatedAt(),
+                        entity.getDeletedAt()
                 ));
     }
 }

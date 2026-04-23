@@ -66,7 +66,7 @@ class NotificationPersistenceAdapterTest {
                     schedule.getId(),
                     new Subscription(
                         subscription.getId(),
-                        new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                        new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
                         new Domain(domain.getId(), domain.getName()),
                         subscription.getQuery(),
                         subscription.isActive(),
@@ -76,7 +76,7 @@ class NotificationPersistenceAdapterTest {
                     schedule.getLastRun(),
                     schedule.getNextRun()
                 ),
-                new User(user.getId(), user.getEmail(), user.getDiscordToken(), user.getCreatedAt()),
+                new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
                 null,
                 "DISCORD",
                 "새 알림",

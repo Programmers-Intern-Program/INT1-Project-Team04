@@ -26,7 +26,12 @@ public class SubscriptionPersistenceAdapter implements SaveSubscriptionPort {
 
         return new Subscription(
             saved.getId(),
-            new User(saved.getUser().getId(), saved.getUser().getEmail(), saved.getUser().getDiscordToken(), saved.getUser().getCreatedAt()),
+            new User(
+                    saved.getUser().getId(),
+                    saved.getUser().getEmail(),
+                    saved.getUser().getNickname(),
+                    saved.getUser().getCreatedAt(),
+                    saved.getUser().getDeletedAt()),
             new Domain(saved.getDomain().getId(), saved.getDomain().getName()),
             saved.getQuery(),
             saved.isActive(),

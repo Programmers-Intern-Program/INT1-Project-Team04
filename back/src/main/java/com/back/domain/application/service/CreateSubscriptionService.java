@@ -32,8 +32,8 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
     private final SaveSchedulePort saveSchedulePort;
 
     @Override
-    public SubscriptionResult create(CreateSubscriptionCommand command) {
-        User user = loadUserPort.loadById(command.userId())
+    public SubscriptionResult createForUser(Long userId, CreateSubscriptionCommand command) {
+        User user = loadUserPort.loadById(userId)
                 .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
         Domain domain = loadDomainPort.loadById(command.domainId())
                 .orElseThrow(() -> new ApiException(ErrorCode.DOMAIN_NOT_FOUND));
