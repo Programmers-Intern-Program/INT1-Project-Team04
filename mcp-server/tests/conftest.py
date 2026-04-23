@@ -14,10 +14,29 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from mcp_server.config import get_settings
+
 # models import 로 Base.metadata 등록
 from mcp_server.db import models  # noqa: F401
 from mcp_server.db import session as db_session
 from mcp_server.db.base import Base
+from mcp_server.observability.tracing import get_langfuse
+
+
+@pytest.fixture(autouse=True)
+def disable_langfuse(monkeypatch: pytest.MonkeyPatch):
+    """모든 테스트에서 Langfuse 비활성. 외부 네트워크 호출 차단 + 격리.
+
+    활성화 검증이 필요한 테스트는 fixture 안에서 monkeypatch 로 다시 켤 것.
+    """
+    monkeypatch.setenv("LANGFUSE_ENABLED", "false")
+    monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
+    monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
+    get_settings.cache_clear()
+    get_langfuse.cache_clear()
+    yield
+    get_settings.cache_clear()
+    get_langfuse.cache_clear()
 
 
 @pytest_asyncio.fixture
