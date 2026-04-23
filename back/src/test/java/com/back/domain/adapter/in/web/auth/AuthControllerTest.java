@@ -2,31 +2,16 @@ package com.back.domain.adapter.in.web.auth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.back.domain.adapter.out.oauth.OAuthProviderClient;
-import com.back.domain.adapter.out.oauth.OAuthProviderClientRegistry;
-import com.back.domain.model.user.OAuthProvider;
-import com.back.domain.model.user.OAuthUserProfile;
+import com.back.support.IntegrationTestBase;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
-import org.springframework.test.context.ActiveProfiles;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@ActiveProfiles("test")
 @DisplayName("Web: OAuth 인증 API 테스트")
-class AuthControllerTest {
-
-    @LocalServerPort
-    private int port;
+class AuthControllerTest extends IntegrationTestBase {
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
@@ -74,41 +59,4 @@ class AuthControllerTest {
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
     }
 
-    private String baseUrl() {
-        return "http://localhost:" + port;
-    }
-
-    @TestConfiguration
-    static class FakeOAuthConfiguration {
-
-        @Bean
-        @Primary
-        OAuthProviderClientRegistry fakeOAuthProviderClientRegistry() {
-            return new OAuthProviderClientRegistry(List.of(new FakeGoogleOAuthProviderClient()));
-        }
-    }
-
-    private static class FakeGoogleOAuthProviderClient implements OAuthProviderClient {
-
-        @Override
-        public OAuthProvider provider() {
-            return OAuthProvider.GOOGLE;
-        }
-
-        @Override
-        public URI authorizationUri(String state) {
-            return URI.create("https://provider.test/google?state=" + state);
-        }
-
-        @Override
-        public OAuthUserProfile fetchProfile(String code) {
-            return new OAuthUserProfile(
-                    OAuthProvider.GOOGLE,
-                    "google-web-1",
-                    "web-oauth@example.com",
-                    "웹사용자",
-                    "provider-token"
-            );
-        }
-    }
 }
