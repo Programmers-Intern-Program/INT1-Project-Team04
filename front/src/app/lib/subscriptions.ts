@@ -1,5 +1,6 @@
 export type DomainPreset = {
   id: number;
+  name: string;
   label: string;
   example: string;
 };
@@ -40,28 +41,27 @@ export type CreateSubscriptionRequest = {
   notificationTargetAddress: string;
 };
 
-export const DOMAIN_PRESETS: DomainPreset[] = [
-  {
-    id: 1,
+const DOMAIN_COPY_BY_NAME: Record<
+  string,
+  Pick<DomainPreset, "label" | "example">
+> = {
+  "real-estate": {
     label: "부동산",
     example: "강남 투룸 전세 시세 바뀌면 알려줘",
   },
-  {
-    id: 2,
+  "law-regulation": {
     label: "법률/규제",
     example: "개인정보 보호법 개정안 나오면 알려줘",
   },
-  {
-    id: 3,
+  recruitment: {
     label: "채용",
     example: "넥슨 Java 3년 이상 채용 뜨면 알려줘",
   },
-  {
-    id: 4,
+  auction: {
     label: "경매/희소매물",
     example: "나라장터 GPU 서버 입찰 공고 뜨면 알려줘",
   },
-];
+};
 
 export const CADENCE_PRESETS: CadencePreset[] = [
   {
@@ -102,10 +102,27 @@ export const CHANNEL_PRESETS: ChannelPreset[] = [
   },
 ];
 
+export function buildDomainPresets(domains: DomainSummary[]): DomainPreset[] {
+  return domains.map((domain) => {
+    const copy = DOMAIN_COPY_BY_NAME[domain.name];
+
+    return {
+      id: domain.id,
+      name: domain.name,
+      label: copy?.label ?? domain.name,
+      example: copy?.example ?? `${domain.name} 변경사항이 생기면 알려줘`,
+    };
+  });
+}
+
 export function validateSubscriptionForm(
   form: SubscriptionFormState,
 ): Record<string, string> {
   const errors: Record<string, string> = {};
+
+  if (form.selectedDomainId <= 0) {
+    errors.domainId = "감시 영역을 선택해 주세요.";
+  }
 
   if (!form.query.trim()) {
     errors.query = "감시할 요청을 입력해 주세요.";
@@ -150,7 +167,7 @@ export type SubscriptionApiError = {
 };
 
 export type GetDomainsResult =
-  | { ok: true; data: DomainSummary[] }
+  | { ok: true; data: DomainPreset[] }
   | { ok: false; error: SubscriptionApiError };
 
 export type CreateSubscriptionResult =
@@ -193,7 +210,7 @@ export async function getDomains(
       };
     }
 
-    return { ok: true, data: readDomains(body) };
+    return { ok: true, data: buildDomainPresets(readDomains(body)) };
   } catch {
     return {
       ok: false,

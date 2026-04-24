@@ -4,12 +4,12 @@ import { describe, it } from "node:test";
 
 import {
   buildSubscriptionPayload,
+  buildDomainPresets,
   CADENCE_PRESETS,
   CHANNEL_PRESETS,
   createSubscription,
-  DOMAIN_PRESETS,
-  getApiBaseUrl,
   getDomains,
+  getApiBaseUrl,
   validateSubscriptionForm,
   type CreateSubscriptionRequest,
   type SubscriptionFetch,
@@ -66,16 +66,34 @@ describe("subscription form helpers", () => {
     );
   });
 
-  it("defines the four MVP domain presets with stable backend IDs", () => {
+  it("maps backend domain names to product labels and examples", () => {
+    const domains = buildDomainPresets([
+      { id: 11, name: "real-estate" },
+      { id: 12, name: "law-regulation" },
+      { id: 13, name: "recruitment" },
+      { id: 14, name: "auction" },
+    ]);
+
     assert.deepEqual(
-      DOMAIN_PRESETS.map((domain) => [domain.id, domain.label]),
+      domains.map((domain) => [domain.id, domain.name, domain.label]),
       [
-        [1, "부동산"],
-        [2, "법률/규제"],
-        [3, "채용"],
-        [4, "경매/희소매물"],
+        [11, "real-estate", "부동산"],
+        [12, "law-regulation", "법률/규제"],
+        [13, "recruitment", "채용"],
+        [14, "auction", "경매/희소매물"],
       ],
     );
+  });
+
+  it("falls back to the backend name when there is no product copy for a domain", () => {
+    const [domain] = buildDomainPresets([{ id: 99, name: "custom-domain" }]);
+
+    assert.deepEqual(domain, {
+      id: 99,
+      name: "custom-domain",
+      label: "custom-domain",
+      example: "custom-domain 변경사항이 생기면 알려줘",
+    });
   });
 
   it("maps cadence presets to Spring cron expressions", () => {
@@ -118,16 +136,17 @@ describe("subscription form helpers", () => {
     });
   });
 
-  it("returns field errors for an empty query and empty notification target", () => {
+  it("returns field errors for an empty domain, query, and notification target", () => {
     const errors = validateSubscriptionForm({
       query: " ",
-      selectedDomainId: 1,
+      selectedDomainId: 0,
       cadenceId: "hourly",
       notificationChannel: "EMAIL",
       notificationTargetAddress: " ",
     });
 
     assert.deepEqual(errors, {
+      domainId: "감시 영역을 선택해 주세요.",
       query: "감시할 요청을 입력해 주세요.",
       notificationTargetAddress: "알림을 받을 대상을 입력해 주세요.",
     });
@@ -182,7 +201,7 @@ describe("subscription API client", () => {
     assert.equal(result.ok ? result.data.scheduleId : "", "sch-1");
   });
 
-  it("returns domain summaries for a successful backend response", async () => {
+  it("returns domain presets for a successful backend response", async () => {
     const fetcher: SubscriptionFetch = async (input, init) => {
       assert.equal(input, "http://api.test/api/domains");
       assert.equal(init?.method, "GET");
@@ -204,8 +223,18 @@ describe("subscription API client", () => {
     assert.deepEqual(result, {
       ok: true,
       data: [
-        { id: 1, name: "real-estate" },
-        { id: 2, name: "law-regulation" },
+        {
+          id: 1,
+          name: "real-estate",
+          label: "부동산",
+          example: "강남 투룸 전세 시세 바뀌면 알려줘",
+        },
+        {
+          id: 2,
+          name: "law-regulation",
+          label: "법률/규제",
+          example: "개인정보 보호법 개정안 나오면 알려줘",
+        },
       ],
     });
   });
