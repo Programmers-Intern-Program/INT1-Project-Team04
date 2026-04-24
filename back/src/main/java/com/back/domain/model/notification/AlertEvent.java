@@ -2,6 +2,7 @@ package com.back.domain.model.notification;
 
 import com.back.domain.model.subscription.Subscription;
 import java.time.LocalDateTime;
+import java.util.List;
 
 public record AlertEvent(
         String id,
@@ -9,8 +10,7 @@ public record AlertEvent(
         String title,
         String summary,
         String reason,
-        String sourceUrl,
-        AlertSeverity severity,
+        List<AlertSource> sources,
         LocalDateTime createdAt
 ) {
 }
