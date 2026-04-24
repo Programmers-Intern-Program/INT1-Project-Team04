@@ -1,14 +1,12 @@
-"""FastMCP 서버 인스턴스 + 엔트리포인트 단위 테스트.
-
-`/health` 라우트의 실제 응답 검증은 SSE 수동 검증 (README) 으로 처리.
-FastMCP `_custom_starlette_routes` 는 비공개 attr 이라 단위 테스트 의존을 피한다.
-"""
+"""FastMCP 서버 인스턴스 + 엔트리포인트 단위 테스트."""
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+from pydantic import ValidationError
+from starlette.testclient import TestClient
 
 from mcp_server import server as server_mod
-from mcp_server.config import get_settings
+from mcp_server.config import Settings, get_settings
 
 
 def test_mcp_instance_is_fastmcp() -> None:
@@ -37,15 +35,25 @@ async def test_lifespan_calls_shutdown_hooks(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(server_mod, "reset_engine", fake_reset)
     monkeypatch.setattr(server_mod, "flush_langfuse", fake_flush)
 
-    async with server_mod._lifespan(server_mod.mcp):
+    async with server_mod.server_lifespan(server_mod.mcp):
         pass
 
     assert called["reset"] is True
     assert called["flush"] is True
 
 
-def test_main_rejects_unknown_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_settings_rejects_unknown_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unknown transport 는 Settings 인스턴스화 단계에서 pydantic Literal 검증으로 거부된다."""
     monkeypatch.setenv("MCP_TRANSPORT", "websocket")
     get_settings.cache_clear()
-    with pytest.raises(ValueError, match="Unknown MCP_TRANSPORT"):
-        server_mod.main()
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_health_endpoint_returns_ok() -> None:
+    """SSE app 에 마운트된 /health 가 200 + {"status":"ok"} 를 돌려준다."""
+    app = server_mod.mcp.sse_app()
+    with TestClient(app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}

@@ -93,11 +93,11 @@ class ApiCache(Base):
     api_type: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     cached_at: Mapped[datetime] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
         server_default=func.current_timestamp(),
     )
-    expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CrawlCache(Base):
@@ -113,11 +113,11 @@ class CrawlCache(Base):
     url: Mapped[str] = mapped_column(String(2048), nullable=False, unique=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     crawled_at: Mapped[datetime] = mapped_column(
-        DateTime,
+        DateTime(timezone=True),
         nullable=False,
         server_default=func.current_timestamp(),
     )
-    expired_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 __all__ = ["ApiSource", "CrawlSource", "ApiCache", "CrawlCache"]

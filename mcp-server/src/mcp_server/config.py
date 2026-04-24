@@ -5,9 +5,12 @@
 """
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+McpTransport = Literal["stdio", "sse"]
 
 
 class Settings(BaseSettings):
@@ -20,8 +23,7 @@ class Settings(BaseSettings):
     )
 
     pg_url: str = Field(
-        default="postgresql+asyncpg://devuser:devpass@localhost:5432/mcp_dev",
-        description="MCP 내부 DB 접속 URL (asyncpg 드라이버)",
+        description="MCP 내부 DB 접속 URL (asyncpg 드라이버). default 없음 — .env 미로드 시 ValidationError.",
     )
 
     langfuse_enabled: bool = Field(default=True)
@@ -29,7 +31,11 @@ class Settings(BaseSettings):
     langfuse_public_key: str = Field(default="")
     langfuse_secret_key: str = Field(default="")
 
-    mcp_transport: str = Field(default="stdio", description="stdio | sse")
+    mcp_transport: McpTransport = Field(
+        default="stdio",
+        description="MCP transport: stdio (Inspector/로컬) 또는 sse (백엔드 연동). "
+        "다른 값은 pydantic validation 단계에서 즉시 거부.",
+    )
     mcp_sse_host: str = Field(default="0.0.0.0")
     mcp_sse_port: int = Field(default=8090)
 

@@ -12,7 +12,11 @@ import pytest
 from mcp_server.db.models import CrawlSource
 from mcp_server.db.session import get_session
 from mcp_server.sources import crawl_source_service
-from mcp_server.sources.errors import SourceFetchError, SourceNotFoundError
+from mcp_server.sources.errors import (
+    SourceFetchError,
+    SourceNotFoundError,
+    SourceNotImplementedError,
+)
 
 
 async def _create_source(**overrides) -> CrawlSource:
@@ -37,10 +41,13 @@ async def test_fetch_raises_source_not_found_for_unknown_id(patched_session_fact
 
 
 @pytest.mark.asyncio
-async def test_fetch_currently_raises_source_fetch_error(patched_session_factory):
-    """Phase 1 골격: 등록된 source 라도 렌더링은 미구현 → SourceFetchError."""
+async def test_fetch_currently_raises_source_not_implemented(patched_session_factory):
+    """Phase 1 골격: 등록된 source 라도 렌더링 미구현 → SourceNotImplementedError.
+
+    SourceFetchError 가 아닌 이유: 재시도 무의미한 영구 실패라 구분 필요.
+    """
     source = await _create_source()
-    with pytest.raises(SourceFetchError):
+    with pytest.raises(SourceNotImplementedError):
         await crawl_source_service.fetch(source_id=source.id)
 
 

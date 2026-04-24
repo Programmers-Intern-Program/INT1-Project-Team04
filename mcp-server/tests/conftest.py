@@ -4,6 +4,14 @@ SQLite in-memory 비동기 DB 를 사용해 모델/세션을 격리 테스트한
 실제 Postgres 통합 테스트는 별도 (testcontainers)
 """
 
+# 주의: Settings 의 pg_url 은 default 가 제거되어 .env 미로드 시 ValidationError.
+# 테스트 환경에서 mcp_server.server 모듈 import 시점 (collection) 에도 값이 필요하므로
+# monkeypatch fixture 보다 먼저, conftest.py 로드 직후 환경변수를 선점한다.
+# patched_session_factory 가 실제 엔진을 교체하므로 여기 값은 placeholder.
+import os
+
+os.environ.setdefault("PG_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
+
 from collections.abc import AsyncIterator
 
 import pytest
@@ -25,10 +33,13 @@ from mcp_server.observability.tracing import get_langfuse
 
 @pytest.fixture(autouse=True)
 def disable_langfuse(monkeypatch: pytest.MonkeyPatch):
-    """모든 테스트에서 Langfuse 비활성. 외부 네트워크 호출 차단 + 격리.
+    """모든 테스트에서 Langfuse 비활성 + 테스트용 PG_URL 주입.
 
+    PG_URL 은 config.py 에서 default 가 제거되어 운영에서 .env 미로드 시 즉시 실패하도록 바뀜.
+    테스트는 patched_session_factory 로 실제 엔진을 교체하므로 여기서 설정하는 값은 placeholder.
     활성화 검증이 필요한 테스트는 fixture 안에서 monkeypatch 로 다시 켤 것.
     """
+    monkeypatch.setenv("PG_URL", "postgresql+asyncpg://test:test@localhost:5432/test")
     monkeypatch.setenv("LANGFUSE_ENABLED", "false")
     monkeypatch.setenv("LANGFUSE_PUBLIC_KEY", "")
     monkeypatch.setenv("LANGFUSE_SECRET_KEY", "")
