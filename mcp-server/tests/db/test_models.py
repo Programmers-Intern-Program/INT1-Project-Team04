@@ -72,7 +72,7 @@ async def test_api_cache_uuid_pk_and_unique_site_url(patched_session_factory):
     """api_cache: UUID PK 자동 생성 + site_url UNIQUE."""
     from mcp_server.db.session import get_session
 
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC)
 
     async with get_session() as session:
         api_source = ApiSource(tool_name="t", name="n", url_template="https://a")
