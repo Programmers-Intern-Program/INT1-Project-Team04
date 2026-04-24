@@ -1,19 +1,22 @@
 package com.back.domain.adapter.out.ai;
 
 import com.back.domain.application.port.out.RunAiMonitorPort;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
-@RequiredArgsConstructor
-@ConditionalOnBean(ChatClient.class)
 public class SpringAiMonitorAdapter implements RunAiMonitorPort {
 
+    @Nullable
     private final ChatClient monitorChatClient;
+
+    public SpringAiMonitorAdapter(@Autowired(required = false) ChatClient monitorChatClient) {
+        this.monitorChatClient = monitorChatClient;
+    }
 
     // [레버 1] system prompt로 tool 호출 순서/조건 유도
     // [레버 2] MCP tool description에 순서/조건 명시 → Python 담당자 담당
@@ -29,6 +32,10 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort {
 
     @Override
     public void run() {
+        if (monitorChatClient == null) {
+            log.warn("[SpringAiMonitorAdapter] ChatClient 미구성 (ANTHROPIC_API_KEY 미설정) — 스킵");
+            return;
+        }
         log.info("[SpringAiMonitorAdapter] AI 모니터링 트리거 전송");
         monitorChatClient.prompt()
                 .system(SYSTEM_PROMPT)

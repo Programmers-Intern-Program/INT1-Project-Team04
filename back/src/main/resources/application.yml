@@ -41,7 +41,7 @@ management:
 
   ai:
     anthropic:
-      api-key: ${ANTHROPIC_API_KEY:YOUR_API_KEY}
+      api-key: ${ANTHROPIC_API_KEY:} # 현재 없어도 warn만 내뱉고 중지되지 않도록 되어있음
       chat:
         options:
           model: claude-sonnet-4-6
