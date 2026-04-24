@@ -1,5 +1,6 @@
 package com.back.domain.adapter.out.ai;
 
+import java.util.Optional;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -12,10 +13,11 @@ import org.springframework.context.annotation.Configuration;
 public class AiConfig {
 
     @Bean
-    public ChatClient monitorChatClient(ChatModel chatModel, ToolCallbackProvider toolCallbackProvider) {
-        // spring-ai-starter-mcp-client가 ToolCallbackProvider를 자동 구성 → MCP tool 자동 연결
-        return ChatClient.builder(chatModel)
-                .defaultTools(toolCallbackProvider)
-                .build();
+    public ChatClient monitorChatClient(ChatModel chatModel, Optional<ToolCallbackProvider> toolCallbackProvider) {
+        // TEST : spring.ai.mcp.client.enabled: false로 MCP를 비활성화하자 ToolCallbackProvider 빈이 사라짐. Optional로 변경
+
+        ChatClient.Builder builder = ChatClient.builder(chatModel);
+        toolCallbackProvider.ifPresent(builder::defaultTools);
+        return builder.build();
     }
 }

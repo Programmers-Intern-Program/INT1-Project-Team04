@@ -58,23 +58,6 @@ management:
       probes:
         enabled: true
 
-  ai:
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY:} # 현재 없어도 warn만 내뱉고 중지되지 않도록 되어있음
-      chat:
-        options:
-          model: claude-sonnet-4-6
-    mcp:
-      client:
-        sse:
-          connections:
-            python-mcp:
-              url: ${MCP_SERVER_URL:http://localhost:8090}
-
-schedule:
-  monitor:
-    fixed-delay-ms: ${SCHEDULE_MONITOR_FIXED_DELAY_MS:300000}
-
 app:
   frontend:
     base-url: ${APP_FRONTEND_BASE_URL:http://localhost:3000}
