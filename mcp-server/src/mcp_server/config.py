@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     mcp_sse_host: str = Field(default="0.0.0.0")
     mcp_sse_port: int = Field(default=8090)
 
+    # 도메인별 외부 API 키 — 도메인 추가 시 여기 누적.
+    # default="" 유지: 키 미발급 상태에서도 import/단위 테스트는 가능해야 함.
+    # 실제 호출 직전 도구 레이어에서 빈 값이면 거부하는 책임.
+    molit_trade_api_key: str = Field(
+        default="",
+        description="국토교통부 아파트 매매 실거래가 (RTMSDataSvcAptTradeDev) 서비스 키.",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
