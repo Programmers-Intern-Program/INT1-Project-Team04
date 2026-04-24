@@ -39,6 +39,23 @@ management:
       probes:
         enabled: true
 
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:YOUR_API_KEY}
+      chat:
+        options:
+          model: claude-sonnet-4-6
+    mcp:
+      client:
+        sse:
+          connections:
+            python-mcp:
+              url: ${MCP_SERVER_URL:http://localhost:8090}
+
+schedule:
+  monitor:
+    fixed-delay-ms: ${SCHEDULE_MONITOR_FIXED_DELAY_MS:300000}
+
 app:
   frontend:
     base-url: ${APP_FRONTEND_BASE_URL:http://localhost:3000}
