@@ -21,6 +21,7 @@ import com.back.domain.model.user.User;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -176,6 +177,11 @@ class CreateSubscriptionServiceTest {
         @Override
         public Optional<Domain> loadById(Long domainId) {
             return Optional.ofNullable(domain);
+        }
+
+        @Override
+        public List<Domain> loadAll() {
+            return domain == null ? List.of() : List.of(domain);
         }
     }
 

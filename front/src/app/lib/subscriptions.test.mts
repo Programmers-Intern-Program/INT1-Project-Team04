@@ -9,6 +9,7 @@ import {
   createSubscription,
   DOMAIN_PRESETS,
   getApiBaseUrl,
+  getDomains,
   validateSubscriptionForm,
   type CreateSubscriptionRequest,
   type SubscriptionFetch,
@@ -181,6 +182,34 @@ describe("subscription API client", () => {
     assert.equal(result.ok ? result.data.scheduleId : "", "sch-1");
   });
 
+  it("returns domain summaries for a successful backend response", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/domains");
+      assert.equal(init?.method, "GET");
+
+      return new Response(
+        JSON.stringify([
+          { id: 1, name: "real-estate" },
+          { id: 2, name: "law-regulation" },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await getDomains({
+      baseUrl: "http://api.test/",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: [
+        { id: 1, name: "real-estate" },
+        { id: 2, name: "law-regulation" },
+      ],
+    });
+  });
+
   it("returns backend error details for non-2xx responses", async () => {
     const fetcher: SubscriptionFetch = async () =>
       new Response(
@@ -207,6 +236,30 @@ describe("subscription API client", () => {
     });
   });
 
+  it("returns backend error details when domain loading fails", async () => {
+    const fetcher: SubscriptionFetch = async () =>
+      new Response(
+        JSON.stringify({
+          code: "REQUEST_FAILED",
+          message: "도메인 목록을 불러오지 못했습니다.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+
+    const result = await getDomains({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "REQUEST_FAILED",
+        message: "도메인 목록을 불러오지 못했습니다.",
+      },
+    });
+  });
+
   it("returns a network error when the request cannot reach the backend", async () => {
     const fetcher: SubscriptionFetch = async () => {
       throw new Error("connection refused");
@@ -222,6 +275,25 @@ describe("subscription API client", () => {
       error: {
         code: "NETWORK_ERROR",
         message: "서버에 연결할 수 없습니다.",
+      },
+    });
+  });
+
+  it("returns a domain loading network error when the request cannot reach the backend", async () => {
+    const fetcher: SubscriptionFetch = async () => {
+      throw new Error("connection refused");
+    };
+
+    const result = await getDomains({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: "감시 영역을 불러올 수 없습니다.",
       },
     });
   });

@@ -4,6 +4,11 @@ export type DomainPreset = {
   example: string;
 };
 
+export type DomainSummary = {
+  id: number;
+  name: string;
+};
+
 export type CadencePresetId = "hourly" | "dailyMorning" | "weekdayMorning";
 
 export type CadencePreset = {
@@ -144,6 +149,10 @@ export type SubscriptionApiError = {
   message: string;
 };
 
+export type GetDomainsResult =
+  | { ok: true; data: DomainSummary[] }
+  | { ok: false; error: SubscriptionApiError };
+
 export type CreateSubscriptionResult =
   | { ok: true; data: SubscriptionResponse }
   | { ok: false; error: SubscriptionApiError };
@@ -158,6 +167,42 @@ export function getApiBaseUrl(): string {
     process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
     "http://localhost:8080"
   );
+}
+
+export async function getDomains(
+  options: { baseUrl?: string; fetcher?: SubscriptionFetch } = {},
+): Promise<GetDomainsResult> {
+  const baseUrl = (options.baseUrl ?? getApiBaseUrl()).replace(/\/$/, "");
+  const fetcher = options.fetcher ?? fetch;
+
+  try {
+    const response = await fetcher(`${baseUrl}/api/domains`, {
+      method: "GET",
+    });
+    const body: unknown = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      return {
+        ok: false,
+        error: {
+          code: getStringField(body, "code") ?? "REQUEST_FAILED",
+          message:
+            getStringField(body, "message") ??
+            "도메인 목록을 불러오지 못했습니다.",
+        },
+      };
+    }
+
+    return { ok: true, data: readDomains(body) };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: "감시 영역을 불러올 수 없습니다.",
+      },
+    };
+  }
 }
 
 export async function createSubscription(
@@ -207,4 +252,30 @@ function getStringField(value: unknown, field: string): string | null {
 
   const fieldValue = value[field as keyof typeof value];
   return typeof fieldValue === "string" ? fieldValue : null;
+}
+
+function getNumberField(value: unknown, field: string): number | null {
+  if (!value || typeof value !== "object" || !(field in value)) {
+    return null;
+  }
+
+  const fieldValue = value[field as keyof typeof value];
+  return typeof fieldValue === "number" ? fieldValue : null;
+}
+
+function readDomains(value: unknown): DomainSummary[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const id = getNumberField(item, "id");
+    const name = getStringField(item, "name");
+
+    if (id === null || name === null) {
+      return [];
+    }
+
+    return [{ id, name }];
+  });
 }
