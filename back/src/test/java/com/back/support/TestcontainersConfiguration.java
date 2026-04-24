@@ -1,5 +1,6 @@
 package com.back.support;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import java.util.Map;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -39,5 +40,10 @@ public class TestcontainersConfiguration {
     @Bean
     DatabaseCleanup databaseCleanup(EntityManager entityManager, JdbcTemplate jdbcTemplate) {
         return new DatabaseCleanup(entityManager, jdbcTemplate);
+    }
+
+    @Bean
+    ObjectMapper objectMapper() {
+        return new ObjectMapper();
     }
 }
