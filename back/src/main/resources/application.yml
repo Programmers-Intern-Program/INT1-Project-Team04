@@ -92,4 +92,5 @@ app:
     telegram:
       enabled: ${APP_NOTIFICATION_TELEGRAM_ENABLED:false}
       bot-token: ${APP_NOTIFICATION_TELEGRAM_BOT_TOKEN:}
+      bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
       api-base-url: ${APP_NOTIFICATION_TELEGRAM_API_BASE_URL:https://api.telegram.org}

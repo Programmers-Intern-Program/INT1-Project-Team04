@@ -13,5 +13,7 @@ public interface UserOAuthConnectionJpaRepository extends JpaRepository<UserOAut
 
     List<UserOAuthConnectionJpaEntity> findByUserId(Long userId);
 
+    Optional<UserOAuthConnectionJpaEntity> findFirstByUserIdAndProvider(Long userId, OAuthProvider provider);
+
     void deleteByUserId(Long userId);
 }

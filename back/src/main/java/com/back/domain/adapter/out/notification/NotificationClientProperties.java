@@ -95,6 +95,7 @@ public class NotificationClientProperties {
     public static class Telegram {
         private boolean enabled = false;
         private String botToken = "";
+        private String botUsername = "";
         private String apiBaseUrl = "https://api.telegram.org";
 
         public boolean isEnabled() {
@@ -111,6 +112,14 @@ public class NotificationClientProperties {
 
         public void setBotToken(String botToken) {
             this.botToken = botToken;
+        }
+
+        public String getBotUsername() {
+            return botUsername;
+        }
+
+        public void setBotUsername(String botUsername) {
+            this.botUsername = botUsername;
         }
 
         public String getApiBaseUrl() {

@@ -6,8 +6,13 @@ import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaEntity
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaRepository;
+import com.back.domain.application.port.out.LoadNotificationEndpointPort;
+import com.back.domain.application.port.out.SaveNotificationEndpointPort;
 import com.back.domain.application.result.MemberResult;
 import com.back.domain.application.result.OAuthLoginResult;
+import com.back.domain.model.notification.NotificationChannel;
+import com.back.domain.model.notification.NotificationEndpoint;
+import com.back.domain.model.user.OAuthProvider;
 import com.back.domain.model.user.OAuthUserProfile;
 import java.time.LocalDateTime;
 import lombok.RequiredArgsConstructor;
@@ -26,10 +31,13 @@ public class OAuthLoginService {
     private final UserSessionJpaRepository sessionRepository;
     private final SessionTokenService sessionTokenService;
     private final MemberService memberService;
+    private final LoadNotificationEndpointPort loadNotificationEndpointPort;
+    private final SaveNotificationEndpointPort saveNotificationEndpointPort;
 
     public OAuthLoginResult login(OAuthUserProfile profile) {
         UserJpaEntity user = findOrCreateUser(profile);
         createConnectionIfMissing(user, profile);
+        saveDiscordNotificationEndpointIfNeeded(user, profile);
 
         String rawToken = sessionTokenService.createRawToken();
         LocalDateTime expiresAt = LocalDateTime.now().plusDays(DEFAULT_SESSION_DAYS);
@@ -58,6 +66,23 @@ public class OAuthLoginService {
                 profile.providerUserId(),
                 profile.email(),
                 profile.accessToken()
+        ));
+    }
+
+    private void saveDiscordNotificationEndpointIfNeeded(UserJpaEntity user, OAuthUserProfile profile) {
+        if (profile.provider() != OAuthProvider.DISCORD) {
+            return;
+        }
+
+        NotificationEndpoint existingEndpoint = loadNotificationEndpointPort
+                .loadEnabledByUserIdAndChannel(user.getId(), NotificationChannel.DISCORD_DM)
+                .orElse(null);
+        saveNotificationEndpointPort.save(new NotificationEndpoint(
+                existingEndpoint == null ? null : existingEndpoint.id(),
+                user.getId(),
+                NotificationChannel.DISCORD_DM,
+                profile.providerUserId(),
+                true
         ));
     }
 

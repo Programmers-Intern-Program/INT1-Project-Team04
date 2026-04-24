@@ -3,6 +3,7 @@
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
+import { SubscriptionMvp } from "./components/subscription-mvp";
 import {
   buildOAuthLoginUrl,
   getCurrentMember,
@@ -12,7 +13,6 @@ import {
   type Member,
   type OAuthProvider,
 } from "./lib/auth";
-import { SubscriptionMvp } from "./components/subscription-mvp";
 
 type AuthState =
   | { status: "loading" }
@@ -30,12 +30,12 @@ const LOGIN_PROVIDERS: Array<{
   {
     id: "kakao",
     label: "카카오",
-    className: "border-[#f6d90f] bg-[#fee500] text-zinc-950 hover:bg-[#f3dc22]",
+    className: "border-[#f6d90f] bg-[#fee500] text-stone-950 hover:bg-[#f3dc22]",
   },
   {
     id: "google",
     label: "Google",
-    className: "border-zinc-300 bg-white text-zinc-950 hover:bg-zinc-50",
+    className: "border-stone-300 bg-white text-stone-950 hover:bg-stone-50",
   },
   {
     id: "discord",
@@ -49,6 +49,7 @@ export default function Home() {
   const [nickname, setNickname] = useState("");
   const [actionState, setActionState] = useState<ActionState>("idle");
   const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -92,7 +93,7 @@ export default function Home() {
     if (result.ok) {
       setAuthState({ status: "member", member: result.data });
       setNickname(result.data.nickname);
-      setMessage("닉네임이 저장되었습니다.");
+      setMessage("저장됐습니다.");
       return;
     }
 
@@ -107,6 +108,7 @@ export default function Home() {
   async function handleLogout() {
     await logout();
     setAuthState({ status: "guest" });
+    setProfileOpen(false);
   }
 
   async function handleWithdraw() {
@@ -123,6 +125,7 @@ export default function Home() {
     if (result.ok || result.status === "unauthenticated") {
       setAuthState({ status: "guest" });
       setConfirmWithdraw(false);
+      setProfileOpen(false);
       return;
     }
 
@@ -131,9 +134,9 @@ export default function Home() {
 
   if (authState.status === "loading") {
     return (
-      <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-zinc-950">
+      <main className="min-h-screen bg-[#f4f1e8] px-4 py-8 text-stone-950">
         <div className="mx-auto flex min-h-[60vh] max-w-3xl items-center justify-center">
-          <p className="text-sm font-semibold text-zinc-500">확인 중...</p>
+          <p className="text-sm font-black text-stone-500">확인 중</p>
         </div>
       </main>
     );
@@ -141,16 +144,13 @@ export default function Home() {
 
   if (authState.status === "guest") {
     return (
-      <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-zinc-950">
-        <section className="mx-auto flex min-h-[70vh] max-w-xl flex-col justify-center gap-8">
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-emerald-700">
-              관심사 알림
-            </p>
-            <h1 className="text-4xl font-bold tracking-normal">지켜봐줄게</h1>
-            <p className="text-base leading-7 text-zinc-600">
-              카카오, Google, Discord 계정으로 바로 시작할 수 있습니다.
-            </p>
+      <main className="min-h-screen bg-[#f4f1e8] px-4 py-8 text-stone-950">
+        <section className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center gap-8">
+          <div>
+            <p className="text-sm font-black text-emerald-700">관심사 알림</p>
+            <h1 className="mt-2 text-5xl font-black tracking-tight">
+              지켜봐줄게
+            </h1>
           </div>
 
           <div className="grid gap-3">
@@ -158,7 +158,7 @@ export default function Home() {
               <a
                 key={provider.id}
                 href={buildOAuthLoginUrl(provider.id)}
-                className={`flex h-12 items-center justify-center rounded-lg border px-4 text-sm font-bold transition ${provider.className}`}
+                className={`flex h-13 items-center justify-center rounded-2xl border px-4 text-sm font-black transition ${provider.className}`}
               >
                 {provider.label}
               </a>
@@ -171,18 +171,20 @@ export default function Home() {
 
   if (authState.status === "error") {
     return (
-      <main className="min-h-screen bg-[#f7f7f4] px-4 py-8 text-zinc-950">
+      <main className="min-h-screen bg-[#f4f1e8] px-4 py-8 text-stone-950">
         <section className="mx-auto flex min-h-[60vh] max-w-xl flex-col justify-center gap-4">
-          <h1 className="text-2xl font-bold tracking-normal">
+          <h1 className="text-2xl font-black tracking-tight">
             상태를 불러오지 못했습니다.
           </h1>
-          <p className="text-sm leading-6 text-red-700">{authState.message}</p>
+          <p className="text-sm font-bold leading-6 text-red-700">
+            {authState.message}
+          </p>
           <button
             type="button"
             onClick={() => setAuthState({ status: "guest" })}
-            className="h-11 rounded-lg border border-zinc-300 bg-white px-4 text-sm font-bold text-zinc-900"
+            className="h-12 rounded-2xl border border-stone-300 bg-white px-4 text-sm font-black text-stone-900"
           >
-            로그인 화면으로 이동
+            로그인
           </button>
         </section>
       </main>
@@ -190,108 +192,122 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f7f4] text-zinc-950">
-      <section className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5 md:px-6 lg:flex-row lg:items-center lg:justify-between">
+    <main className="min-h-screen bg-[#f4f1e8] text-stone-950">
+      <header className="border-b border-stone-200/80 bg-[#fffaf0]/90 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-5 md:px-6">
           <div>
-            <p className="text-sm font-semibold text-emerald-700">
-              관심사 알림
-            </p>
-            <h1 className="mt-1 text-2xl font-bold tracking-normal">
+            <p className="text-sm font-black text-emerald-700">관심사 알림</p>
+            <h1 className="mt-1 text-2xl font-black tracking-tight">
               지켜봐줄게
             </h1>
           </div>
 
-          <div className="grid gap-3 lg:min-w-[520px] lg:grid-cols-[1fr_auto] lg:items-end">
-            <div className="grid gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-bold">
-                  {authState.member.nickname}
-                </span>
-                <span className="text-xs font-semibold text-zinc-500">
-                  {authState.member.email}
-                </span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {authState.member.providers.map((provider) => (
-                  <span
-                    key={provider}
-                    className="rounded-md bg-white px-2 py-1 text-xs font-bold text-zinc-700"
-                  >
-                    {provider}
-                  </span>
-                ))}
-              </div>
-            </div>
-
+          <div className="relative">
             <button
               type="button"
-              onClick={handleLogout}
-              className="h-11 rounded-lg border border-zinc-300 bg-white px-4 text-sm font-bold text-zinc-900 transition hover:bg-zinc-50"
+              onClick={() => {
+                setProfileOpen((current) => !current);
+                setConfirmWithdraw(false);
+                setMessage("");
+              }}
+              className="flex h-12 items-center gap-3 rounded-full border border-stone-200 bg-white px-3 pr-5 text-sm font-black text-stone-950 shadow-sm transition hover:border-stone-400"
+              aria-expanded={profileOpen}
             >
-              로그아웃
+              <span className="grid size-8 place-items-center rounded-full bg-emerald-700 text-white">
+                {getInitial(authState.member.nickname)}
+              </span>
+              <span>{authState.member.nickname}</span>
             </button>
+
+            {profileOpen ? (
+              <div className="absolute right-0 z-20 mt-3 w-[min(360px,calc(100vw-2rem))] rounded-[28px] border border-stone-200 bg-white p-4 shadow-[0_24px_80px_rgba(28,25,23,0.18)]">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-lg font-black tracking-tight">프로필</h2>
+                    <p className="mt-1 text-sm font-bold text-stone-500">
+                      {maskEmail(authState.member.email)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setProfileOpen(false)}
+                    className="grid size-9 place-items-center rounded-full bg-stone-100 text-sm font-black text-stone-700"
+                    aria-label="닫기"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <form onSubmit={handleNicknameSubmit} className="grid gap-2">
+                  <label htmlFor="nickname" className="text-sm font-black">
+                    닉네임
+                  </label>
+                  <input
+                    id="nickname"
+                    value={nickname}
+                    onChange={(event) => setNickname(event.target.value)}
+                    className="h-12 rounded-2xl border border-stone-200 bg-[#fbfaf7] px-4 text-sm font-bold outline-none transition focus:border-emerald-700 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                  />
+                  <button
+                    type="submit"
+                    disabled={actionState !== "idle" || !nickname.trim()}
+                    className="h-12 rounded-2xl bg-stone-950 px-4 text-sm font-black text-white transition hover:bg-stone-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+                  >
+                    {actionState === "saving" ? "저장 중" : "저장"}
+                  </button>
+                </form>
+
+                {message ? (
+                  <p className="mt-3 text-sm font-bold text-stone-600">
+                    {message}
+                  </p>
+                ) : null}
+
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="h-11 rounded-2xl border border-stone-200 bg-white px-4 text-sm font-black text-stone-900 transition hover:bg-stone-50"
+                  >
+                    로그아웃
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleWithdraw}
+                    disabled={actionState === "withdrawing"}
+                    className="h-11 rounded-2xl bg-red-700 px-4 text-sm font-black text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-stone-300"
+                  >
+                    {actionState === "withdrawing"
+                      ? "처리 중"
+                      : confirmWithdraw
+                        ? "삭제 확인"
+                        : "계정 삭제"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
-      </section>
+      </header>
 
-      <section className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="min-w-0">
-          <SubscriptionMvp
-            onUnauthenticated={() => setAuthState({ status: "guest" })}
-          />
-        </div>
-
-        <aside className="grid content-start gap-4">
-          <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-bold tracking-normal">회원정보</h2>
-            <form onSubmit={handleNicknameSubmit} className="mt-4 grid gap-3">
-              <label
-                htmlFor="nickname"
-                className="text-sm font-semibold text-zinc-800"
-              >
-                닉네임
-              </label>
-              <input
-                id="nickname"
-                value={nickname}
-                onChange={(event) => setNickname(event.target.value)}
-                className="h-11 rounded-lg border border-zinc-300 bg-zinc-50 px-3 text-sm outline-none transition focus:border-emerald-700 focus:bg-white focus:ring-4 focus:ring-emerald-100"
-              />
-              <button
-                type="submit"
-                disabled={actionState !== "idle" || !nickname.trim()}
-                className="h-11 rounded-lg bg-zinc-950 px-4 text-sm font-bold text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-              >
-                {actionState === "saving" ? "저장 중..." : "저장"}
-              </button>
-            </form>
-            {message ? (
-              <p className="mt-3 text-sm font-semibold text-zinc-600">
-                {message}
-              </p>
-            ) : null}
-          </section>
-
-          <section className="rounded-lg border border-red-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-bold tracking-normal text-red-900">
-              회원 탈퇴
-            </h2>
-            <button
-              type="button"
-              onClick={handleWithdraw}
-              disabled={actionState === "withdrawing"}
-              className="mt-4 h-11 w-full rounded-lg bg-red-700 px-4 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
-            >
-              {actionState === "withdrawing"
-                ? "처리 중..."
-                : confirmWithdraw
-                  ? "탈퇴 확인"
-                  : "탈퇴"}
-            </button>
-          </section>
-        </aside>
+      <section className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
+        <SubscriptionMvp
+          onUnauthenticated={() => setAuthState({ status: "guest" })}
+        />
       </section>
     </main>
   );
+}
+
+function getInitial(nickname: string): string {
+  return nickname.trim().at(0) ?? "나";
+}
+
+function maskEmail(email: string): string {
+  const [localPart, domain] = email.split("@");
+  if (!localPart || !domain) {
+    return "연결됨";
+  }
+
+  return `${localPart.at(0) ?? ""}***@${domain}`;
 }

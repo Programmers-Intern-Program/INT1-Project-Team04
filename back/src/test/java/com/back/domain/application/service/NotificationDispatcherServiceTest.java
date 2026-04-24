@@ -10,6 +10,7 @@ import com.back.domain.model.notification.NotificationChannel;
 import com.back.domain.model.notification.NotificationDelivery;
 import com.back.domain.model.notification.NotificationDeliveryStatus;
 import com.back.domain.model.notification.NotificationSendResult;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,11 +26,13 @@ class NotificationDispatcherServiceTest {
         LocalDateTime now = LocalDateTime.of(2026, 4, 23, 10, 0);
         NotificationDelivery pending = pendingDelivery(0);
         FakeSaveNotificationDeliveryPort savePort = new FakeSaveNotificationDeliveryPort();
+        SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         NotificationDispatcherService service = new NotificationDispatcherService(
                 fixedLoader(pending),
                 List.of(fixedSender(NotificationSendResult.success("provider-1"))),
                 savePort,
-                new NotificationClientProperties()
+                new NotificationClientProperties(),
+                meterRegistry
         );
 
         int dispatched = service.dispatchPending(now);
@@ -42,6 +45,11 @@ class NotificationDispatcherServiceTest {
         assertThat(saved.sentAt()).isEqualTo(now);
         assertThat(saved.providerMessageId()).isEqualTo("provider-1");
         assertThat(saved.failureReason()).isNull();
+        assertThat(meterRegistry.counter(
+                "notification.delivery.dispatch",
+                "channel", "DISCORD_DM",
+                "status", "SENT"
+        ).count()).isEqualTo(1.0);
     }
 
     @Test
@@ -54,7 +62,8 @@ class NotificationDispatcherServiceTest {
                 fixedLoader(pending),
                 List.of(fixedSender(NotificationSendResult.retryableFailure("rate limited"))),
                 savePort,
-                new NotificationClientProperties()
+                new NotificationClientProperties(),
+                new SimpleMeterRegistry()
         );
 
         int dispatched = service.dispatchPending(now);
@@ -77,7 +86,8 @@ class NotificationDispatcherServiceTest {
                 fixedLoader(pending),
                 List.of(fixedSender(NotificationSendResult.retryableFailure("rate limited"))),
                 savePort,
-                new NotificationClientProperties()
+                new NotificationClientProperties(),
+                new SimpleMeterRegistry()
         );
 
         int dispatched = service.dispatchPending(now);
@@ -100,7 +110,8 @@ class NotificationDispatcherServiceTest {
                 fixedLoader(pending),
                 List.of(),
                 savePort,
-                new NotificationClientProperties()
+                new NotificationClientProperties(),
+                new SimpleMeterRegistry()
         );
 
         int dispatched = service.dispatchPending(now);
