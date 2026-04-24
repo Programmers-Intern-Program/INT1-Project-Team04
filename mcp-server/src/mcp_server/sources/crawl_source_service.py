@@ -13,7 +13,11 @@ from sqlalchemy import select
 
 from mcp_server.db.models import CrawlSource
 from mcp_server.db.session import get_session
-from mcp_server.sources.errors import SourceFetchError, SourceNotFoundError
+from mcp_server.sources.errors import (
+    SourceFetchError,
+    SourceNotFoundError,
+    SourceNotImplementedError,
+)
 from mcp_server.sources.result import RawResult
 
 
@@ -27,7 +31,8 @@ async def fetch(
 
     Raises:
         SourceNotFoundError: 등록되지 않은 source_id.
-        SourceFetchError: 미구현 render_mode 등.
+        SourceFetchError: is_active=False 인 source.
+        SourceNotImplementedError: Phase 3-3 이전 — 렌더링 구현 없음.
     """
     source = await _load_source(source_id)
     if not source.is_active:
@@ -68,9 +73,12 @@ async def _render(
 ) -> str:
     """Phase 3-3 에서 Playwright/httpx 호출 + headers 적용 구현 예정.
 
-    당장은 NotImplemented 로 명시 — 도구 담당자가 실수로 호출하지 않도록.
+    당장은 SourceNotImplementedError 로 명시 — 도구 담당자가 실수로 호출하거나
+    SourceFetchError 재시도 루프에 넣지 않도록 구분.
     """
-    raise SourceFetchError("crawl_source 호출은 Phase 3-3 (`crawl_page` 도구) 에서 구현 예정")
+    raise SourceNotImplementedError(
+        "crawl_source 호출은 Phase 3-3 (`crawl_page` 도구) 에서 구현 예정"
+    )
 
 
 __all__ = ["fetch"]
