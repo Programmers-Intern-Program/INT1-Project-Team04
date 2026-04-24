@@ -13,3 +13,6 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: false
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY}

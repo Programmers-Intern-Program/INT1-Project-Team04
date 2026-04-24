@@ -121,6 +121,8 @@ resource "oci_core_instance" "monitoring" {
     }))
   }
 
+  preserve_boot_volume = false
+
   freeform_tags = {
     Project = var.project_name
   }
