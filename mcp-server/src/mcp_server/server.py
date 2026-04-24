@@ -23,7 +23,7 @@ from mcp_server.observability.tracing import flush_langfuse, get_langfuse
 
 
 @asynccontextmanager
-async def _lifespan(_: FastMCP) -> AsyncIterator[None]:
+async def server_lifespan(_: FastMCP) -> AsyncIterator[None]:
     # startup: Langfuse 클라이언트 워밍업 (비활성이면 None 반환, 무영향)
     get_langfuse()
     try:
@@ -44,7 +44,7 @@ mcp: FastMCP = FastMCP(
     ),
     host=_settings.mcp_sse_host,
     port=_settings.mcp_sse_port,
-    lifespan=_lifespan,
+    lifespan=server_lifespan,
 )
 
 
@@ -55,17 +55,13 @@ async def health(_: Request) -> JSONResponse:
 
 
 def main() -> None:
-    """`mcp-server` CLI 엔트리포인트. 환경변수 MCP_TRANSPORT 로 분기."""
+    """`mcp-server` CLI 엔트리포인트. 환경변수 MCP_TRANSPORT 로 분기.
+
+    transport 값 검증은 config.Settings 의 Literal 타입이 담당 — 잘못된 값은 Settings
+    인스턴스화 단계에서 ValidationError 로 거부된다.
+    """
     s = get_settings()
-    transport = s.mcp_transport.lower()
-    if transport == "stdio":
-        mcp.run(transport="stdio")
-    elif transport == "sse":
-        mcp.run(transport="sse")
-    else:
-        raise ValueError(
-            f"Unknown MCP_TRANSPORT={s.mcp_transport!r}; expected: stdio | sse"
-        )
+    mcp.run(transport=s.mcp_transport)
 
 
 if __name__ == "__main__":
