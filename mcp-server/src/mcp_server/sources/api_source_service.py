@@ -21,15 +21,16 @@ async def fetch(
     source_id: int,
     params: dict[str, str | int | float | bool] | None = None,
     *,
-    http_client: httpx.AsyncClient | None = None,
+    _test_http_client: httpx.AsyncClient | None = None,
 ) -> RawResult:
     """등록된 api_source 1건을 호출하고 결과를 RawResult 로 반환.
 
     Args:
         source_id: api_source.id
         params: 쿼리 파라미터 (api_source.endpoint 에 GET 으로 부착)
-        http_client: 테스트에서 주입 가능한 httpx 클라이언트.
-            None 이면 함수 내부에서 일회용으로 생성.
+        _test_http_client: **테스트 전용** httpx MockTransport 주입 hook.
+            도구 코드에서 절대 사용 금지 — "외부 호출은 서비스 레이어 경유" 규약 위반.
+            None 이면 함수 내부에서 일회용 클라이언트 생성.
 
     Raises:
         SourceNotFoundError: 등록되지 않은 source_id.
@@ -42,7 +43,7 @@ async def fetch(
     response_text = await _call_external_api(
         endpoint=source.url_template,
         params=params or {},
-        http_client=http_client,
+        http_client=_test_http_client,
     )
 
     # TODO: cache store — api_cache 에 (site_url, content, expired_at) 기록

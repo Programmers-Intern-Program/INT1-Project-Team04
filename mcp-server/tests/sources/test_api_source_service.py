@@ -49,7 +49,7 @@ async def test_fetch_returns_raw_result_with_json_body(patched_session_factory):
         result = await api_source_service.fetch(
             source_id=source.id,
             params={"region": "강남구"},
-            http_client=client,
+            _test_http_client=client,
         )
 
     assert result.source_type == "api"
@@ -76,7 +76,7 @@ async def test_fetch_returns_text_for_non_json_response(patched_session_factory)
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
         result = await api_source_service.fetch(
-            source_id=source.id, params=None, http_client=client
+            source_id=source.id, params=None, _test_http_client=client
         )
 
     assert "<ok/>" in result.content
@@ -102,4 +102,4 @@ async def test_fetch_wraps_http_errors_in_source_fetch_error(patched_session_fac
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
         with pytest.raises(SourceFetchError):
-            await api_source_service.fetch(source_id=source.id, params={}, http_client=client)
+            await api_source_service.fetch(source_id=source.id, params={}, _test_http_client=client)
