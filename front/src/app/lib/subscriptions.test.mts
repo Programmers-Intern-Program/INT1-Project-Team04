@@ -8,9 +8,14 @@ import {
   CADENCE_PRESETS,
   CHANNEL_PRESETS,
   createSubscription,
+  connectDiscordNotification,
+  disconnectNotificationEndpoint,
   getDomains,
   getApiBaseUrl,
+  getNotificationEndpoints,
+  startTelegramNotificationConnect,
   validateSubscriptionForm,
+  shouldShowEmailAddressInput,
   type CreateSubscriptionRequest,
   type SubscriptionFetch,
 } from "./subscriptions.ts";
@@ -36,6 +41,8 @@ describe("subscription form helpers", () => {
       "등록 미리보기",
       ">cron<",
       "브리핑",
+      "Discord 사용자 ID",
+      "Telegram chat_id",
     ];
 
     assert.deepEqual(
@@ -58,6 +65,29 @@ describe("subscription form helpers", () => {
       'id="domainId"',
       "JSON.stringify",
       "<pre",
+    ];
+
+    assert.deepEqual(
+      bannedCopy.filter((copy) => source.includes(copy)),
+      [],
+    );
+  });
+
+  it("does not expose backend subscription internals in the product UI", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-mvp.tsx", import.meta.url),
+      "utf8",
+    );
+    const bannedCopy = [
+      "등록 결과",
+      "등록 내용",
+      "반복 설정",
+      'label="subscription"',
+      'label="schedule"',
+      'label="active"',
+      'label="nextRun"',
+      "font-mono",
+      "cronExpr ??",
     ];
 
     assert.deepEqual(
@@ -124,7 +154,7 @@ describe("subscription form helpers", () => {
       selectedDomainId: 3,
       cadenceId: "hourly",
       notificationChannel: "TELEGRAM_DM",
-      notificationTargetAddress: "  123456789  ",
+      notificationTargetAddress: "",
     });
 
     assert.deepEqual(payload, {
@@ -132,11 +162,28 @@ describe("subscription form helpers", () => {
       query: "강남 투룸 전세 시세 바뀌면 알려줘",
       cronExpr: "0 0 * * * *",
       notificationChannel: "TELEGRAM_DM",
-      notificationTargetAddress: "123456789",
     });
   });
 
-  it("returns field errors for an empty domain, query, and notification target", () => {
+  it("keeps direct email target in the backend subscription payload", () => {
+    const payload = buildSubscriptionPayload({
+      query: "  강남 투룸 전세 시세 바뀌면 알려줘  ",
+      selectedDomainId: 3,
+      cadenceId: "hourly",
+      notificationChannel: "EMAIL",
+      notificationTargetAddress: "  user@example.com  ",
+    });
+
+    assert.deepEqual(payload, {
+      domainId: 3,
+      query: "강남 투룸 전세 시세 바뀌면 알려줘",
+      cronExpr: "0 0 * * * *",
+      notificationChannel: "EMAIL",
+      notificationTargetAddress: "user@example.com",
+    });
+  });
+
+  it("returns field errors for an empty domain, query, and email target", () => {
     const errors = validateSubscriptionForm({
       query: " ",
       selectedDomainId: 0,
@@ -148,8 +195,42 @@ describe("subscription form helpers", () => {
     assert.deepEqual(errors, {
       domainId: "감시 영역을 선택해 주세요.",
       query: "감시할 요청을 입력해 주세요.",
-      notificationTargetAddress: "알림을 받을 대상을 입력해 주세요.",
+      notificationTargetAddress: "알림 받을 이메일을 입력해 주세요.",
     });
+  });
+
+  it("does not require email input when an email endpoint is already connected", () => {
+    const errors = validateSubscriptionForm(
+      {
+        query: "강남 투룸 전세 시세 바뀌면 알려줘",
+        selectedDomainId: 3,
+        cadenceId: "hourly",
+        notificationChannel: "EMAIL",
+        notificationTargetAddress: " ",
+      },
+      { selectedEndpointConnected: true },
+    );
+
+    assert.deepEqual(errors, {});
+  });
+
+  it("hides the email input when an email endpoint is already connected", () => {
+    assert.equal(shouldShowEmailAddressInput("EMAIL", false), true);
+    assert.equal(shouldShowEmailAddressInput("EMAIL", true), false);
+    assert.equal(shouldShowEmailAddressInput("DISCORD_DM", true), false);
+    assert.equal(shouldShowEmailAddressInput("TELEGRAM_DM", true), false);
+  });
+
+  it("does not require raw Discord or Telegram IDs in form validation", () => {
+    const errors = validateSubscriptionForm({
+      query: "강남 투룸 전세 시세 바뀌면 알려줘",
+      selectedDomainId: 3,
+      cadenceId: "hourly",
+      notificationChannel: "DISCORD_DM",
+      notificationTargetAddress: " ",
+    });
+
+    assert.deepEqual(errors, {});
   });
 });
 
@@ -159,7 +240,6 @@ describe("subscription API client", () => {
     query: "넥슨 Java 3년 이상 채용 뜨면 알려줘",
     cronExpr: "0 0 * * * *",
     notificationChannel: "DISCORD_DM",
-    notificationTargetAddress: "987654321",
   };
 
   it("uses localhost backend when no public API base URL is set", () => {
@@ -236,6 +316,141 @@ describe("subscription API client", () => {
           example: "개인정보 보호법 개정안 나오면 알려줘",
         },
       ],
+    });
+  });
+
+  it("loads notification endpoint connection statuses", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints");
+      assert.equal(init?.method, "GET");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify([
+          { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
+          { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
+          { channel: "EMAIL", connected: false, targetLabel: null },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await getNotificationEndpoints({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: [
+        { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
+        { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
+        { channel: "EMAIL", connected: false, targetLabel: null },
+      ],
+    });
+  });
+
+  it("requests Discord notification connection", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/discord/connect");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify({
+          channel: "DISCORD_DM",
+          connected: false,
+          authorizationUrl: "http://api.test/api/auth/oauth/discord/authorize",
+          message: "Discord 로그인이 필요합니다.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await connectDiscordNotification({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "DISCORD_DM",
+        connected: false,
+        targetLabel: null,
+        connectUrl: null,
+        authorizationUrl: "http://api.test/api/auth/oauth/discord/authorize",
+        message: "Discord 로그인이 필요합니다.",
+      },
+    });
+  });
+
+  it("requests Telegram notification deep link", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/telegram/connect");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify({
+          channel: "TELEGRAM_DM",
+          connected: false,
+          connectUrl: "https://t.me/int1_test_bot?start=token-1",
+          message: "Telegram 봇을 열어 연결을 완료해 주세요.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await startTelegramNotificationConnect({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "TELEGRAM_DM",
+        connected: false,
+        targetLabel: null,
+        connectUrl: "https://t.me/int1_test_bot?start=token-1",
+        authorizationUrl: null,
+        message: "Telegram 봇을 열어 연결을 완료해 주세요.",
+      },
+    });
+  });
+
+  it("requests notification endpoint disconnection", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/TELEGRAM_DM");
+      assert.equal(init?.method, "DELETE");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify({
+          channel: "TELEGRAM_DM",
+          connected: false,
+          message: "Telegram 연결이 해제되었습니다.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await disconnectNotificationEndpoint("TELEGRAM_DM", {
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "TELEGRAM_DM",
+        connected: false,
+        targetLabel: null,
+        connectUrl: null,
+        authorizationUrl: null,
+        message: "Telegram 연결이 해제되었습니다.",
+      },
     });
   });
 
