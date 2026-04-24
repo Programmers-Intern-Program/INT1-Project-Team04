@@ -2,11 +2,13 @@ package com.back.domain.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.back.domain.adapter.out.persistence.notification.NotificationEndpointJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaRepository;
 import com.back.domain.application.result.OAuthLoginResult;
+import com.back.domain.model.notification.NotificationChannel;
 import com.back.domain.model.user.OAuthProvider;
 import com.back.domain.model.user.OAuthUserProfile;
 import com.back.support.IntegrationTestBase;
@@ -27,6 +29,9 @@ class OAuthLoginServiceTest extends IntegrationTestBase {
 
     @Autowired
     private UserOAuthConnectionJpaRepository connectionRepository;
+
+    @Autowired
+    private NotificationEndpointJpaRepository endpointRepository;
 
     @Test
     @DisplayName("새 provider 계정이면 사용자를 만들고 세션을 만든다")
@@ -83,5 +88,9 @@ class OAuthLoginServiceTest extends IntegrationTestBase {
         ));
 
         assertThat(result.member().id()).isEqualTo(existing.getId());
+        assertThat(endpointRepository.findByUserIdAndChannelAndEnabledTrue(existing.getId(), NotificationChannel.DISCORD_DM))
+                .get()
+                .extracting("targetAddress")
+                .isEqualTo("discord-1");
     }
 }
