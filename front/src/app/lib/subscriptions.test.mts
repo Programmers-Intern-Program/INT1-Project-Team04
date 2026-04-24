@@ -4,10 +4,11 @@ import { describe, it } from "node:test";
 
 import {
   buildSubscriptionPayload,
+  buildDomainPresets,
   CADENCE_PRESETS,
   CHANNEL_PRESETS,
   createSubscription,
-  DOMAIN_PRESETS,
+  getDomains,
   getApiBaseUrl,
   validateSubscriptionForm,
   type CreateSubscriptionRequest,
@@ -65,16 +66,34 @@ describe("subscription form helpers", () => {
     );
   });
 
-  it("defines the four MVP domain presets with stable backend IDs", () => {
+  it("maps backend domain names to product labels and examples", () => {
+    const domains = buildDomainPresets([
+      { id: 11, name: "real-estate" },
+      { id: 12, name: "law-regulation" },
+      { id: 13, name: "recruitment" },
+      { id: 14, name: "auction" },
+    ]);
+
     assert.deepEqual(
-      DOMAIN_PRESETS.map((domain) => [domain.id, domain.label]),
+      domains.map((domain) => [domain.id, domain.name, domain.label]),
       [
-        [1, "부동산"],
-        [2, "법률/규제"],
-        [3, "채용"],
-        [4, "경매/희소매물"],
+        [11, "real-estate", "부동산"],
+        [12, "law-regulation", "법률/규제"],
+        [13, "recruitment", "채용"],
+        [14, "auction", "경매/희소매물"],
       ],
     );
+  });
+
+  it("falls back to the backend name when there is no product copy for a domain", () => {
+    const [domain] = buildDomainPresets([{ id: 99, name: "custom-domain" }]);
+
+    assert.deepEqual(domain, {
+      id: 99,
+      name: "custom-domain",
+      label: "custom-domain",
+      example: "custom-domain 변경사항이 생기면 알려줘",
+    });
   });
 
   it("maps cadence presets to Spring cron expressions", () => {
@@ -117,16 +136,17 @@ describe("subscription form helpers", () => {
     });
   });
 
-  it("returns field errors for an empty query and empty notification target", () => {
+  it("returns field errors for an empty domain, query, and notification target", () => {
     const errors = validateSubscriptionForm({
       query: " ",
-      selectedDomainId: 1,
+      selectedDomainId: 0,
       cadenceId: "hourly",
       notificationChannel: "EMAIL",
       notificationTargetAddress: " ",
     });
 
     assert.deepEqual(errors, {
+      domainId: "감시 영역을 선택해 주세요.",
       query: "감시할 요청을 입력해 주세요.",
       notificationTargetAddress: "알림을 받을 대상을 입력해 주세요.",
     });
@@ -181,6 +201,44 @@ describe("subscription API client", () => {
     assert.equal(result.ok ? result.data.scheduleId : "", "sch-1");
   });
 
+  it("returns domain presets for a successful backend response", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/domains");
+      assert.equal(init?.method, "GET");
+
+      return new Response(
+        JSON.stringify([
+          { id: 1, name: "real-estate" },
+          { id: 2, name: "law-regulation" },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await getDomains({
+      baseUrl: "http://api.test/",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: [
+        {
+          id: 1,
+          name: "real-estate",
+          label: "부동산",
+          example: "강남 투룸 전세 시세 바뀌면 알려줘",
+        },
+        {
+          id: 2,
+          name: "law-regulation",
+          label: "법률/규제",
+          example: "개인정보 보호법 개정안 나오면 알려줘",
+        },
+      ],
+    });
+  });
+
   it("returns backend error details for non-2xx responses", async () => {
     const fetcher: SubscriptionFetch = async () =>
       new Response(
@@ -207,6 +265,30 @@ describe("subscription API client", () => {
     });
   });
 
+  it("returns backend error details when domain loading fails", async () => {
+    const fetcher: SubscriptionFetch = async () =>
+      new Response(
+        JSON.stringify({
+          code: "REQUEST_FAILED",
+          message: "도메인 목록을 불러오지 못했습니다.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+
+    const result = await getDomains({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "REQUEST_FAILED",
+        message: "도메인 목록을 불러오지 못했습니다.",
+      },
+    });
+  });
+
   it("returns a network error when the request cannot reach the backend", async () => {
     const fetcher: SubscriptionFetch = async () => {
       throw new Error("connection refused");
@@ -222,6 +304,25 @@ describe("subscription API client", () => {
       error: {
         code: "NETWORK_ERROR",
         message: "서버에 연결할 수 없습니다.",
+      },
+    });
+  });
+
+  it("returns a domain loading network error when the request cannot reach the backend", async () => {
+    const fetcher: SubscriptionFetch = async () => {
+      throw new Error("connection refused");
+    };
+
+    const result = await getDomains({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: "감시 영역을 불러올 수 없습니다.",
       },
     });
   });

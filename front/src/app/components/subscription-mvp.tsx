@@ -1,24 +1,26 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   buildSubscriptionPayload,
   CADENCE_PRESETS,
   CHANNEL_PRESETS,
   createSubscription,
-  DOMAIN_PRESETS,
+  getDomains,
   validateSubscriptionForm,
   type CreateSubscriptionResult,
+  type DomainPreset,
   type SubscriptionFormState,
 } from "../lib/subscriptions";
 
 type SubmitState = "idle" | "submitting";
+type DomainState = "loading" | "ready" | "error";
 
 const DEFAULT_FORM: SubscriptionFormState = {
   query: "강남 투룸 전세 시세 바뀌면 알려줘",
-  selectedDomainId: 1,
+  selectedDomainId: 0,
   cadenceId: "hourly",
   notificationChannel: "DISCORD_DM",
   notificationTargetAddress: "",
@@ -30,15 +32,64 @@ export function SubscriptionMvp({
   onUnauthenticated?: () => void;
 }) {
   const [form, setForm] = useState<SubscriptionFormState>(DEFAULT_FORM);
+  const [domains, setDomains] = useState<DomainPreset[]>([]);
+  const [domainState, setDomainState] = useState<DomainState>("loading");
+  const [domainMessage, setDomainMessage] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [result, setResult] = useState<CreateSubscriptionResult | null>(null);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
 
+  useEffect(() => {
+    let active = true;
+
+    async function loadDomains() {
+      const response = await getDomains();
+      if (!active) {
+        return;
+      }
+
+      if (!response.ok) {
+        setDomains([]);
+        setDomainState("error");
+        setDomainMessage(response.error.message);
+        return;
+      }
+
+      if (response.data.length === 0) {
+        setDomains([]);
+        setDomainState("error");
+        setDomainMessage("감시 영역이 아직 준비되지 않았습니다.");
+        return;
+      }
+
+      const firstDomain = response.data[0];
+      setDomains(response.data);
+      setDomainState("ready");
+      setDomainMessage("");
+      setForm((current) => {
+        const selectedDomain =
+          response.data.find((domain) => domain.id === current.selectedDomainId) ??
+          firstDomain;
+
+        return {
+          ...current,
+          selectedDomainId: selectedDomain.id,
+          query: current.query.trim() ? current.query : selectedDomain.example,
+        };
+      });
+    }
+
+    loadDomains();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const selectedDomain = useMemo(
     () =>
-      DOMAIN_PRESETS.find((domain) => domain.id === form.selectedDomainId) ??
-      DOMAIN_PRESETS[0],
-    [form.selectedDomainId],
+      domains.find((domain) => domain.id === form.selectedDomainId) ?? domains[0],
+    [domains, form.selectedDomainId],
   );
   const selectedCadence = useMemo(
     () =>
@@ -52,7 +103,10 @@ export function SubscriptionMvp({
       CHANNEL_PRESETS[0],
     [form.notificationChannel],
   );
-  const previewPayload = useMemo(() => buildSubscriptionPayload(form), [form]);
+  const previewPayload = useMemo(
+    () => (selectedDomain ? buildSubscriptionPayload(form) : null),
+    [form, selectedDomain],
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,8 +144,8 @@ export function SubscriptionMvp({
           </div>
 
           <div className="grid grid-cols-2 gap-2 xl:grid-cols-1">
-            {DOMAIN_PRESETS.map((domain) => {
-              const isActive = selectedDomain.id === domain.id;
+            {domains.map((domain) => {
+              const isActive = selectedDomain?.id === domain.id;
 
               return (
                 <button
@@ -104,6 +158,7 @@ export function SubscriptionMvp({
                       selectedDomainId: domain.id,
                       query: current.query.trim() ? current.query : domain.example,
                     }));
+                    setErrors((current) => ({ ...current, domainId: "" }));
                   }}
                   className={classNames(
                     "min-h-14 rounded-lg border px-4 py-3 text-left transition",
@@ -119,6 +174,21 @@ export function SubscriptionMvp({
               );
             })}
           </div>
+          {domainState === "loading" ? (
+            <p className="text-sm font-medium text-zinc-500">
+              감시 영역을 불러오는 중...
+            </p>
+          ) : null}
+          {errors.domainId ? (
+            <p role="alert" className="text-sm font-medium text-red-700">
+              {errors.domainId}
+            </p>
+          ) : null}
+          {domainState === "error" ? (
+            <p role="alert" className="text-sm font-medium text-red-700">
+              {domainMessage}
+            </p>
+          ) : null}
         </aside>
 
         <section className="min-w-0 rounded-lg border border-zinc-200 bg-white p-5 shadow-sm md:p-6">
@@ -266,7 +336,7 @@ export function SubscriptionMvp({
 
             <button
               type="submit"
-              disabled={submitState === "submitting"}
+              disabled={submitState === "submitting" || domainState !== "ready"}
               className="mt-auto h-12 rounded-lg bg-emerald-700 px-5 text-sm font-bold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-zinc-400"
             >
               {submitState === "submitting" ? "등록 중..." : "알림 등록"}
@@ -282,7 +352,7 @@ export function SubscriptionMvp({
                   등록 내용
                 </p>
                 <h2 className="mt-1 text-xl font-bold tracking-normal">
-                  {selectedDomain.label}
+                  {selectedDomain?.label ?? "감시 영역"}
                 </h2>
               </div>
               <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
@@ -306,7 +376,7 @@ export function SubscriptionMvp({
               <div className="flex items-start justify-between gap-4">
                 <dt className="text-zinc-500">반복 설정</dt>
                 <dd className="font-mono text-xs font-semibold text-zinc-900">
-                  {previewPayload.cronExpr}
+                  {previewPayload?.cronExpr ?? "-"}
                 </dd>
               </div>
               <div className="grid gap-1">

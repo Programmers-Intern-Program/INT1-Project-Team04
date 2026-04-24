@@ -1,6 +1,7 @@
 package com.back.domain.application.port.out;
 
 import com.back.domain.model.domain.Domain;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -8,4 +9,6 @@ import java.util.Optional;
  */
 public interface LoadDomainPort {
     Optional<Domain> loadById(Long domainId);
+
+    List<Domain> loadAll();
 }
