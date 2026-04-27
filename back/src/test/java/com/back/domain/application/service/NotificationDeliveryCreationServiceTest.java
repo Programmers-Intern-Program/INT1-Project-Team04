@@ -196,6 +196,7 @@ class NotificationDeliveryCreationServiceTest {
                 user,
                 new Domain(10L, "real-estate"),
                 "강남구 전세",
+                "create",
                 true,
                 LocalDateTime.of(2026, 4, 24, 13, 0)
         );
