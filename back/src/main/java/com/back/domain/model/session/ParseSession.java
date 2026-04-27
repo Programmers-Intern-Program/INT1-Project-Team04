@@ -32,6 +32,24 @@ public class ParseSession {
         this.createdAt = LocalDateTime.now();
     }
 
+    public static ParseSession restore(
+            String id,
+            Long userId,
+            String originalInput,
+            List<ParsedTask> currentResult,
+            List<ConversationMessage> messages,
+            int turnCount,
+            int maxTurns,
+            boolean complete
+    ) {
+        ParseSession session = new ParseSession(id, userId, originalInput, currentResult);
+        session.messages = new ArrayList<>(messages);
+        session.turnCount = turnCount;
+        session.maxTurns = maxTurns;
+        session.complete = complete;
+        return session;
+    }
+
     public void updateResult(List<ParsedTask> newResult) {
         this.currentResult = new ArrayList<>(newResult);
         this.complete = newResult.stream().allMatch(t -> !t.needsConfirmation());

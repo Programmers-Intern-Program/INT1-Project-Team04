@@ -9,6 +9,8 @@ import com.back.domain.application.port.out.SaveParseSessionPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.model.session.ParseSession;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.back.global.common.UuidGenerator;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
@@ -31,6 +33,7 @@ public class ParseTaskService implements ParseTaskUseCase {
     private final ParseNaturalLanguagePort parseNaturalLanguagePort;
     private final SaveParseSessionPort saveParseSessionPort;
     private final LoadParseSessionPort loadParseSessionPort;
+    private final ObjectMapper objectMapper;
 
     @Override
     public ParseResult parse(ParseTaskCommand command) {
@@ -55,6 +58,7 @@ public class ParseTaskService implements ParseTaskUseCase {
         // Step 3: 대화 이력 추가
         session.addMessage("user", command.input());
         session.incrementTurn();
+        addAssistantContextIfNeeded(session);
 
         // Step 4: 세션 저장
         ParseSession saved = saveParseSessionPort.save(session);
@@ -123,6 +127,7 @@ public class ParseTaskService implements ParseTaskUseCase {
         // Step 7: 결과 업데이트
         session.updateResult(updatedTasks);
         session.incrementTurn();
+        addAssistantContextIfNeeded(session);
 
         // Step 8: 세션 저장
         ParseSession saved = saveParseSessionPort.save(session);
@@ -137,5 +142,26 @@ public class ParseTaskService implements ParseTaskUseCase {
         }
 
         return new ParseResult(saved.getId(), saved.getCurrentResult());
+    }
+
+    private void addAssistantContextIfNeeded(ParseSession session) {
+        if (session.isComplete()) {
+            return;
+        }
+
+        session.addMessage("assistant", "현재 파싱 결과 JSON: " + currentResultJson(session));
+        String question = session.getFirstConfirmationQuestion();
+        if (question != null && !question.isBlank()) {
+            session.addMessage("assistant", question);
+        }
+    }
+
+    private String currentResultJson(ParseSession session) {
+        try {
+            return objectMapper.writeValueAsString(session.getCurrentResult());
+        } catch (JsonProcessingException e) {
+            log.error("파싱 결과 JSON 직렬화 실패 - sessionId: {}", session.getId(), e);
+            throw new ApiException(ErrorCode.AI_PARSE_FAILED);
+        }
     }
 }

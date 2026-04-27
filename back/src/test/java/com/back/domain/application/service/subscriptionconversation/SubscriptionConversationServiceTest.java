@@ -54,7 +54,10 @@ class SubscriptionConversationServiceTest {
     void newMessageParsesWithAuthenticatedUserId() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
-        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
 
         SubscriptionConversationService.Response response = service.handle(
                 1L,
@@ -80,7 +83,7 @@ class SubscriptionConversationServiceTest {
                 "real-estate",
                 "apartment_trade_price",
                 "search_house_price",
-                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "{\"region\":\"강남구\",\"condition\":\"10% 이상 하락\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
                 "0 0 9 * * *",
                 NotificationChannel.TELEGRAM_DM,
                 null,
@@ -104,7 +107,10 @@ class SubscriptionConversationServiceTest {
                 false,
                 ""
         )));
-        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
 
         SubscriptionConversationService.Response response = service.handle(
                 1L,
@@ -128,7 +134,7 @@ class SubscriptionConversationServiceTest {
                 "real-estate",
                 "apartment_trade_price",
                 "search_house_price",
-                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "{\"region\":\"강남구\",\"condition\":\"10% 이상 하락\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
                 "0 0 9 * * *",
                 NotificationChannel.TELEGRAM_DM,
                 null,
@@ -139,7 +145,21 @@ class SubscriptionConversationServiceTest {
                 .thenReturn(Optional.of(savedConversation));
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
-        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        createSubscriptionUseCase.result = new SubscriptionResult(
+                "sub-1",
+                1L,
+                1L,
+                "강남구 아파트 매매 실거래가",
+                true,
+                LocalDateTime.now(),
+                "schedule-1",
+                "0 0 9 * * *",
+                LocalDateTime.now().plusDays(1)
+        );
+        SubscriptionConversationService service = service(connectedTelegram);
 
         SubscriptionConversationService.Response response = service.handle(
                 1L,
@@ -304,8 +324,11 @@ class SubscriptionConversationServiceTest {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
         McpTool storedTool = mcpTool("search_house_price_v2");
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
         SubscriptionConversationService service = service(
-                loadNotificationEndpointPort,
+                connectedTelegram,
                 new FakeLoadMcpToolPort(storedTool, null)
         );
 
@@ -318,6 +341,26 @@ class SubscriptionConversationServiceTest {
 
         assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
         assertThat(response.draft().toolName()).isEqualTo("search_house_price_v2");
+    }
+
+    @Test
+    @DisplayName("explicit unconnected DM channel asks for connection before confirmation")
+    void explicitUnconnectedDmChannelAsksForConnectionBeforeConfirmation() {
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                null,
+                "강남구 아파트 매매 실거래가를 매일 아침 Telegram으로 알려줘",
+                null
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).isEqualTo("Telegram 연결이 필요합니다.");
+        assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
+                .contains("SELECT_CHANNEL");
     }
 
     @Test
@@ -381,7 +424,7 @@ class SubscriptionConversationServiceTest {
                 "real-estate",
                 "apartment_trade_price",
                 "search_house_price",
-                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "{\"region\":\"강남구\",\"condition\":\"10% 이상 하락\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
                 "0 0 9 * * *",
                 NotificationChannel.TELEGRAM_DM,
                 null,
@@ -403,7 +446,10 @@ class SubscriptionConversationServiceTest {
                 "0 0 9 * * *",
                 LocalDateTime.now().plusDays(1)
         );
-        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
 
         SubscriptionConversationService.Response response = service.handle(
                 1L,
@@ -422,6 +468,44 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("ready draft without condition asks for condition instead of creating subscription")
+    void readyDraftWithoutConditionAsksForConditionInsteadOfCreatingSubscription() {
+        SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
+        readyConversation.updateParsedDraft(
+                "parse-1",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "0 0 9 * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "아래 내용으로 알림을 시작할까요?",
+                SubscriptionConversationStatus.READY_FOR_CONFIRMATION
+        );
+        when(conversationRepository.findByIdAndUserId(readyConversation.getId(), 1L))
+                .thenReturn(Optional.of(readyConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                readyConversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("가격 변동 조건");
+        assertThat(createSubscriptionUseCase.receivedCommand).isNull();
+    }
+
+    @Test
     @DisplayName("selecting a connected channel advances the draft to confirmation")
     void selectingConnectedChannelAdvancesToConfirmation() {
         SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
@@ -432,7 +516,7 @@ class SubscriptionConversationServiceTest {
                 "real-estate",
                 "apartment_trade_price",
                 "search_house_price",
-                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "{\"region\":\"강남구\",\"condition\":\"10% 이상 하락\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
                 "0 0 9 * * *",
                 null,
                 null,
@@ -457,6 +541,98 @@ class SubscriptionConversationServiceTest {
         assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
         assertThat(conversation.getDraftNotificationChannel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
         verify(monitoringConfigRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("typed channel answer is handled locally instead of reparsing as a new request")
+    void typedChannelAnswerIsHandledLocally() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{\"region\":\"강남구\",\"condition\":\"10% 이상 하락\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "0 0 9 * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요. Telegram, Discord, Email 중 무엇으로 받을까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(new ParsedTask(
+                "reject",
+                "기타",
+                "텔레그램",
+                "지원하지 않는 도메인",
+                "",
+                "",
+                "",
+                "텔레그램",
+                List.of(),
+                0.1,
+                false,
+                ""
+        )));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "텔레그램",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).isEqualTo("Telegram 연결이 필요합니다.");
+        assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
+                .contains("SELECT_CHANNEL");
+    }
+
+    @Test
+    @DisplayName("missing MCP tool is reported as server setup problem instead of generic missing input")
+    void missingMcpToolReportsServerSetupProblem() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                null,
+                "{\"region\":\"강남구\",\"condition\":\"10% 이상 하락\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "0 0 9 * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요. Telegram, Discord, Email 중 무엇으로 받을까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(
+                connectedTelegram,
+                new FakeLoadMcpToolPort(null, null)
+        );
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("SELECT_CHANNEL", "TELEGRAM_DM")
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("알림 도구 설정");
+        assertThat(response.actions()).isEmpty();
     }
 
     private SubscriptionConversationService service(LoadNotificationEndpointPort endpointPort) {

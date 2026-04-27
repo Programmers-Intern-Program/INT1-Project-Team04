@@ -91,6 +91,11 @@ public class SubscriptionConversationService {
             return percentConditionResponse;
         }
 
+        Response shortAnswerResponse = completeShortAnswerIfPossible(conversation, message);
+        if (shortAnswerResponse != null) {
+            return shortAnswerResponse;
+        }
+
         ParseResult parseResult = parseTaskUseCase.continueParse(
                 new ContinueParseCommand(userId, conversation.getParseSessionId(), message)
         );
@@ -159,13 +164,13 @@ public class SubscriptionConversationService {
         );
         conversationRepository.save(conversation);
 
-        if (status == SubscriptionConversationStatus.READY_FOR_CONFIRMATION) {
-            return readyForConfirmation(conversation);
+        if (isUnsupported(draft) || waitsForParserConfirmation) {
+            List<ActionOption> actions = waitsForParserConfirmation
+                    ? List.of()
+                    : actionsForMissing(draft.missingFields(), conversation.getUserId());
+            return needsInput(conversation, assistantMessage, actions);
         }
-        List<ActionOption> actions = waitsForParserConfirmation
-                ? List.of()
-                : actionsForMissing(draft.missingFields(), conversation.getUserId());
-        return needsInput(conversation, assistantMessage, actions);
+        return completeOrAsk(conversation);
     }
 
     private Response handleAction(Long userId, String conversationId, ActionRequest action) {
@@ -208,6 +213,7 @@ public class SubscriptionConversationService {
     }
 
     private Response completeOrAsk(SubscriptionConversationJpaEntity conversation) {
+        resolveMissingMcpTool(conversation);
         List<String> missing = missingPersistedFields(conversation);
         if (missing.isEmpty()) {
             conversation.updateStatus(SubscriptionConversationStatus.READY_FOR_CONFIRMATION, confirmationMessage());
@@ -215,15 +221,46 @@ public class SubscriptionConversationService {
             return readyForConfirmation(conversation);
         }
 
-        String message = questionForMissing(missing);
+        String message = questionForMissing(missing, conversation);
         conversation.updateStatus(SubscriptionConversationStatus.COLLECTING, message);
         conversationRepository.save(conversation);
         return needsInput(conversation, message, actionsForMissing(missing, conversation.getUserId()));
     }
 
+    private void resolveMissingMcpTool(SubscriptionConversationJpaEntity conversation) {
+        if (!isBlank(conversation.getDraftToolName()) || conversation.getDraftDomainId() == null) {
+            return;
+        }
+
+        loadMcpToolPort.loadByDomainId(conversation.getDraftDomainId())
+                .ifPresent(tool -> conversation.updateParsedDraft(
+                        conversation.getParseSessionId(),
+                        conversation.getDraftQuery(),
+                        conversation.getDraftDomainId(),
+                        conversation.getDraftDomainName(),
+                        conversation.getDraftIntent(),
+                        tool.name(),
+                        conversation.getDraftMonitoringParams(),
+                        conversation.getDraftCronExpr(),
+                        conversation.getDraftNotificationChannel(),
+                        conversation.getDraftNotificationTargetAddress(),
+                        conversation.getLastAssistantMessage(),
+                        conversation.getStatus()
+                ));
+    }
+
     private Response confirm(Long userId, SubscriptionConversationJpaEntity conversation) {
         if (conversation.getStatus() != SubscriptionConversationStatus.READY_FOR_CONFIRMATION) {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+
+        resolveMissingMcpTool(conversation);
+        List<String> missing = missingPersistedFields(conversation);
+        if (!missing.isEmpty()) {
+            String message = questionForMissing(missing, conversation);
+            conversation.updateStatus(SubscriptionConversationStatus.COLLECTING, message);
+            conversationRepository.save(conversation);
+            return needsInput(conversation, message, actionsForMissing(missing, conversation.getUserId()));
         }
 
         SubscriptionResult result = createSubscriptionUseCase.createForUser(userId, new CreateSubscriptionCommand(
@@ -329,6 +366,7 @@ public class SubscriptionConversationService {
                 && !isBlank(draft.query())
                 && !isBlank(draft.intent())
                 && !isBlank(draft.toolName())
+                && !isBlank(draft.monitoringParams().get("condition"))
                 && !isBlank(draft.cronExpr())
                 && channel != null
                 && draft.missingFields().isEmpty();
@@ -356,6 +394,9 @@ public class SubscriptionConversationService {
             actions.addAll(cadenceActions());
         }
         if (missing.contains("notificationChannel")) {
+            actions.addAll(channelActions(userId));
+        }
+        if (missing.contains("notificationEndpoint")) {
             actions.addAll(channelActions(userId));
         }
         return actions;
@@ -395,6 +436,28 @@ public class SubscriptionConversationService {
         return completeOrAsk(conversation);
     }
 
+    private Response completeShortAnswerIfPossible(
+            SubscriptionConversationJpaEntity conversation,
+            String message
+    ) {
+        List<String> missing = missingPersistedFields(conversation);
+        if (missing.contains("notificationChannel")) {
+            Optional<NotificationChannel> channel = parseChannelAnswer(message);
+            if (channel.isPresent()) {
+                return selectChannel(conversation, channel.get().name());
+            }
+        }
+
+        if (missing.contains("cadence")) {
+            Optional<String> cadence = parseCadenceAnswer(message);
+            if (cadence.isPresent()) {
+                return selectCadence(conversation, cadence.get());
+            }
+        }
+
+        return null;
+    }
+
     private String percentCondition(String message, String threshold) {
         String text = message == null ? "" : message;
         if (text.contains("하락") || text.contains("떨어") || text.contains("내리")) {
@@ -419,11 +482,24 @@ public class SubscriptionConversationService {
                 && loadNotificationEndpointPort.loadEnabledByUserIdAndChannel(conversation.getUserId(), NotificationChannel.EMAIL).isEmpty()) {
             missing.add("emailAddress");
         }
+        if (conversation.getDraftNotificationChannel() != null
+                && conversation.getDraftNotificationChannel() != NotificationChannel.EMAIL
+                && loadNotificationEndpointPort.loadEnabledByUserIdAndChannel(
+                        conversation.getUserId(),
+                        conversation.getDraftNotificationChannel()
+                ).isEmpty()) {
+            missing.add("notificationEndpoint");
+        }
+        if (isBlank(monitoringParams(conversation.getDraftMonitoringParams()).get("condition"))) {
+            missing.add("condition");
+        }
         if (conversation.getDraftDomainId() == null
                 || isBlank(conversation.getDraftQuery())
-                || isBlank(conversation.getDraftIntent())
-                || isBlank(conversation.getDraftToolName())) {
+                || isBlank(conversation.getDraftIntent())) {
             missing.add("draft");
+        }
+        if (conversation.getDraftDomainId() != null && isBlank(conversation.getDraftToolName())) {
+            missing.add("mcpTool");
         }
         return missing;
     }
@@ -524,6 +600,39 @@ public class SubscriptionConversationService {
         }
     }
 
+    private Optional<NotificationChannel> parseChannelAnswer(String value) {
+        Optional<NotificationChannel> exact = parseChannel(value);
+        if (exact.isPresent()) {
+            return exact;
+        }
+
+        String text = lower(value);
+        if (text.contains("텔레그램") || text.contains("telegram")) {
+            return Optional.of(NotificationChannel.TELEGRAM_DM);
+        }
+        if (text.contains("디스코드") || text.contains("디코") || text.contains("discord")) {
+            return Optional.of(NotificationChannel.DISCORD_DM);
+        }
+        if (text.contains("이메일") || text.contains("메일") || text.contains("email")) {
+            return Optional.of(NotificationChannel.EMAIL);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<String> parseCadenceAnswer(String value) {
+        String text = lower(value);
+        if (text.contains("매시간") || text.contains("한 시간") || text.contains("1시간")) {
+            return Optional.of("HOURLY");
+        }
+        if (text.contains("평일")) {
+            return Optional.of("WEEKDAY_9AM");
+        }
+        if (text.contains("매일") || text.contains("아침") || text.contains("오전 9")) {
+            return Optional.of("DAILY_9AM");
+        }
+        return Optional.empty();
+    }
+
     private String cadenceCron(String value) {
         return switch (value) {
             case "HOURLY", "0 0 * * * *" -> "0 0 * * * *";
@@ -533,7 +642,10 @@ public class SubscriptionConversationService {
         };
     }
 
-    private String questionForMissing(List<String> missing) {
+    private String questionForMissing(List<String> missing, SubscriptionConversationJpaEntity conversation) {
+        if (missing.contains("condition")) {
+            return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
+        }
         if (missing.contains("cadence")) {
             return "얼마나 자주 확인할까요?";
         }
@@ -542,6 +654,12 @@ public class SubscriptionConversationService {
         }
         if (missing.contains("emailAddress")) {
             return "알림을 받을 이메일 주소를 입력해 주세요.";
+        }
+        if (missing.contains("notificationEndpoint")) {
+            return channelLabel(conversation.getDraftNotificationChannel()) + " 연결이 필요합니다.";
+        }
+        if (missing.contains("mcpTool")) {
+            return "알림 도구 설정이 준비되지 않았어요. 잠시 후 다시 시도해 주세요.";
         }
         return "알림을 만들기 위해 필요한 정보가 더 필요해요.";
     }
@@ -590,6 +708,10 @@ public class SubscriptionConversationService {
 
     private boolean isEmail(String value) {
         return !isBlank(value) && EMAIL.matcher(value.trim()).matches();
+    }
+
+    private String lower(String value) {
+        return value == null ? "" : value.toLowerCase(Locale.ROOT);
     }
 
     private boolean isBlank(String value) {

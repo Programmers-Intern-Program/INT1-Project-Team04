@@ -18,7 +18,7 @@ class ParsedTaskNormalizerTest {
                 "create",
                 "부동산",
                 "강남구 아파트 매매 실거래가",
-                "",
+                "5% 이상 하락",
                 "0 9 * * *",
                 "telegram",
                 "api",
@@ -38,6 +38,35 @@ class ParsedTaskNormalizerTest {
         assertThat(draft.cronExpr()).isEqualTo("0 0 9 * * *");
         assertThat(draft.notificationChannel()).isEqualTo("TELEGRAM_DM");
         assertThat(draft.missingFields()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("requires a monitoring condition even when parser marks the task complete")
+    void requiresMonitoringCondition() {
+        ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());
+        ParsedTask task = new ParsedTask(
+                "create",
+                "부동산",
+                "강남구 아파트 매매 실거래가",
+                "",
+                "0 9 * * *",
+                "telegram",
+                "api",
+                "강남구 아파트 매매 실거래가 변동",
+                List.of(),
+                0.9,
+                false,
+                ""
+        );
+
+        SubscriptionDraft draft = normalizer.normalize(
+                task,
+                "강남구 아파트 매매 실거래가를 텔레그램으로 매일 아침 알려줘"
+        );
+
+        assertThat(draft.monitoringParams()).doesNotContainKey("condition");
+        assertThat(draft.missingFields()).contains("condition");
+        assertThat(draft.assistantMessage()).contains("가격 변동 조건");
     }
 
     @Test

@@ -79,6 +79,9 @@ public class ParsedTaskNormalizer {
         } else if (canReusePrevious && !isBlank(previousDraft.monitoringParams().get("condition"))) {
             params.put("condition", previousDraft.monitoringParams().get("condition"));
         }
+        if (isBlank(params.get("condition"))) {
+            missing.add("condition");
+        }
 
         String cronExpr = explicitCron(task.cronExpr(), userMessage);
         if (cronExpr == null && canReusePrevious) {
@@ -174,6 +177,9 @@ public class ParsedTaskNormalizer {
     private String assistantQuestion(List<String> missing) {
         if (missing.contains("region")) {
             return "어느 지역의 아파트 매매 실거래가를 확인할까요?";
+        }
+        if (missing.contains("condition")) {
+            return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
         }
         if (missing.contains("cadence")) {
             return "얼마나 자주 확인할까요?";
