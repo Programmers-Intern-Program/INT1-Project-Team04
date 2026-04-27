@@ -230,6 +230,7 @@ export function SubscriptionChat({
       action.requiresConnection &&
       !action.connected
     ) {
+      appendUserMessage(action.label);
       await startChannelConnection(conversationId, action.value as NotificationChannelId);
       return;
     }
@@ -238,6 +239,7 @@ export function SubscriptionChat({
     const pendingMessageId = createMessageId("assistant-pending");
     setMessages((current) => [
       ...current,
+      { id: createMessageId("user-action"), role: "user", content: action.label },
       {
         id: pendingMessageId,
         role: "assistant",
@@ -270,6 +272,13 @@ export function SubscriptionChat({
     }
 
     await applyConversationResponse(response.data, { replaceMessageId: pendingMessageId });
+  }
+
+  function appendUserMessage(content: string) {
+    setMessages((current) => [
+      ...current,
+      { id: createMessageId("user-action"), role: "user", content },
+    ]);
   }
 
   function replaceMessage(

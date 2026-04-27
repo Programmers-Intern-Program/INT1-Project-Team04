@@ -133,6 +133,16 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes('aria-live="polite"'), true);
   });
 
+  it("records selected quick replies as user chat messages", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("appendUserMessage(action.label)"), true);
+    assert.equal(source.includes('role: "user", content: action.label'), true);
+  });
+
   it("keeps the chat scrolled to the latest conversation update", () => {
     const source = readFileSync(
       new URL("../components/subscription-chat.tsx", import.meta.url),
