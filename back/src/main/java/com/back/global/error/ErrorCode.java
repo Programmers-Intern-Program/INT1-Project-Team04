@@ -14,7 +14,9 @@ public enum ErrorCode {
     NOTIFICATION_ENDPOINT_CONFIGURATION_MISSING(HttpStatus.BAD_REQUEST, "알림 채널 설정이 필요합니다."),
     MCP_TOOL_NOT_FOUND(HttpStatus.NOT_FOUND, "사용 가능한 MCP 도구를 찾을 수 없습니다."),
     MCP_REQUEST_FAILED(HttpStatus.BAD_GATEWAY, "MCP 서버 요청에 실패했습니다."),
-    INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다.");
+    INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
+    AI_PARSE_FAILED(HttpStatus.BAD_GATEWAY, "AI 응답 파싱에 실패했습니다."),
+    SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "세션을 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

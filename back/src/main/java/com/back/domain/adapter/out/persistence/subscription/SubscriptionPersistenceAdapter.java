@@ -34,6 +34,7 @@ public class SubscriptionPersistenceAdapter implements SaveSubscriptionPort {
                     saved.getUser().getDeletedAt()),
             new Domain(saved.getDomain().getId(), saved.getDomain().getName()),
             saved.getQuery(),
+            saved.getIntent(),
             saved.isActive(),
             saved.getCreatedAt()
         );

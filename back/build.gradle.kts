@@ -33,6 +33,7 @@ dependencyManagement {
 dependencies {
     // Web & Core
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-mail")
@@ -85,7 +86,18 @@ tasks.withType<Test>().configureEach {
 }
 
 tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("ai-manual")
+    }
     finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.register<Test>("aiTest") {
+    description = "Runs AI integration tests that require manual API keys"
+    group = "verification"
+    useJUnitPlatform {
+        includeTags("ai-manual")
+    }
 }
 
 tasks.register<Test>("liveNotificationTest") {

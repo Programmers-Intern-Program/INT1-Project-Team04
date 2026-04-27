@@ -37,7 +37,7 @@ class SubscriptionPersistenceAdapterTest extends IntegrationTestBase {
 
         // [When] 구독(Subscription) 엔티티를 생성하고 저장함
         SubscriptionJpaEntity subscription = subscriptionJpaRepository.save(
-                new SubscriptionJpaEntity(user, domain, "강남구 아파트 실거래가", true)
+                new SubscriptionJpaEntity(user, domain, "강남구 아파트 실거래가", "create", true)
         );
 
         // [Then] 저장된 데이터의 무결성을 검증함

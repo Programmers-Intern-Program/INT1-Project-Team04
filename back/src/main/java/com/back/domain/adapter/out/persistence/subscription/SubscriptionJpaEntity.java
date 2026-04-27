@@ -34,17 +34,22 @@ public class SubscriptionJpaEntity extends BaseTimeEntity {
     @Column(columnDefinition = "TEXT")
     private String query;
 
+    @Column(length = 50)
+    private String intent;
+
     @Column(name = "is_active", nullable = false)
     private boolean active;
 
     public SubscriptionJpaEntity(UserJpaEntity user,
                                  DomainJpaEntity domain,
                                  String query,
+                                 String intent,
                                  boolean active) {
         this.id = UuidGenerator.create();
         this.user = user;
         this.domain = domain;
         this.query = query;
+        this.intent = intent;
         this.active = active;
     }
 
@@ -53,6 +58,7 @@ public class SubscriptionJpaEntity extends BaseTimeEntity {
                 UserJpaEntity.from(subscription.user()),
                 DomainJpaEntity.from(subscription.domain()),
                 subscription.query(),
+                subscription.intent(),
                 subscription.active()
         );
         entity.id = subscription.id() == null ? UuidGenerator.create() : subscription.id();
@@ -69,6 +75,7 @@ public class SubscriptionJpaEntity extends BaseTimeEntity {
                 user.toDomain(),
                 domain.toDomain(),
                 query,
+                intent,
                 active,
                 getCreatedAt()
         );
