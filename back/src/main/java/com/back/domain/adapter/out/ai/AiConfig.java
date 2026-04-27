@@ -17,7 +17,7 @@ public class AiConfig {
         // TEST : spring.ai.mcp.client.enabled: false로 MCP를 비활성화하자 ToolCallbackProvider 빈이 사라짐. Optional로 변경
 
         ChatClient.Builder builder = ChatClient.builder(chatModel);
-        toolCallbackProvider.ifPresent(builder::defaultTools);
+        toolCallbackProvider.ifPresent(builder::defaultToolCallbacks);
         return builder.build();
     }
 }
