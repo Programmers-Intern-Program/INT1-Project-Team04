@@ -9,4 +9,6 @@ import java.util.Optional;
  */
 public interface McpToolJpaRepository extends JpaRepository<McpToolJpaEntity, Long> {
     Optional<McpToolJpaEntity> findFirstByDomainId(Long domainId);
+
+    Optional<McpToolJpaEntity> findFirstByDomainIdAndName(Long domainId, String name);
 }
