@@ -389,17 +389,22 @@ public class SubscriptionConversationService {
     }
 
     private List<ActionOption> actionsForMissing(List<String> missing, Long userId) {
-        List<ActionOption> actions = new ArrayList<>();
+        if (missing.contains("condition")) {
+            return List.of();
+        }
         if (missing.contains("cadence")) {
-            actions.addAll(cadenceActions());
+            return cadenceActions();
         }
         if (missing.contains("notificationChannel")) {
-            actions.addAll(channelActions(userId));
+            return channelActions(userId);
+        }
+        if (missing.contains("emailAddress")) {
+            return List.of();
         }
         if (missing.contains("notificationEndpoint")) {
-            actions.addAll(channelActions(userId));
+            return channelActions(userId);
         }
-        return actions;
+        return List.of();
     }
 
     private Response completePercentConditionIfPossible(

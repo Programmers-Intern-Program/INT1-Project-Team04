@@ -50,7 +50,7 @@ class SubscriptionConversationServiceTest {
             (userId, channel) -> Optional.empty();
 
     @Test
-    @DisplayName("new message parses with authenticated user id and asks missing cadence/channel")
+    @DisplayName("new message parses with authenticated user id and asks missing cadence first")
     void newMessageParsesWithAuthenticatedUserId() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
@@ -69,7 +69,7 @@ class SubscriptionConversationServiceTest {
         assertThat(parseTaskUseCase.receivedUserId).isEqualTo(1L);
         assertThat(response.status()).isEqualTo("NEEDS_INPUT");
         assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
-                .contains("SELECT_CADENCE", "SELECT_CHANNEL");
+                .containsOnly("SELECT_CADENCE");
     }
 
     @Test
@@ -210,7 +210,7 @@ class SubscriptionConversationServiceTest {
         assertThat(response.status()).isEqualTo("NEEDS_INPUT");
         assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
         assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
-                .contains("SELECT_CADENCE", "SELECT_CHANNEL");
+                .containsOnly("SELECT_CADENCE");
         assertThat(savedConversation.getDraftMonitoringParams()).contains("\"condition\":\"13% 이상 변동\"");
     }
 
