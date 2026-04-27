@@ -14,5 +14,34 @@ spring:
       ddl-auto: update
     show-sql: false
   ai:
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY}
+    vertex:
+      ai:
+        gemini:
+          project-id: ${GOOGLE_CLOUD_PROJECT_ID}
+          location: ${VERTEX_AI_LOCATION:us-central1}
+          chat:
+            options:
+              model: ${VERTEX_AI_MODEL:gemini-2.5-flash}
+    chat:
+      observations:
+        log-prompt: false
+        log-completion: false
+    mcp:
+      client:
+        enabled: ${MCP_ENABLED:true}
+
+langfuse:
+  otlp-endpoint: ${LANGFUSE_OTLP_ENDPOINT:http://prod-langfuse-web:3000/api/public/otel/v1/traces}
+  auth: ${LANGFUSE_AUTH_PROD:}
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${langfuse.otlp-endpoint}
+          headers:
+            Authorization: "Basic ${langfuse.auth:}"
