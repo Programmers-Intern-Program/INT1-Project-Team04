@@ -53,9 +53,8 @@ dependencies {
     implementation("org.springframework.ai:spring-ai-starter-model-vertex-ai-gemini")
     implementation("org.springframework.ai:spring-ai-starter-mcp-client")
 
-    // Observability — Langfuse OTLP 연동
-    implementation("io.micrometer:micrometer-tracing-bridge-otel")
-    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+    // Observability — Langfuse OTLP 연동 (Spring Boot 4.x 신규 스타터)
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
     // 테스트 환경
     testImplementation("org.springframework.boot:spring-boot-starter-test")

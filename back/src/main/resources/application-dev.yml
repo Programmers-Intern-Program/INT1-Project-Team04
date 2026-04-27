@@ -15,6 +15,7 @@ spring:
     show-sql: true
 
   ai:
+    # 1. 모델 통신 설정 (구형 라이브러리 사용 + OS 환경변수 위임)
     vertex:
       ai:
         gemini:
@@ -26,9 +27,17 @@ spring:
           chat:
             options:
               model: gemini-2.5-flash
-            observations:
-              include-input: true
-              include-output: true
+
+    # 2. 관찰성(Langfuse) 글로벌 설정 (M4 최신 규격 적용)
+    chat:
+      # ChatModel (로우 레벨 모델 통신 기록)
+      observations:
+        log-prompt: true
+        log-completion: true
+      # ChatClient (AiConfig에서 만든 빌더 레벨의 기록)
+      client:
+        observations:
+          log-prompt: true
 
     mcp:
       client:
@@ -42,8 +51,10 @@ management:
   tracing:
     sampling:
       probability: 1.0
-  otlp:
+  opentelemetry:
     tracing:
-      endpoint: ${langfuse.otlp-endpoint}
-      headers:
-        Authorization: "Basic ${langfuse.auth:}"
+      export:
+        otlp:
+          endpoint: ${langfuse.otlp-endpoint}
+          headers:
+            Authorization: "Basic ${langfuse.auth:}"
