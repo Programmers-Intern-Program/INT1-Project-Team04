@@ -13,9 +13,23 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+
   ai:
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY}
+    vertex:
+      ai:
+        gemini:
+          project-id: ${GOOGLE_CLOUD_PROJECT_ID:project-0642120c-b67a-4a76-a64}
+          location: ${VERTEX_AI_LOCATION:us-central1}
+          # 💡 핵심: .env에서 가져온 C:/... 앞에 file:/// 를 강제로 붙여줍니다.
+          # 결과적으로 "file:///C:/Users/sayho/..." 가 완성됩니다.
+          #credentials-uri: "file:///${GOOGLE_APPLICATION_CREDENTIALS}"
+          chat:
+            options:
+              model: gemini-2.5-flash
+            observations:
+              include-input: true
+              include-output: true
+
     mcp:
       client:
         enabled: ${MCP_ENABLED:false}   # MCP 서버 없이 기동할 때 false (기본값)
