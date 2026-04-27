@@ -94,3 +94,10 @@ app:
       bot-token: ${APP_NOTIFICATION_TELEGRAM_BOT_TOKEN:}
       bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
       api-base-url: ${APP_NOTIFICATION_TELEGRAM_API_BASE_URL:https://api.telegram.org}
+
+ai-parser:
+  base-url: ${AI_PARSER_BASE_URL:}
+  api-key: ${AI_PARSER_API_KEY:}
+  model: ${AI_PARSER_MODEL:glm-4.5}
+  max-tokens: ${AI_PARSER_MAX_TOKENS:2048}
+  temperature: ${AI_PARSER_TEMPERATURE:0.3}

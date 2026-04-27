@@ -13,6 +13,7 @@ public final class GlmApiDto {
     public record Request(
             String model,
             List<Message> messages,
+            @JsonProperty("max_tokens")
             int maxTokens,
             double temperature
     ) {}
