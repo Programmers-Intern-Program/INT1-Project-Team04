@@ -70,6 +70,26 @@ async def _load_source(source_id: int) -> ApiSource:
     return source
 
 
+async def resolve_source_id_by_tool_name(tool_name: str) -> int:
+    """tool_name 으로 등록된 api_source.id 를 조회한다.
+
+    도구 모듈은 자기 source_id 를 코드에 박지 않고 이 함수로 lookup 해야 한다.
+    seed 스크립트가 멱등 upsert 를 하더라도 테스트 환경(in-memory)에서는 매번 새 id 가 부여되므로
+    하드코딩 금지.
+
+    Raises:
+        SourceNotFoundError: 해당 tool_name 으로 등록된 row 없음.
+    """
+    async with get_session() as session:
+        result = await session.execute(
+            select(ApiSource.id).where(ApiSource.tool_name == tool_name)
+        )
+        source_id = result.scalar_one_or_none()
+    if source_id is None:
+        raise SourceNotFoundError(f"api_source.tool_name={tool_name} 등록되지 않음")
+    return source_id
+
+
 async def _call_external_api(
     endpoint: str,
     params: dict[str, str | int | float | bool],
@@ -93,4 +113,4 @@ async def _call_external_api(
     return response.text
 
 
-__all__ = ["fetch"]
+__all__ = ["fetch", "resolve_source_id_by_tool_name"]
