@@ -17,10 +17,17 @@ def test_mcp_name() -> None:
     assert server_mod.mcp.name == "monitoring-mcp"
 
 
-async def test_no_tools_registered_yet() -> None:
-    """Phase 2 시점엔 도구 0개. Phase 3-2 부터 늘어나면 본 assertion 갱신."""
+async def test_registered_tools_include_search_house_price() -> None:
+    """tools/__init__.py 의 명시 import 가 실제로 도구를 mcp 인스턴스에 등록하는지 확인.
+
+    도구가 늘어나면 이 set 에 이름을 추가하라.
+    """
+    # 명시 import — server.main() 안의 lazy import 와 같은 효과를 단위 테스트에서 강제.
+    import mcp_server.tools  # noqa: F401
+
     tools = await server_mod.mcp.list_tools()
-    assert tools == []
+    names = {t.name for t in tools}
+    assert "search_house_price" in names
 
 
 async def test_lifespan_calls_shutdown_hooks(monkeypatch: pytest.MonkeyPatch) -> None:

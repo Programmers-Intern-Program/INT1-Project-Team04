@@ -9,17 +9,7 @@ from xml.etree import ElementTree as ET
 
 from pydantic import BaseModel, Field
 
-
-class RealEstateNormalizationError(Exception):
-    """MOLIT 응답 정규화 실패.
-
-    - resultCode != "000" (API 가 에러 코드 반환)
-    - XML 자체가 깨져 파싱 불가
-    - 필수 필드 누락
-
-    sources.errors.SourceError 와 의도적으로 별개. 외부 호출은 성공했지만
-    도메인 의미로 해석 불가능한 응답을 분리해 다룬다.
-    """
+from mcp_server.domains.real_estate.errors import RealEstateNormalizationError
 
 
 class AptTrade(BaseModel):

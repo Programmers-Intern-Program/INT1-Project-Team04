@@ -4,10 +4,10 @@
 - 모든 도구 모듈은 `from mcp_server.server import mcp` 후 @mcp.tool() 데코레이터 사용.
 - 새 FastMCP() 추가 생성 금지 — 인스턴스 분리 시 도구 등록이 보이지 않음.
 
-도구 자동 등록은 Phase 2 시점에선 미적용. Phase 3-2 (`tools/real_estate.py` 추가)
-PR 에서 `tools/__init__.py` 가 leaf 도구 모듈을 명시 import 하도록 도입한다
-(서버 모듈에서 직접 import 하면 도구 모듈이 `from mcp_server.server import mcp`
-하므로 순환 import 위험).
+도구 자동 등록은 `mcp_server.tools.__init__` 이 leaf 도구 모듈을 명시 import 하는
+방식으로 한다. 서버 엔트리포인트(main) 가 `import mcp_server.tools` 한 줄로 트리거.
+(서버 모듈 top-level 에서 직접 import 하면 도구 모듈의 `from mcp_server.server import mcp`
+와 순환하므로 함수 안 lazy import 로 한다.)
 """
 
 from collections.abc import AsyncIterator
@@ -60,6 +60,9 @@ def main() -> None:
     transport 값 검증은 config.Settings 의 Literal 타입이 담당 — 잘못된 값은 Settings
     인스턴스화 단계에서 ValidationError 로 거부된다.
     """
+    # 도구 등록 트리거 — top-level 이 아닌 함수 안 import 로 순환 회피.
+    import mcp_server.tools  # noqa: F401
+
     s = get_settings()
     mcp.run(transport=s.mcp_transport)
 
