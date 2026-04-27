@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class ParsedTaskNormalizerTest {
 
     @Test
-    @DisplayName("normalizes real estate parser output into executable draft")
+    @DisplayName("normalizes real estate parser output into a domain draft")
     void normalizesRealEstate() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());
         ParsedTask task = new ParsedTask(
@@ -33,7 +33,7 @@ class ParsedTaskNormalizerTest {
 
         assertThat(draft.domainName()).isEqualTo("real-estate");
         assertThat(draft.intent()).isEqualTo("apartment_trade_price");
-        assertThat(draft.toolName()).isEqualTo("search_house_price");
+        assertThat(draft.toolName()).isNull();
         assertThat(draft.monitoringParams()).containsEntry("region", "강남구");
         assertThat(draft.cronExpr()).isEqualTo("0 0 9 * * *");
         assertThat(draft.notificationChannel()).isEqualTo("TELEGRAM_DM");
@@ -91,6 +91,21 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
+    @DisplayName("extracts common city and metropolitan region names from natural language")
+    void extractsCityAndMetropolitanRegions() {
+        ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());
+
+        assertThat(normalizeRegion(normalizer, "안산시 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
+                .isEqualTo("안산시");
+        assertThat(normalizeRegion(normalizer, "성남시 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
+                .isEqualTo("성남시");
+        assertThat(normalizeRegion(normalizer, "서울 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
+                .isEqualTo("서울");
+        assertThat(normalizeRegion(normalizer, "마포 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
+                .isEqualTo("마포");
+    }
+
+    @Test
     @DisplayName("modify and delete intents are not handled by the creation flow")
     void nonCreateIntentIsNotExecutable() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());
@@ -141,5 +156,23 @@ class ParsedTaskNormalizerTest {
         assertThat(draft.toolName()).isNull();
         assertThat(draft.missingFields()).contains("unsupportedCapability");
         assertThat(draft.assistantMessage()).contains("준비 중");
+    }
+
+    private String normalizeRegion(ParsedTaskNormalizer normalizer, String query) {
+        ParsedTask task = new ParsedTask(
+                "create",
+                "부동산",
+                query,
+                "",
+                "0 9 * * *",
+                "telegram",
+                "api",
+                query,
+                List.of(),
+                0.9,
+                false,
+                ""
+        );
+        return normalizer.normalize(task, query).monitoringParams().get("region");
     }
 }

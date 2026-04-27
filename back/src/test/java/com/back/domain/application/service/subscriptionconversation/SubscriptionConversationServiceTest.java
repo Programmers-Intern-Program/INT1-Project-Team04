@@ -17,11 +17,14 @@ import com.back.domain.application.command.ParseTaskCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.in.ParseTaskUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
+import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
 import com.back.domain.model.domain.Domain;
+import com.back.domain.model.mcp.McpServer;
+import com.back.domain.model.mcp.McpTool;
 import com.back.domain.model.notification.NotificationChannel;
 import com.back.domain.model.notification.NotificationEndpoint;
 import com.back.domain.model.subscription.SubscriptionConversationStatus;
@@ -87,7 +90,20 @@ class SubscriptionConversationServiceTest {
         when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
                 .thenReturn(Optional.of(savedConversation));
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(new ParsedTask(
+                "",
+                "",
+                "",
+                "5% 이상",
+                "",
+                "",
+                "api",
+                "",
+                List.of(),
+                0.8,
+                false,
+                ""
+        )));
         SubscriptionConversationService service = service(loadNotificationEndpointPort);
 
         SubscriptionConversationService.Response response = service.handle(
@@ -99,6 +115,45 @@ class SubscriptionConversationServiceTest {
 
         assertThat(parseTaskUseCase.receivedContinueSessionId).isEqualTo("parse-1");
         assertThat(response.conversationId()).isEqualTo(savedConversation.getId());
+    }
+
+    @Test
+    @DisplayName("follow-up parser result keeps previously selected cadence and channel")
+    void followUpKeepsPreviousCadenceAndChannel() {
+        SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
+        savedConversation.updateParsedDraft(
+                "parse-1",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "0 0 9 * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "기준을 조금 더 알려주세요.",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
+                .thenReturn(Optional.of(savedConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                savedConversation.getId(),
+                "5% 이상",
+                null
+        );
+
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(savedConversation.getDraftQuery()).isEqualTo("강남구 아파트 매매 실거래가");
+        assertThat(savedConversation.getDraftDomainName()).isEqualTo("real-estate");
+        assertThat(savedConversation.getDraftCronExpr()).isEqualTo("0 0 9 * * *");
+        assertThat(savedConversation.getDraftNotificationChannel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
+        assertThat(savedConversation.getDraftMonitoringParams()).contains("\"condition\":\"5% 이상\"");
     }
 
     @Test
@@ -137,6 +192,60 @@ class SubscriptionConversationServiceTest {
         assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
                 .contains("SELECT_CADENCE", "SELECT_CHANNEL");
         assertThat(savedConversation.getDraftMonitoringParams()).contains("\"condition\":\"13% 이상 변동\"");
+    }
+
+    @Test
+    @DisplayName("percent condition answer keeps the current conversation even when MCP tool is not resolved yet")
+    void percentConditionAnswerKeepsConversationWithoutResolvedTool() {
+        SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
+        savedConversation.updateParsedDraft(
+                "parse-1",
+                "안산 집값",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                null,
+                "{\"region\":\"안산\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                null,
+                null,
+                null,
+                "어떤 변동 조건이 발생했을 때 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이하 등",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
+                .thenReturn(Optional.of(savedConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-new", List.of(new ParsedTask(
+                "reject",
+                "기타",
+                "5% 상승",
+                "",
+                "",
+                "",
+                "",
+                "5% 상승",
+                List.of(),
+                0.1,
+                false,
+                ""
+        )));
+        SubscriptionConversationService service = service(
+                loadNotificationEndpointPort,
+                new FakeLoadMcpToolPort(null, null)
+        );
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                savedConversation.getId(),
+                "5% 상승",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isZero();
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
+        assertThat(savedConversation.getDraftMonitoringParams()).contains("\"condition\":\"5% 이상 상승\"");
     }
 
     @Test
@@ -187,6 +296,28 @@ class SubscriptionConversationServiceTest {
 
         assertThat(response.assistantMessage()).contains("준비 중");
         assertThat(createSubscriptionUseCase.receivedCommand).isNull();
+    }
+
+    @Test
+    @DisplayName("new draft uses the MCP tool available from storage")
+    void draftUsesStoredMcpTool() {
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        McpTool storedTool = mcpTool("search_house_price_v2");
+        SubscriptionConversationService service = service(
+                loadNotificationEndpointPort,
+                new FakeLoadMcpToolPort(storedTool, null)
+        );
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                null,
+                "강남구 아파트 매매 실거래가를 매일 아침 Telegram으로 알려줘",
+                null
+        );
+
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().toolName()).isEqualTo("search_house_price_v2");
     }
 
     @Test
@@ -329,15 +460,35 @@ class SubscriptionConversationServiceTest {
     }
 
     private SubscriptionConversationService service(LoadNotificationEndpointPort endpointPort) {
+        return service(endpointPort, new FakeLoadMcpToolPort(mcpTool("search_house_price"), mcpTool("search_house_price")));
+    }
+
+    private SubscriptionConversationService service(
+            LoadNotificationEndpointPort endpointPort,
+            LoadMcpToolPort loadMcpToolPort
+    ) {
         return new SubscriptionConversationService(
                 parseTaskUseCase,
                 new ParsedTaskNormalizer(new DomainCapabilityRegistry()),
                 createSubscriptionUseCase,
                 loadDomainPort,
+                loadMcpToolPort,
                 endpointPort,
                 conversationRepository,
                 monitoringConfigRepository,
                 new ObjectMapper()
+        );
+    }
+
+    private static McpTool mcpTool(String name) {
+        Domain domain = new Domain(1L, "real-estate");
+        return new McpTool(
+                1L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                name,
+                "부동산 실거래가 조회",
+                "{}"
         );
     }
 
@@ -390,6 +541,27 @@ class SubscriptionConversationServiceTest {
         public SubscriptionResult createForUser(Long userId, CreateSubscriptionCommand command) {
             this.receivedCommand = command;
             return result;
+        }
+    }
+
+    private static class FakeLoadMcpToolPort implements LoadMcpToolPort {
+        private final McpTool defaultTool;
+        private final McpTool namedTool;
+
+        private FakeLoadMcpToolPort(McpTool defaultTool, McpTool namedTool) {
+            this.defaultTool = defaultTool;
+            this.namedTool = namedTool;
+        }
+
+        @Override
+        public Optional<McpTool> loadByDomainId(Long domainId) {
+            return Optional.ofNullable(defaultTool);
+        }
+
+        @Override
+        public Optional<McpTool> loadByDomainIdAndName(Long domainId, String toolName) {
+            return Optional.ofNullable(namedTool)
+                    .filter(tool -> tool.name().equals(toolName));
         }
     }
 

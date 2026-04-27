@@ -15,31 +15,46 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ParsedTaskNormalizer {
 
-    private static final Pattern REGION = Pattern.compile("([가-힣]+구)");
+    private static final Pattern REGION = Pattern.compile(
+            "([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구|읍|면|동)|서울|부산|대구|인천|광주|대전|울산|세종|제주)"
+    );
+    private static final List<String> REGION_ALIASES = List.of(
+            "강남", "서초", "송파", "마포", "성남", "안산"
+    );
 
     private final DomainCapabilityRegistry registry;
 
     public SubscriptionDraft normalize(ParsedTask task, String userMessage) {
+        return normalize(task, userMessage, null);
+    }
+
+    public SubscriptionDraft normalize(ParsedTask task, String userMessage, SubscriptionDraft previousDraft) {
         String domainName = canonicalDomainName(task.domainName());
+        if (isBlank(domainName) && previousDraft != null) {
+            domainName = previousDraft.domainName();
+        }
+        boolean canReusePrevious = canReusePreviousDraft(previousDraft, domainName);
+        String query = !isBlank(task.query()) ? task.query() : canReusePrevious ? previousDraft.query() : task.query();
+        String parseIntent = !isBlank(task.intent()) ? task.intent() : canReusePrevious ? "create" : "";
         DomainCapabilityRegistry.DomainCapability domain = registry.findDomain(domainName).orElse(null);
         List<String> missing = new ArrayList<>();
         Map<String, String> params = new HashMap<>();
 
-        if (domain == null || "reject".equals(task.intent())) {
+        if (domain == null || "reject".equals(parseIntent)) {
             missing.add("unsupportedDomain");
-            return new SubscriptionDraft(task.query(), domainName, task.intent(), null, params, null, null, null,
+            return new SubscriptionDraft(query, domainName, parseIntent, null, params, null, null, null,
                     missing, "지원하지 않는 요청이에요.", task.confidence());
         }
 
-        if (!"create".equals(task.intent())) {
+        if (!"create".equals(parseIntent)) {
             missing.add("unsupportedIntent");
-            return new SubscriptionDraft(task.query(), domainName, task.intent(), null, params, null, null, null,
+            return new SubscriptionDraft(query, domainName, parseIntent, null, params, null, null, null,
                     missing, "알림 수정과 삭제는 아직 채팅 생성 플로우에서 처리하지 않아요.", task.confidence());
         }
 
         if (domain.status() != DomainCapabilityRegistry.SupportStatus.ENABLED) {
             missing.add("unsupportedCapability");
-            return new SubscriptionDraft(task.query(), domainName, null, null, params,
+            return new SubscriptionDraft(query, domainName, null, null, params,
                     explicitCron(task.cronExpr(), userMessage), explicitChannel(userMessage), null, missing,
                     domain.label() + " 알림은 준비 중이에요. 현재는 부동산 아파트 매매 실거래가 알림만 만들 수 있어요.",
                     task.confidence());
@@ -49,7 +64,10 @@ public class ParsedTaskNormalizer {
         DomainCapabilityRegistry.IntentCapability capability = registry.requireIntent(domainName, intent);
         params.putAll(capability.defaults());
 
-        String region = extractRegion(task.query(), task.target());
+        String region = extractRegion(query, task.target());
+        if (region == null && canReusePrevious) {
+            region = previousDraft.monitoringParams().get("region");
+        }
         if (region == null) {
             missing.add("region");
         } else {
@@ -58,20 +76,29 @@ public class ParsedTaskNormalizer {
 
         if (!isBlank(task.condition())) {
             params.put("condition", task.condition());
+        } else if (canReusePrevious && !isBlank(previousDraft.monitoringParams().get("condition"))) {
+            params.put("condition", previousDraft.monitoringParams().get("condition"));
         }
 
         String cronExpr = explicitCron(task.cronExpr(), userMessage);
+        if (cronExpr == null && canReusePrevious) {
+            cronExpr = previousDraft.cronExpr();
+        }
         if (cronExpr == null) {
             missing.add("cadence");
         }
 
         String channel = explicitChannel(userMessage);
+        if (channel == null && canReusePrevious) {
+            channel = previousDraft.notificationChannel();
+        }
         if (channel == null) {
             missing.add("notificationChannel");
         }
 
-        return new SubscriptionDraft(task.query(), domainName, intent, capability.toolName(), params,
-                cronExpr, channel, null, missing, assistantQuestion(missing), task.confidence());
+        String targetAddress = canReusePrevious ? previousDraft.notificationTargetAddress() : null;
+        return new SubscriptionDraft(query, domainName, intent, capability.toolName(), params,
+                cronExpr, channel, targetAddress, missing, assistantQuestion(missing), task.confidence());
     }
 
     private String canonicalDomainName(String value) {
@@ -130,7 +157,18 @@ public class ParsedTaskNormalizer {
             return queryMatcher.group(1);
         }
         Matcher targetMatcher = REGION.matcher(target == null ? "" : target);
-        return targetMatcher.find() ? targetMatcher.group(1) : null;
+        if (targetMatcher.find()) {
+            return targetMatcher.group(1);
+        }
+        return extractAliasRegion(query, target);
+    }
+
+    private String extractAliasRegion(String query, String target) {
+        String text = (query == null ? "" : query) + " " + (target == null ? "" : target);
+        return REGION_ALIASES.stream()
+                .filter(text::contains)
+                .findFirst()
+                .orElse(null);
     }
 
     private String assistantQuestion(List<String> missing) {
@@ -148,6 +186,10 @@ public class ParsedTaskNormalizer {
 
     private String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean canReusePreviousDraft(SubscriptionDraft previousDraft, String domainName) {
+        return previousDraft != null && domainName.equals(previousDraft.domainName());
     }
 
     private boolean isBlank(String value) {

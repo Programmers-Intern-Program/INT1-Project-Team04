@@ -10,11 +10,13 @@ import com.back.domain.application.command.ParseTaskCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.in.ParseTaskUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
+import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
 import com.back.domain.model.domain.Domain;
+import com.back.domain.model.mcp.McpTool;
 import com.back.domain.model.notification.NotificationChannel;
 import com.back.domain.model.notification.NotificationEndpoint;
 import com.back.domain.model.subscription.SubscriptionConversationStatus;
@@ -49,6 +51,7 @@ public class SubscriptionConversationService {
     private final ParsedTaskNormalizer parsedTaskNormalizer;
     private final CreateSubscriptionUseCase createSubscriptionUseCase;
     private final LoadDomainPort loadDomainPort;
+    private final LoadMcpToolPort loadMcpToolPort;
     private final LoadNotificationEndpointPort loadNotificationEndpointPort;
     private final SubscriptionConversationJpaRepository conversationRepository;
     private final SubscriptionMonitoringConfigJpaRepository monitoringConfigRepository;
@@ -102,7 +105,15 @@ public class SubscriptionConversationService {
                 || conversation.getStatus() == SubscriptionConversationStatus.CANCELLED) {
             return true;
         }
-        return isBlank(conversation.getDraftToolName());
+        return isUnsupportedConversation(conversation)
+                || (isBlank(conversation.getDraftDomainName()) && isBlank(conversation.getDraftQuery()));
+    }
+
+    private boolean isUnsupportedConversation(SubscriptionConversationJpaEntity conversation) {
+        return "reject".equals(conversation.getDraftIntent())
+                || "unsupportedDomain".equals(conversation.getDraftIntent())
+                || (isBlank(conversation.getDraftIntent()) && isBlank(conversation.getDraftToolName()))
+                || (conversation.getDraftDomainId() == null && isBlank(conversation.getDraftToolName()));
     }
 
     private Response applyParseResult(
@@ -120,8 +131,9 @@ public class SubscriptionConversationService {
         }
 
         ParsedTask task = parseResult.tasks().getFirst();
-        SubscriptionDraft draft = parsedTaskNormalizer.normalize(task, userMessage);
+        SubscriptionDraft draft = parsedTaskNormalizer.normalize(task, userMessage, previousDraft(conversation));
         Long domainId = findDomainId(draft.domainName()).orElse(null);
+        draft = withStoredMcpTool(draft, domainId);
         NotificationChannel channel = parseChannel(draft.notificationChannel()).orElse(null);
         String assistantMessage = assistantMessage(task, draft);
         boolean waitsForParserConfirmation = task.needsConfirmation() && !isUnsupported(draft);
@@ -261,6 +273,57 @@ public class SubscriptionConversationService {
                 .findFirst();
     }
 
+    private SubscriptionDraft previousDraft(SubscriptionConversationJpaEntity conversation) {
+        if (isBlank(conversation.getDraftQuery()) && isBlank(conversation.getDraftDomainName())) {
+            return null;
+        }
+        return new SubscriptionDraft(
+                conversation.getDraftQuery(),
+                conversation.getDraftDomainName(),
+                conversation.getDraftIntent(),
+                conversation.getDraftToolName(),
+                monitoringParams(conversation.getDraftMonitoringParams()),
+                conversation.getDraftCronExpr(),
+                conversation.getDraftNotificationChannel() == null
+                        ? null
+                        : conversation.getDraftNotificationChannel().name(),
+                conversation.getDraftNotificationTargetAddress(),
+                List.of(),
+                conversation.getLastAssistantMessage(),
+                0
+        );
+    }
+
+    private SubscriptionDraft withStoredMcpTool(SubscriptionDraft draft, Long domainId) {
+        if (domainId == null || isUnsupported(draft)) {
+            return draft;
+        }
+
+        Optional<McpTool> configuredTool = Optional.ofNullable(draft.toolName())
+                .filter(toolName -> !isBlank(toolName))
+                .flatMap(toolName -> loadMcpToolPort.loadByDomainIdAndName(domainId, toolName));
+        return configuredTool
+                .or(() -> loadMcpToolPort.loadByDomainId(domainId))
+                .map(tool -> withToolName(draft, tool.name()))
+                .orElse(draft);
+    }
+
+    private SubscriptionDraft withToolName(SubscriptionDraft draft, String toolName) {
+        return new SubscriptionDraft(
+                draft.query(),
+                draft.domainName(),
+                draft.intent(),
+                toolName,
+                draft.monitoringParams(),
+                draft.cronExpr(),
+                draft.notificationChannel(),
+                draft.notificationTargetAddress(),
+                draft.missingFields(),
+                draft.assistantMessage(),
+                draft.confidence()
+        );
+    }
+
     private boolean isDraftComplete(SubscriptionDraft draft, Long domainId, NotificationChannel channel) {
         return domainId != null
                 && !isBlank(draft.query())
@@ -303,7 +366,6 @@ public class SubscriptionConversationService {
             String message
     ) {
         if (conversation.getStatus() != SubscriptionConversationStatus.COLLECTING
-                || isBlank(conversation.getDraftToolName())
                 || isBlank(conversation.getLastAssistantMessage())
                 || !conversation.getLastAssistantMessage().contains("%")) {
             return null;

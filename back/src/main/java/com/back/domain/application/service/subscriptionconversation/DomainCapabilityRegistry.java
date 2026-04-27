@@ -17,7 +17,7 @@ public class DomainCapabilityRegistry {
                     SupportStatus.ENABLED,
                     List.of(new IntentCapability(
                             "apartment_trade_price",
-                            "search_house_price",
+                            null,
                             List.of("region"),
                             Map.of("dealYmdPolicy", "LATEST_AVAILABLE_MONTH")
                     ))

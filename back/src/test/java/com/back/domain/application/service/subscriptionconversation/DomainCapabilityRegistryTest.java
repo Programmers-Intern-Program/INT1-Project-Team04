@@ -17,7 +17,7 @@ class DomainCapabilityRegistryTest {
         assertThat(registry.requireDomain("real-estate").status())
                 .isEqualTo(DomainCapabilityRegistry.SupportStatus.ENABLED);
         assertThat(registry.requireIntent("real-estate", "apartment_trade_price").toolName())
-                .isEqualTo("search_house_price");
+                .isNull();
         assertThat(registry.missingRequiredParameters(
                 "real-estate",
                 "apartment_trade_price",
