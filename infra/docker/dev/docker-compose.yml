@@ -93,8 +93,8 @@ services:
     image: langfuse/langfuse:latest
     environment:
       DATABASE_URL: postgresql://${PG_USER:-devuser}:${PG_PASSWORD:-devpass}@postgres:5432/langfuse
-      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:8123/langfuse
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:9000/langfuse
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
       CLICKHOUSE_USER: langfuse
       CLICKHOUSE_PASSWORD: langfuse_pass
       CLICKHOUSE_CLUSTER_ENABLED: "false"
@@ -128,8 +128,8 @@ services:
     image: langfuse/langfuse-worker:latest
     environment:
       DATABASE_URL: postgresql://${PG_USER:-devuser}:${PG_PASSWORD:-devpass}@postgres:5432/langfuse
-      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:8123/langfuse
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:9000/langfuse
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
       CLICKHOUSE_USER: langfuse
       CLICKHOUSE_PASSWORD: langfuse_pass
       CLICKHOUSE_CLUSTER_ENABLED: "false"

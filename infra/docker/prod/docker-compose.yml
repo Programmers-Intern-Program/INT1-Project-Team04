@@ -112,8 +112,8 @@ services:
           memory: 1g
     environment:
       DATABASE_URL: postgresql://${PG_USER}:${PG_PASSWORD}@prod-postgres:5432/langfuse
-      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:8123/langfuse
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:9000/langfuse
+      CLICKHOUSE_URL: http://prod-langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://prod-langfuse-clickhouse:9000
       CLICKHOUSE_USER: langfuse
       CLICKHOUSE_PASSWORD: langfuse_password
       CLICKHOUSE_CLUSTER_ENABLED: "false"
@@ -152,8 +152,8 @@ services:
           memory: 1g
     environment:
       DATABASE_URL: postgresql://${PG_USER}:${PG_PASSWORD}@prod-postgres:5432/langfuse
-      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:8123/langfuse
-      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_password@prod-langfuse-clickhouse:9000/langfuse
+      CLICKHOUSE_URL: http://prod-langfuse-clickhouse:8123
+      CLICKHOUSE_MIGRATION_URL: clickhouse://prod-langfuse-clickhouse:9000
       CLICKHOUSE_USER: langfuse
       CLICKHOUSE_PASSWORD: langfuse_password
       CLICKHOUSE_CLUSTER_ENABLED: "false"
