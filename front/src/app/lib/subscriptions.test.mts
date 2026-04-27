@@ -156,6 +156,18 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes("삭제"), true);
   });
 
+  it("renders temporary json request and response snapshots below the chat form", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("debugJson"), true);
+    assert.equal(source.includes("요청 JSON"), true);
+    assert.equal(source.includes("응답 JSON"), true);
+    assert.equal(source.includes("formatDebugJson"), true);
+  });
+
   it("maps backend domain names to product labels and examples", () => {
     const domains = buildDomainPresets([
       { id: 11, name: "real-estate" },
