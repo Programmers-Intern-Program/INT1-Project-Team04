@@ -94,4 +94,37 @@ class SchedulePersistenceAdapterTest extends IntegrationTestBase {
                 .extracting(Schedule::id)
                 .containsExactly(savedDueSchedule.id());
     }
+
+    @Test
+    @DisplayName("Persistence: 비활성 구독의 실행 예정 스케줄은 조회하지 않는다")
+    void skipsDueSchedulesForInactiveSubscriptions() {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("inactive-due-user@example.com", "token"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        SubscriptionJpaEntity activeSubscription = subscriptionJpaRepository.save(
+                new SubscriptionJpaEntity(user, domain, "활성 구독", "create", true)
+        );
+        SubscriptionJpaEntity inactiveSubscription = subscriptionJpaRepository.save(
+                new SubscriptionJpaEntity(user, domain, "삭제된 구독", "create", true)
+        );
+        inactiveSubscription.deactivate();
+        Schedule activeSchedule = schedulePersistenceAdapter.save(new Schedule(
+                null,
+                activeSubscription.toDomain(),
+                "0 0 * * * *",
+                null,
+                LocalDateTime.now().minusMinutes(1)
+        ));
+        Schedule inactiveSchedule = schedulePersistenceAdapter.save(new Schedule(
+                null,
+                inactiveSubscription.toDomain(),
+                "0 0 * * * *",
+                null,
+                LocalDateTime.now().minusMinutes(1)
+        ));
+
+        assertThat(schedulePersistenceAdapter.loadDueSchedules(LocalDateTime.now()))
+                .extracting(Schedule::id)
+                .contains(activeSchedule.id())
+                .doesNotContain(inactiveSchedule.id());
+    }
 }

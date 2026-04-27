@@ -3,6 +3,7 @@ package com.back.domain.application.service;
 import com.back.domain.application.command.CreateSubscriptionCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
+import com.back.domain.application.port.out.LoadDuplicateSubscriptionPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.port.out.LoadUserPort;
 import com.back.domain.application.port.out.SaveNotificationDeliveryPort;
@@ -40,6 +41,7 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
 
     private final LoadUserPort loadUserPort;
     private final LoadDomainPort loadDomainPort;
+    private final LoadDuplicateSubscriptionPort loadDuplicateSubscriptionPort;
     private final SaveSubscriptionPort saveSubscriptionPort;
     private final SaveSchedulePort saveSchedulePort;
     private final LoadNotificationEndpointPort loadNotificationEndpointPort;
@@ -54,6 +56,15 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
         Domain domain = loadDomainPort.loadById(command.domainId())
                 .orElseThrow(() -> new ApiException(ErrorCode.DOMAIN_NOT_FOUND));
         LocalDateTime nextRun = CronScheduleCalculator.nextRun(command.cronExpr(), LocalDateTime.now());
+        if (loadDuplicateSubscriptionPort.existsActiveDuplicate(
+                user.id(),
+                domain.id(),
+                normalizeQuery(command.query()),
+                command.cronExpr(),
+                command.notificationChannel()
+        )) {
+            throw new ApiException(ErrorCode.DUPLICATE_SUBSCRIPTION);
+        }
 
         Subscription subscription = saveSubscriptionPort.save(new Subscription(
                 null,
@@ -168,6 +179,13 @@ public class CreateSubscriptionService implements CreateSubscriptionUseCase {
                 null,
                 LocalDateTime.now()
         ));
+    }
+
+    private String normalizeQuery(String query) {
+        if (query == null) {
+            return "";
+        }
+        return query.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     private String formatSubscriptionStartedMessage(

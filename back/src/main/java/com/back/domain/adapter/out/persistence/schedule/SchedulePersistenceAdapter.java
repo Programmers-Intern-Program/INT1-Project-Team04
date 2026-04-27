@@ -30,7 +30,7 @@ public class SchedulePersistenceAdapter implements SaveSchedulePort, LoadDueSche
     @Override
     @Transactional(readOnly = true)
     public List<Schedule> loadDueSchedules(LocalDateTime now) {
-        return scheduleJpaRepository.findByNextRunLessThanEqual(now)
+        return scheduleJpaRepository.findDueActiveSubscriptionSchedules(now)
                 .stream()
                 .map(ScheduleJpaEntity::toDomain)
                 .toList();
