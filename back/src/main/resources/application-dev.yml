@@ -16,6 +16,9 @@ spring:
   ai:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY}
+    mcp:
+      client:
+        enabled: ${MCP_ENABLED:false}   # MCP 서버 없이 기동할 때 false (기본값)
 
 langfuse:
   otlp-endpoint: ${LANGFUSE_OTLP_ENDPOINT:http://localhost:3001/api/public/otel/v1/traces}
