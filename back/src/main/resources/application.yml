@@ -3,20 +3,56 @@ spring:
     name: back
   profiles:
     default: dev
+  mail:
+    host: ${APP_MAIL_HOST:smtp.gmail.com}
+    port: ${APP_MAIL_PORT:587}
+    username: ${APP_MAIL_USERNAME:}
+    password: ${APP_MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${APP_MAIL_SMTP_AUTH:true}
+          starttls:
+            enable: ${APP_MAIL_SMTP_STARTTLS_ENABLE:true}
   jpa:
     open-in-view: false
     properties:
       hibernate:
         format_sql: true
+  flyway:
+    baseline-on-migrate: true
+    baseline-version: 0
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:} # 없어도 warn만 내뱉고 기동 — SpringAiMonitorAdapter 참고
+      chat:
+        options:
+          model: claude-sonnet-4-6
+        client:
+          observations:
+            include-input: true   # 프롬프트를 Langfuse에 기록
+        model:
+          observations:
+            include-input: true
+            include-output: true  # 응답을 Langfuse에 기록
+    mcp:
+      client:
+        sse:
+          connections:
+            python-mcp:
+              url: ${MCP_SERVER_URL:http://localhost:8090}
 
 server:
   port: 8080
 
 management:
+  health:
+    mail:
+      enabled: ${APP_MAIL_HEALTH_ENABLED:false}
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       probes:
@@ -43,3 +79,18 @@ app:
       client-id: ${APP_OAUTH_DISCORD_CLIENT_ID:}
       client-secret: ${APP_OAUTH_DISCORD_CLIENT_SECRET:}
       redirect-uri: ${APP_OAUTH_DISCORD_REDIRECT_URI:http://localhost:8080/api/auth/oauth/discord/callback}
+  notification:
+    max-attempts: ${APP_NOTIFICATION_MAX_ATTEMPTS:3}
+    retry-delay-seconds: ${APP_NOTIFICATION_RETRY_DELAY_SECONDS:300}
+    email:
+      enabled: ${APP_NOTIFICATION_EMAIL_ENABLED:false}
+      from: ${APP_NOTIFICATION_EMAIL_FROM:}
+    discord:
+      enabled: ${APP_NOTIFICATION_DISCORD_ENABLED:false}
+      bot-token: ${APP_NOTIFICATION_DISCORD_BOT_TOKEN:}
+      api-base-url: ${APP_NOTIFICATION_DISCORD_API_BASE_URL:https://discord.com/api/v10}
+    telegram:
+      enabled: ${APP_NOTIFICATION_TELEGRAM_ENABLED:false}
+      bot-token: ${APP_NOTIFICATION_TELEGRAM_BOT_TOKEN:}
+      bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
+      api-base-url: ${APP_NOTIFICATION_TELEGRAM_API_BASE_URL:https://api.telegram.org}

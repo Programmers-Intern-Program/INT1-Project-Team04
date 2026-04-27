@@ -65,6 +65,18 @@ jobs:
           echo "BE_IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_BE }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
           echo "FE_IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_FE }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
+      - name: Parse frontend build env
+        env:
+          DOT_ENV_PROD: ${{ secrets.DOT_ENV_PROD }}
+        run: |
+          strip() { echo "$1" | sed 's/[[:space:]]*#.*$//' | tr -d '[:space:]'; }
+          NEXT_PUBLIC_API_BASE_URL=$(strip "$(printf '%s' "$DOT_ENV_PROD" | grep -E '^NEXT_PUBLIC_API_BASE_URL=' | cut -d= -f2-)")
+          if [ -z "$NEXT_PUBLIC_API_BASE_URL" ]; then
+            echo "NEXT_PUBLIC_API_BASE_URL is required in DOT_ENV_PROD"
+            exit 1
+          fi
+          echo "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" >> $GITHUB_ENV
+
       - name: Build and push Backend
         uses: docker/build-push-action@v6
         with:
@@ -86,6 +98,8 @@ jobs:
           tags: |
             ${{ env.FE_IMAGE }}:${{ needs.calculate-tag.outputs.tag_name }}
             ${{ env.FE_IMAGE }}:latest
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=${{ env.NEXT_PUBLIC_API_BASE_URL }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
@@ -165,12 +179,10 @@ jobs:
             # ── GHCR 로그인 ────────────────────────────────────
             echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
-            # ── 인프라 서비스 기동 (멱등, mcp-server 제외 — 별도 파이프라인에서 빌드) ──
+            # ── Langfuse 기동 ──────────────────────────────────
             docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
               --env-file ~/app/infra/docker/prod/.env \
-              up -d --remove-orphans \
-              postgres redis langfuse-clickhouse langfuse-web langfuse-worker nginx-proxy-manager \
-              loki promtail node-exporter postgres-exporter
+              up -d langfuse-clickhouse langfuse-web langfuse-worker
 
             # ── Blue/Green 슬롯 판정 ───────────────────────────
             if docker ps --format '{{.Names}}' | grep -q "^be_a$"; then
@@ -189,19 +201,23 @@ jobs:
             # ── Green 기동 ─────────────────────────────────────
             docker rm -f "$GREEN_BE" "$GREEN_FE" 2>/dev/null || true
 
+            # be_a=9091, be_b=9092 (슬롯별 고정 포트 — Prometheus 스크래핑용)
+            [ "$GREEN_BE" = "be_a" ] && BE_METRICS_PORT=9091 || BE_METRICS_PORT=9092
+
             docker run -d --name "$GREEN_BE" \
               --network prod-net \
               --memory=4g \
               --env-file ~/app/infra/docker/prod/.env \
               -e JAVA_OPTS="-Xms512m -Xmx3500m" \
               -e SPRING_PROFILES_ACTIVE=prod \
+              -p ${BE_METRICS_PORT}:8080 \
               "${BE_IMAGE}:${IMAGE_TAG}"
 
             docker run -d --name "$GREEN_FE" \
               --network prod-net \
               --memory=1g \
               -e NODE_ENV=production \
-              -e API_BASE_URL="http://${GREEN_BE}:8080" \
+              -e NEXT_PUBLIC_API_BASE_URL="https://${BE_DOMAIN}" \
               "${FE_IMAGE}:${IMAGE_TAG}"
 
             # .env 즉시 삭제

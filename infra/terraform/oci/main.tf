@@ -71,4 +71,5 @@ module "services" {
   langfuse_secret_key      = var.langfuse_secret_key
   langfuse_public_key      = var.langfuse_public_key
   langfuse_domain          = var.langfuse_domain
+  langfuse_encryption_key  = var.langfuse_encryption_key
 }

@@ -4,11 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.back.domain.adapter.out.persistence.domain.DomainJpaEntity;
 import com.back.domain.adapter.out.persistence.domain.DomainJpaRepository;
+import com.back.domain.adapter.out.persistence.notification.NotificationEndpointJpaEntity;
+import com.back.domain.adapter.out.persistence.notification.NotificationEndpointJpaRepository;
+import com.back.domain.adapter.out.persistence.notification.NotificationDeliveryJpaRepository;
+import com.back.domain.adapter.out.persistence.notification.NotificationPreferenceJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.application.service.SessionTokenService;
+import com.back.domain.model.notification.NotificationChannel;
+import com.back.domain.model.notification.NotificationDeliveryStatus;
 import com.back.support.IntegrationTestBase;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -30,6 +36,15 @@ class SubscriptionControllerTest extends IntegrationTestBase {
 
     @Autowired
     private UserSessionJpaRepository sessionRepository;
+
+    @Autowired
+    private NotificationEndpointJpaRepository notificationEndpointRepository;
+
+    @Autowired
+    private NotificationDeliveryJpaRepository notificationDeliveryRepository;
+
+    @Autowired
+    private NotificationPreferenceJpaRepository notificationPreferenceRepository;
 
     @Autowired
     private SessionTokenService sessionTokenService;
@@ -56,6 +71,69 @@ class SubscriptionControllerTest extends IntegrationTestBase {
         assertThat(response.body()).contains("\"domainId\":" + domain.getId());
         assertThat(response.body()).contains("\"query\":\"강남구 아파트 실거래가\"");
         assertThat(response.body()).contains("\"scheduleId\"");
+    }
+
+    @Test
+    @DisplayName("Web: 구독 생성 요청의 대표 알림 채널과 수신값을 저장한다")
+    void createsNotificationSettingsWithSubscription() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-telegram@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("web-real-estate"));
+        String cookieHeader = createSession(user, "subscription-notification-session");
+
+        HttpResponse<String> response = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 * * * *",
+                  "notificationChannel": "TELEGRAM_DM",
+                  "notificationTargetAddress": "123456789"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        assertThat(notificationEndpointRepository.findByUserIdAndChannelAndEnabledTrue(user.getId(), NotificationChannel.TELEGRAM_DM))
+                .get()
+                .extracting("targetAddress")
+                .isEqualTo("123456789");
+        assertThat(notificationPreferenceRepository.findBySubscriptionIdAndEnabledTrue(readSubscriptionId(response.body())))
+                .extracting("channel")
+                .containsExactly(NotificationChannel.TELEGRAM_DM);
+        assertThat(notificationDeliveryRepository.findAll())
+                .singleElement()
+                .satisfies(delivery -> {
+                    assertThat(delivery.getChannel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
+                    assertThat(delivery.getRecipient()).isEqualTo("123456789");
+                    assertThat(delivery.getStatus()).isEqualTo(NotificationDeliveryStatus.PENDING);
+                    assertThat(delivery.getTitle()).contains("알림 설정");
+                });
+    }
+
+    @Test
+    @DisplayName("Web: 연결된 알림 채널은 수신값 없이 구독에 연결한다")
+    void createsNotificationPreferenceWithConnectedEndpoint() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-connected@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("web-real-estate"));
+        notificationEndpointRepository.save(new NotificationEndpointJpaEntity(
+                user.getId(),
+                NotificationChannel.DISCORD_DM,
+                "discord-user-1",
+                true
+        ));
+        String cookieHeader = createSession(user, "subscription-connected-session");
+
+        HttpResponse<String> response = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 * * * *",
+                  "notificationChannel": "DISCORD_DM"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(201);
+        assertThat(notificationPreferenceRepository.findBySubscriptionIdAndEnabledTrue(readSubscriptionId(response.body())))
+                .extracting("channel")
+                .containsExactly(NotificationChannel.DISCORD_DM);
     }
 
     @Test
@@ -109,5 +187,11 @@ class SubscriptionControllerTest extends IntegrationTestBase {
         }
 
         return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private String readSubscriptionId(String responseBody) {
+        int start = responseBody.indexOf("\"id\":\"") + 6;
+        int end = responseBody.indexOf('"', start);
+        return responseBody.substring(start, end);
     }
 }

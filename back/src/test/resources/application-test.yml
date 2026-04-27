@@ -6,6 +6,10 @@ spring:
     hibernate:
       ddl-auto: create-drop
     show-sql: false
+  ai:
+    mcp:
+      client:
+        enabled: false
 
 # AI Parser 테스트용 더미 설정
 ai-parser:

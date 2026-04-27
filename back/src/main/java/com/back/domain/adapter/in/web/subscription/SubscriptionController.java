@@ -38,7 +38,13 @@ public class SubscriptionController {
         UserJpaEntity user = currentUserService.requireCurrentUser(readSessionCookie(servletRequest));
         return SubscriptionResponse.from(createSubscriptionUseCase.createForUser(
                 user.getId(),
-                new CreateSubscriptionCommand(request.domainId(), request.query(), request.cronExpr())
+                new CreateSubscriptionCommand(
+                        request.domainId(),
+                        request.query(),
+                        request.cronExpr(),
+                        request.notificationChannel(),
+                        request.notificationTargetAddress()
+                )
         ));
     }
 

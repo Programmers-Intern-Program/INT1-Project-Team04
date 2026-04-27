@@ -4,11 +4,18 @@ import { describe, it } from "node:test";
 
 import {
   buildSubscriptionPayload,
+  buildDomainPresets,
   CADENCE_PRESETS,
+  CHANNEL_PRESETS,
   createSubscription,
-  DOMAIN_PRESETS,
+  connectDiscordNotification,
+  disconnectNotificationEndpoint,
+  getDomains,
   getApiBaseUrl,
+  getNotificationEndpoints,
+  startTelegramNotificationConnect,
   validateSubscriptionForm,
+  shouldShowEmailAddressInput,
   type CreateSubscriptionRequest,
   type SubscriptionFetch,
 } from "./subscriptions.ts";
@@ -34,6 +41,8 @@ describe("subscription form helpers", () => {
       "등록 미리보기",
       ">cron<",
       "브리핑",
+      "Discord 사용자 ID",
+      "Telegram chat_id",
     ];
 
     assert.deepEqual(
@@ -64,16 +73,57 @@ describe("subscription form helpers", () => {
     );
   });
 
-  it("defines the four MVP domain presets with stable backend IDs", () => {
+  it("does not expose backend subscription internals in the product UI", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-mvp.tsx", import.meta.url),
+      "utf8",
+    );
+    const bannedCopy = [
+      "등록 결과",
+      "등록 내용",
+      "반복 설정",
+      'label="subscription"',
+      'label="schedule"',
+      'label="active"',
+      'label="nextRun"',
+      "font-mono",
+      "cronExpr ??",
+    ];
+
     assert.deepEqual(
-      DOMAIN_PRESETS.map((domain) => [domain.id, domain.label]),
+      bannedCopy.filter((copy) => source.includes(copy)),
+      [],
+    );
+  });
+
+  it("maps backend domain names to product labels and examples", () => {
+    const domains = buildDomainPresets([
+      { id: 11, name: "real-estate" },
+      { id: 12, name: "law-regulation" },
+      { id: 13, name: "recruitment" },
+      { id: 14, name: "auction" },
+    ]);
+
+    assert.deepEqual(
+      domains.map((domain) => [domain.id, domain.name, domain.label]),
       [
-        [1, "부동산"],
-        [2, "법률/규제"],
-        [3, "채용"],
-        [4, "경매/희소매물"],
+        [11, "real-estate", "부동산"],
+        [12, "law-regulation", "법률/규제"],
+        [13, "recruitment", "채용"],
+        [14, "auction", "경매/희소매물"],
       ],
     );
+  });
+
+  it("falls back to the backend name when there is no product copy for a domain", () => {
+    const [domain] = buildDomainPresets([{ id: 99, name: "custom-domain" }]);
+
+    assert.deepEqual(domain, {
+      id: 99,
+      name: "custom-domain",
+      label: "custom-domain",
+      example: "custom-domain 변경사항이 생기면 알려줘",
+    });
   });
 
   it("maps cadence presets to Spring cron expressions", () => {
@@ -87,30 +137,100 @@ describe("subscription form helpers", () => {
     );
   });
 
+  it("maps notification channels to backend enum values", () => {
+    assert.deepEqual(
+      CHANNEL_PRESETS.map((channel) => [channel.id, channel.label]),
+      [
+        ["DISCORD_DM", "Discord"],
+        ["TELEGRAM_DM", "Telegram"],
+        ["EMAIL", "Email"],
+      ],
+    );
+  });
+
   it("builds the backend subscription payload from form state", () => {
     const payload = buildSubscriptionPayload({
       query: "  강남 투룸 전세 시세 바뀌면 알려줘  ",
       selectedDomainId: 3,
       cadenceId: "hourly",
+      notificationChannel: "TELEGRAM_DM",
+      notificationTargetAddress: "",
     });
 
     assert.deepEqual(payload, {
       domainId: 3,
       query: "강남 투룸 전세 시세 바뀌면 알려줘",
       cronExpr: "0 0 * * * *",
+      notificationChannel: "TELEGRAM_DM",
     });
   });
 
-  it("returns a field error only for an empty query", () => {
+  it("keeps direct email target in the backend subscription payload", () => {
+    const payload = buildSubscriptionPayload({
+      query: "  강남 투룸 전세 시세 바뀌면 알려줘  ",
+      selectedDomainId: 3,
+      cadenceId: "hourly",
+      notificationChannel: "EMAIL",
+      notificationTargetAddress: "  user@example.com  ",
+    });
+
+    assert.deepEqual(payload, {
+      domainId: 3,
+      query: "강남 투룸 전세 시세 바뀌면 알려줘",
+      cronExpr: "0 0 * * * *",
+      notificationChannel: "EMAIL",
+      notificationTargetAddress: "user@example.com",
+    });
+  });
+
+  it("returns field errors for an empty domain, query, and email target", () => {
     const errors = validateSubscriptionForm({
       query: " ",
-      selectedDomainId: 1,
+      selectedDomainId: 0,
       cadenceId: "hourly",
+      notificationChannel: "EMAIL",
+      notificationTargetAddress: " ",
     });
 
     assert.deepEqual(errors, {
+      domainId: "감시 영역을 선택해 주세요.",
       query: "감시할 요청을 입력해 주세요.",
+      notificationTargetAddress: "알림 받을 이메일을 입력해 주세요.",
     });
+  });
+
+  it("does not require email input when an email endpoint is already connected", () => {
+    const errors = validateSubscriptionForm(
+      {
+        query: "강남 투룸 전세 시세 바뀌면 알려줘",
+        selectedDomainId: 3,
+        cadenceId: "hourly",
+        notificationChannel: "EMAIL",
+        notificationTargetAddress: " ",
+      },
+      { selectedEndpointConnected: true },
+    );
+
+    assert.deepEqual(errors, {});
+  });
+
+  it("hides the email input when an email endpoint is already connected", () => {
+    assert.equal(shouldShowEmailAddressInput("EMAIL", false), true);
+    assert.equal(shouldShowEmailAddressInput("EMAIL", true), false);
+    assert.equal(shouldShowEmailAddressInput("DISCORD_DM", true), false);
+    assert.equal(shouldShowEmailAddressInput("TELEGRAM_DM", true), false);
+  });
+
+  it("does not require raw Discord or Telegram IDs in form validation", () => {
+    const errors = validateSubscriptionForm({
+      query: "강남 투룸 전세 시세 바뀌면 알려줘",
+      selectedDomainId: 3,
+      cadenceId: "hourly",
+      notificationChannel: "DISCORD_DM",
+      notificationTargetAddress: " ",
+    });
+
+    assert.deepEqual(errors, {});
   });
 });
 
@@ -119,6 +239,7 @@ describe("subscription API client", () => {
     domainId: 3,
     query: "넥슨 Java 3년 이상 채용 뜨면 알려줘",
     cronExpr: "0 0 * * * *",
+    notificationChannel: "DISCORD_DM",
   };
 
   it("uses localhost backend when no public API base URL is set", () => {
@@ -160,6 +281,179 @@ describe("subscription API client", () => {
     assert.equal(result.ok ? result.data.scheduleId : "", "sch-1");
   });
 
+  it("returns domain presets for a successful backend response", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/domains");
+      assert.equal(init?.method, "GET");
+
+      return new Response(
+        JSON.stringify([
+          { id: 1, name: "real-estate" },
+          { id: 2, name: "law-regulation" },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await getDomains({
+      baseUrl: "http://api.test/",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: [
+        {
+          id: 1,
+          name: "real-estate",
+          label: "부동산",
+          example: "강남 투룸 전세 시세 바뀌면 알려줘",
+        },
+        {
+          id: 2,
+          name: "law-regulation",
+          label: "법률/규제",
+          example: "개인정보 보호법 개정안 나오면 알려줘",
+        },
+      ],
+    });
+  });
+
+  it("loads notification endpoint connection statuses", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints");
+      assert.equal(init?.method, "GET");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify([
+          { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
+          { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
+          { channel: "EMAIL", connected: false, targetLabel: null },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await getNotificationEndpoints({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: [
+        { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
+        { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
+        { channel: "EMAIL", connected: false, targetLabel: null },
+      ],
+    });
+  });
+
+  it("requests Discord notification connection", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/discord/connect");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify({
+          channel: "DISCORD_DM",
+          connected: false,
+          authorizationUrl: "http://api.test/api/auth/oauth/discord/authorize",
+          message: "Discord 로그인이 필요합니다.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await connectDiscordNotification({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "DISCORD_DM",
+        connected: false,
+        targetLabel: null,
+        connectUrl: null,
+        authorizationUrl: "http://api.test/api/auth/oauth/discord/authorize",
+        message: "Discord 로그인이 필요합니다.",
+      },
+    });
+  });
+
+  it("requests Telegram notification deep link", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/telegram/connect");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify({
+          channel: "TELEGRAM_DM",
+          connected: false,
+          connectUrl: "https://t.me/int1_test_bot?start=token-1",
+          message: "Telegram 봇을 열어 연결을 완료해 주세요.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await startTelegramNotificationConnect({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "TELEGRAM_DM",
+        connected: false,
+        targetLabel: null,
+        connectUrl: "https://t.me/int1_test_bot?start=token-1",
+        authorizationUrl: null,
+        message: "Telegram 봇을 열어 연결을 완료해 주세요.",
+      },
+    });
+  });
+
+  it("requests notification endpoint disconnection", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/TELEGRAM_DM");
+      assert.equal(init?.method, "DELETE");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify({
+          channel: "TELEGRAM_DM",
+          connected: false,
+          message: "Telegram 연결이 해제되었습니다.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await disconnectNotificationEndpoint("TELEGRAM_DM", {
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "TELEGRAM_DM",
+        connected: false,
+        targetLabel: null,
+        connectUrl: null,
+        authorizationUrl: null,
+        message: "Telegram 연결이 해제되었습니다.",
+      },
+    });
+  });
+
   it("returns backend error details for non-2xx responses", async () => {
     const fetcher: SubscriptionFetch = async () =>
       new Response(
@@ -186,6 +480,30 @@ describe("subscription API client", () => {
     });
   });
 
+  it("returns backend error details when domain loading fails", async () => {
+    const fetcher: SubscriptionFetch = async () =>
+      new Response(
+        JSON.stringify({
+          code: "REQUEST_FAILED",
+          message: "도메인 목록을 불러오지 못했습니다.",
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } },
+      );
+
+    const result = await getDomains({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "REQUEST_FAILED",
+        message: "도메인 목록을 불러오지 못했습니다.",
+      },
+    });
+  });
+
   it("returns a network error when the request cannot reach the backend", async () => {
     const fetcher: SubscriptionFetch = async () => {
       throw new Error("connection refused");
@@ -201,6 +519,25 @@ describe("subscription API client", () => {
       error: {
         code: "NETWORK_ERROR",
         message: "서버에 연결할 수 없습니다.",
+      },
+    });
+  });
+
+  it("returns a domain loading network error when the request cannot reach the backend", async () => {
+    const fetcher: SubscriptionFetch = async () => {
+      throw new Error("connection refused");
+    };
+
+    const result = await getDomains({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: "감시 영역을 불러올 수 없습니다.",
       },
     });
   });
