@@ -8,6 +8,7 @@ import com.back.domain.adapter.out.persistence.notification.NotificationEndpoint
 import com.back.domain.adapter.out.persistence.notification.NotificationEndpointJpaRepository;
 import com.back.domain.adapter.out.persistence.notification.NotificationDeliveryJpaRepository;
 import com.back.domain.adapter.out.persistence.notification.NotificationPreferenceJpaRepository;
+import com.back.domain.adapter.out.persistence.subscription.SubscriptionJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserSessionJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
@@ -45,6 +46,9 @@ class SubscriptionControllerTest extends IntegrationTestBase {
 
     @Autowired
     private NotificationPreferenceJpaRepository notificationPreferenceRepository;
+
+    @Autowired
+    private SubscriptionJpaRepository subscriptionRepository;
 
     @Autowired
     private SessionTokenService sessionTokenService;
@@ -167,6 +171,92 @@ class SubscriptionControllerTest extends IntegrationTestBase {
         assertThat(response.body()).contains("\"code\":\"UNAUTHENTICATED\"");
     }
 
+    @Test
+    @DisplayName("Web: 현재 사용자의 활성 구독 목록을 반환한다")
+    void listsCurrentUserActiveSubscriptions() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-list@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        notificationEndpointRepository.save(new NotificationEndpointJpaEntity(
+                user.getId(),
+                NotificationChannel.TELEGRAM_DM,
+                "123456789",
+                true
+        ));
+        String cookieHeader = createSession(user, "subscription-list-session");
+        postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 9 * * *",
+                  "notificationChannel": "TELEGRAM_DM"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+
+        HttpResponse<String> response = getSubscriptions(cookieHeader);
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.body()).contains("\"query\":\"강남구 아파트 실거래가\"");
+        assertThat(response.body()).contains("\"domainLabel\":\"부동산\"");
+        assertThat(response.body()).contains("\"cadenceLabel\":\"매일 오전 9시\"");
+        assertThat(response.body()).contains("\"notificationChannel\":\"TELEGRAM_DM\"");
+        assertThat(response.body()).contains("\"channelLabel\":\"Telegram\"");
+        assertThat(response.body()).contains("\"active\":true");
+        assertThat(response.body()).contains("\"nextRun\"");
+    }
+
+    @Test
+    @DisplayName("Web: 같은 사용자에게 같은 도메인, 요청, 주기, 채널의 활성 구독이 있으면 중복 생성을 거부한다")
+    void rejectsDuplicateActiveSubscription() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-duplicate@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        String cookieHeader = createSession(user, "subscription-duplicate-session");
+
+        HttpResponse<String> firstResponse = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 9 * * *"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+        HttpResponse<String> duplicateResponse = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "  강남구   아파트 실거래가  ",
+                  "cronExpr": "0 0 9 * * *"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+
+        assertThat(firstResponse.statusCode()).as(firstResponse.body()).isEqualTo(201);
+        assertThat(duplicateResponse.statusCode()).as(duplicateResponse.body()).isEqualTo(409);
+        assertThat(duplicateResponse.body()).contains("\"code\":\"DUPLICATE_SUBSCRIPTION\"");
+        assertThat(subscriptionRepository.findByUserIdAndActiveTrue(user.getId())).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Web: 구독 삭제 요청은 현재 사용자의 구독을 비활성화하고 목록에서 제외한다")
+    void deletesCurrentUserSubscriptionSoftly() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-delete@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        String cookieHeader = createSession(user, "subscription-delete-session");
+        HttpResponse<String> createResponse = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 9 * * *"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+        String subscriptionId = readSubscriptionId(createResponse.body());
+
+        HttpResponse<String> deleteResponse = deleteSubscription(subscriptionId, cookieHeader);
+        HttpResponse<String> listResponse = getSubscriptions(cookieHeader);
+
+        assertThat(createResponse.statusCode()).as(createResponse.body()).isEqualTo(201);
+        assertThat(deleteResponse.statusCode()).as(deleteResponse.body()).isEqualTo(204);
+        assertThat(subscriptionRepository.findById(subscriptionId)).get().extracting("active").isEqualTo(false);
+        assertThat(listResponse.statusCode()).as(listResponse.body()).isEqualTo(200);
+        assertThat(listResponse.body()).doesNotContain(subscriptionId, "강남구 아파트 실거래가");
+    }
+
     private String createSession(UserJpaEntity user, String rawToken) {
         sessionRepository.save(new UserSessionJpaEntity(
                 user,
@@ -181,6 +271,30 @@ class SubscriptionControllerTest extends IntegrationTestBase {
                 .uri(URI.create(baseUrl() + "/api/subscriptions"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body));
+
+        if (cookieHeader != null) {
+            builder.header("Cookie", cookieHeader);
+        }
+
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> getSubscriptions(String cookieHeader) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl() + "/api/subscriptions"))
+                .GET();
+
+        if (cookieHeader != null) {
+            builder.header("Cookie", cookieHeader);
+        }
+
+        return httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> deleteSubscription(String subscriptionId, String cookieHeader) throws Exception {
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl() + "/api/subscriptions/" + subscriptionId))
+                .DELETE();
 
         if (cookieHeader != null) {
             builder.header("Cookie", cookieHeader);
