@@ -50,8 +50,11 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-redis")
 
     // Spring AI (2.0.0-M4, Spring Boot 4.x 대응 아티팩트명)
-    implementation("org.springframework.ai:spring-ai-starter-model-anthropic")
+    implementation("org.springframework.ai:spring-ai-starter-model-vertex-ai-gemini")
     implementation("org.springframework.ai:spring-ai-starter-mcp-client")
+
+    // Observability — Langfuse OTLP 연동 (Spring Boot 4.x 신규 스타터)
+    implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
 
     // 테스트 환경
     testImplementation("org.springframework.boot:spring-boot-starter-test")

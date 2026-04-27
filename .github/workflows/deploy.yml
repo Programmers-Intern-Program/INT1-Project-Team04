@@ -135,6 +135,12 @@ jobs:
           echo "$SSH_KEY"        >> $GITHUB_OUTPUT
           echo "SSHEOF"          >> $GITHUB_OUTPUT
 
+      - name: Encode Google credentials
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          echo "GOOGLE_CREDENTIALS_B64=$(printf '%s' "$GOOGLE_CREDENTIALS_JSON" | base64 -w0)" >> $GITHUB_ENV
+
       - name: Sync infra files to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -157,11 +163,12 @@ jobs:
           FE_DOMAIN: ${{ env.FE_DOMAIN }}
           BE_DOMAIN: ${{ env.BE_DOMAIN }}
           DOT_ENV_B64: ${{ env.DOT_ENV_B64 }}
+          GOOGLE_CREDENTIALS_B64: ${{ env.GOOGLE_CREDENTIALS_B64 }}
         with:
           host: ${{ env.DEPLOY_HOST }}
           username: ubuntu
           key: ${{ steps.parse.outputs.ssh_key }}
-          envs: IMAGE_TAG,GITHUB_ACTOR,GITHUB_TOKEN,REPO_OWNER,REPO_NAME,NPM_EMAIL,NPM_PASSWORD,FE_DOMAIN,BE_DOMAIN,DOT_ENV_B64
+          envs: IMAGE_TAG,GITHUB_ACTOR,GITHUB_TOKEN,REPO_OWNER,REPO_NAME,NPM_EMAIL,NPM_PASSWORD,FE_DOMAIN,BE_DOMAIN,DOT_ENV_B64,GOOGLE_CREDENTIALS_B64
           script: |
             set -e
 
@@ -171,6 +178,12 @@ jobs:
             # ── .env 복원 ──────────────────────────────────────
             mkdir -p ~/app/infra/docker/prod
             echo "$DOT_ENV_B64" | base64 --decode > ~/app/infra/docker/prod/.env
+
+            # ── Google Vertex AI 인증 파일 복원 (GitHub Secret에서 직접 주입)
+            if [ -n "$GOOGLE_CREDENTIALS_B64" ]; then
+              echo "$GOOGLE_CREDENTIALS_B64" | base64 --decode > ~/app/google-credentials.json
+              chmod 600 ~/app/google-credentials.json
+            fi
 
             # ── 이미지 경로 ────────────────────────────────────
             BE_IMAGE=$(echo "ghcr.io/${REPO_OWNER}/${REPO_NAME}-backend" | tr '[:upper:]' '[:lower:]')
@@ -204,12 +217,18 @@ jobs:
             # be_a=9091, be_b=9092 (슬롯별 고정 포트 — Prometheus 스크래핑용)
             [ "$GREEN_BE" = "be_a" ] && BE_METRICS_PORT=9091 || BE_METRICS_PORT=9092
 
+            GOOGLE_CRED_MOUNT=""
+            if [ -f ~/app/google-credentials.json ]; then
+              GOOGLE_CRED_MOUNT="-e GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-credentials.json -v ~/app/google-credentials.json:/run/secrets/google-credentials.json:ro"
+            fi
+
             docker run -d --name "$GREEN_BE" \
               --network prod-net \
               --memory=4g \
               --env-file ~/app/infra/docker/prod/.env \
               -e JAVA_OPTS="-Xms512m -Xmx3500m" \
               -e SPRING_PROFILES_ACTIVE=prod \
+              $GOOGLE_CRED_MOUNT \
               -p ${BE_METRICS_PORT}:8080 \
               "${BE_IMAGE}:${IMAGE_TAG}"
 
