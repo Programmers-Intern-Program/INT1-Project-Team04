@@ -25,68 +25,117 @@ services:
     ports:
       - "6379:6379"   # 앱에서 localhost:6379로 직접 접근
 
-#  langfuse-web:
-#    image: ghcr.io/langfuse/langfuse:latest
-#    environment:
-#      DATABASE_URL: postgresql://${PG_USER:-devuser}:${PG_PASSWORD:-devpass}@postgres:5432/langfuse
-#      NEXTAUTH_URL: http://localhost:3001
-#      NEXTAUTH_SECRET: dev-nextauth-secret
-#      SALT: dev-salt
-#      REDIS_CONNECTION_STRING: redis://redis:6379
-#    ports:
-#      - "3001:3000"
-#    depends_on:
-#      postgres:
-#        condition: service_healthy
-#
-#  langfuse-worker:
-#    image: ghcr.io/langfuse/langfuse-worker:latest
-#    environment:
-#      DATABASE_URL: postgresql://${PG_USER:-devuser}:${PG_PASSWORD:-devpass}@postgres:5432/langfuse
-#      REDIS_CONNECTION_STRING: redis://redis:6379
-#      SALT: dev-salt
-#    depends_on:
-#      postgres:
-#        condition: service_healthy
-#
-#  loki:
-#    image: grafana/loki:latest
-#    command: -config.file=/etc/loki/config.yml
-#    volumes:
-#      - ../config/loki/config.yml:/etc/loki/config.yml:ro
-#      - lokidata_dev:/loki
-#    ports:
-#      - "3100:3100"
+  # ── Langfuse V3 ───────────────────────────────────────────
+  # 기동 순서: clickhouse → minio → minio-init → langfuse-web + langfuse-worker
+  # 대시보드: http://localhost:3001
+  # (Next.js front가 3000을 쓰므로 3001로 바인딩)
 
-  # k6는 docker run으로 개별 실행 권장 (스크립트마다 다르게 실행)
-  # docker run --rm -v $(pwd)/k6:/scripts grafana/k6 run /scripts/load-test.js
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:23
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse_pass
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    volumes:
+      - clickhousedata_dev:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Ragas / DeepEval 평가 스크립트 실행용
-#  eval-runner:
-#    image: ghcr.io/${GITHUB_ORG}/eval-runner:${TAG:-latest}
-#    environment:
-#      TARGET_API: ${TARGET_API:-http://host.docker.internal:8080}
-#      LANGFUSE_HOST: ${LANGFUSE_HOST:-http://localhost:3001}
-#      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
-#      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
-#      OPENAI_API_KEY: ${OPENAI_API_KEY}
-#    volumes:
-#      - ./results:/app/results
-#    profiles:
-#      - eval   # docker compose -f docker-compose.dev.yml --profile eval up
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    ports:
+      - "9001:9001"   # MinIO 콘솔 http://localhost:9001 (admin/minioadmin123)
+    volumes:
+      - miniodata_dev:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Promptfoo
-  #  promptfoo:
-  #    image: ghcr.io/promptfoo/promptfoo:latest
-  #    environment:
-  #      OPENAI_API_KEY: ${OPENAI_API_KEY}
-  #    volumes:
-  #      - ./promptfoo:/root/.promptfoo
-  #      - ./promptfooconfig.yaml:/app/promptfooconfig.yaml:ro
-  #    command: eval --config /app/promptfooconfig.yaml
-  #    profiles:
-  #      - promptfoo
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin123;
+      mc mb local/langfuse-events || true;
+      exit 0;
+      "
+
+  langfuse-web:
+    image: langfuse/langfuse:latest
+    environment:
+      DATABASE_URL: postgresql://${PG_USER:-devuser}:${PG_PASSWORD:-devpass}@postgres:5432/langfuse
+      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:8123/langfuse
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:9000/langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse_pass
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin123
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      NEXTAUTH_URL: http://localhost:3001
+      NEXTAUTH_SECRET: dev-nextauth-secret
+      SALT: dev-salt
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+    ports:
+      - "3001:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:latest
+    environment:
+      DATABASE_URL: postgresql://${PG_USER:-devuser}:${PG_PASSWORD:-devpass}@postgres:5432/langfuse
+      CLICKHOUSE_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:8123/langfuse
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse:langfuse_pass@langfuse-clickhouse:9000/langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse_pass
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000001"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minioadmin
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: minioadmin123
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+      REDIS_CONNECTION_STRING: redis://redis:6379
+      SALT: dev-salt
+    depends_on:
+      postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
 volumes:
   pgdata_dev:
-#  lokidata_dev:
+  clickhousedata_dev:
+  miniodata_dev:

@@ -16,3 +16,17 @@ spring:
   ai:
     anthropic:
       api-key: ${ANTHROPIC_API_KEY}
+
+langfuse:
+  otlp-endpoint: ${LANGFUSE_OTLP_ENDPOINT:http://localhost:3001/api/public/otel/v1/traces}
+  auth: ${LANGFUSE_AUTH_DEV:}
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${langfuse.otlp-endpoint}
+      headers:
+        Authorization: "Basic ${langfuse.auth:}"
