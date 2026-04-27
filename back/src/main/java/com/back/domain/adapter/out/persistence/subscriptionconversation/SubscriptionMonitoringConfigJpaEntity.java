@@ -1,6 +1,7 @@
 package com.back.domain.adapter.out.persistence.subscriptionconversation;
 
 import com.back.domain.adapter.out.persistence.common.BaseTimeEntity;
+import com.back.domain.model.subscription.SubscriptionMonitoringConfig;
 import com.back.global.common.UuidGenerator;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -42,5 +43,9 @@ public class SubscriptionMonitoringConfigJpaEntity extends BaseTimeEntity {
         this.toolName = toolName;
         this.intent = intent;
         this.parametersJson = parametersJson;
+    }
+
+    public SubscriptionMonitoringConfig toDomain() {
+        return new SubscriptionMonitoringConfig(subscriptionId, toolName, intent, parametersJson);
     }
 }
