@@ -123,6 +123,8 @@ public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
     }
 
     private ParsedTask parseSingleTask(JsonNode node) {
+        AiParsedTaskSchema.validate(node);
+
         JsonNode meta = node.path("metadata");
         return new ParsedTask(
                 node.path("intent").asText(""),
