@@ -4,7 +4,7 @@
 멱등: tool_name='search_house_price' row 가 이미 있으면 update, 없으면 insert.
 
 서비스 키(serviceKey) 는 param_schema 에 포함하지 않는다.
-도구 레이어가 settings.molit_trade_api_key 를 로드해 호출 시점에 합성하는 책임.
+도구 레이어가 settings.molit_apt_trade_api_key 를 로드해 호출 시점에 합성하는 책임.
 
 사용법:
     cd mcp-server
