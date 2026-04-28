@@ -173,7 +173,10 @@ class SubscriptionConversationServiceTest {
         assertThat(savedConversation.getDraftDomainName()).isEqualTo("real-estate");
         assertThat(savedConversation.getDraftCronExpr()).isEqualTo("0 0 9 * * *");
         assertThat(savedConversation.getDraftNotificationChannel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
-        assertThat(savedConversation.getDraftMonitoringParams()).contains("\"condition\":\"5% 이상\"");
+        assertThat(savedConversation.getDraftMonitoringParams())
+                .contains("\"conditionThreshold\":\"5\"")
+                .contains("\"conditionDirection\":\"ANY\"")
+                .contains("\"conditionUnit\":\"PERCENT\"");
     }
 
     @Test
@@ -211,7 +214,10 @@ class SubscriptionConversationServiceTest {
         assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
         assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
                 .containsOnly("SELECT_CADENCE");
-        assertThat(savedConversation.getDraftMonitoringParams()).contains("\"condition\":\"13% 이상 변동\"");
+        assertThat(savedConversation.getDraftMonitoringParams())
+                .contains("\"conditionThreshold\":\"13\"")
+                .contains("\"conditionDirection\":\"ANY\"")
+                .contains("\"conditionUnit\":\"PERCENT\"");
     }
 
     @Test
@@ -265,7 +271,10 @@ class SubscriptionConversationServiceTest {
         assertThat(parseTaskUseCase.continueCallCount).isZero();
         assertThat(response.status()).isEqualTo("NEEDS_INPUT");
         assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
-        assertThat(savedConversation.getDraftMonitoringParams()).contains("\"condition\":\"5% 이상 상승\"");
+        assertThat(savedConversation.getDraftMonitoringParams())
+                .contains("\"conditionThreshold\":\"5\"")
+                .contains("\"conditionDirection\":\"UP\"")
+                .contains("\"conditionUnit\":\"PERCENT\"");
     }
 
     @Test

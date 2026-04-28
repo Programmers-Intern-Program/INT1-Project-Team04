@@ -366,7 +366,7 @@ public class SubscriptionConversationService {
                 && !isBlank(draft.query())
                 && !isBlank(draft.intent())
                 && !isBlank(draft.toolName())
-                && !isBlank(draft.monitoringParams().get("condition"))
+                && StructuredCondition.fromParameters(draft.monitoringParams()).isPresent()
                 && !isBlank(draft.cronExpr())
                 && channel != null
                 && draft.missingFields().isEmpty();
@@ -423,7 +423,9 @@ public class SubscriptionConversationService {
         }
 
         Map<String, String> monitoringParams = new HashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
-        monitoringParams.put("condition", percentCondition(message, matcher.group(1)));
+        monitoringParams.remove("condition");
+        StructuredCondition.parse(percentCondition(message, matcher.group(1)))
+                .ifPresent(condition -> monitoringParams.putAll(condition.toParameterMap()));
         conversation.updateParsedDraft(
                 conversation.getParseSessionId(),
                 conversation.getDraftQuery(),
@@ -495,7 +497,7 @@ public class SubscriptionConversationService {
                 ).isEmpty()) {
             missing.add("notificationEndpoint");
         }
-        if (isBlank(monitoringParams(conversation.getDraftMonitoringParams()).get("condition"))) {
+        if (StructuredCondition.fromParameters(monitoringParams(conversation.getDraftMonitoringParams())).isEmpty()) {
             missing.add("condition");
         }
         if (conversation.getDraftDomainId() == null

@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -74,12 +75,12 @@ public class ParsedTaskNormalizer {
             params.put("region", region);
         }
 
-        if (!isBlank(task.condition())) {
-            params.put("condition", task.condition());
-        } else if (canReusePrevious && !isBlank(previousDraft.monitoringParams().get("condition"))) {
-            params.put("condition", previousDraft.monitoringParams().get("condition"));
+        Optional<StructuredCondition> condition = StructuredCondition.parse(task.condition());
+        if (condition.isEmpty() && canReusePrevious) {
+            condition = StructuredCondition.fromParameters(previousDraft.monitoringParams());
         }
-        if (isBlank(params.get("condition"))) {
+        condition.ifPresent(structuredCondition -> params.putAll(structuredCondition.toParameterMap()));
+        if (condition.isEmpty()) {
             missing.add("condition");
         }
 

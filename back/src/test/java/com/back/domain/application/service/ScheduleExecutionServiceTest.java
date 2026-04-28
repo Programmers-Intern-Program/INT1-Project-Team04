@@ -291,6 +291,49 @@ class ScheduleExecutionServiceTest {
                 .containsOnly("TELEGRAM_DM");
     }
 
+    @Test
+    @DisplayName("Application: MCP input validation rejects malformed configured deal_ymd before calling MCP")
+    void rejectsMalformedConfiguredDealYmdBeforeCallingMcp() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"deal_ymd\":\"2024-03\"}"
+                )
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                loadConfigPort,
+                subscriptionId -> List.of(),
+                executeMcpToolPort,
+                new FakeSaveAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                new FakeSaveSchedulePort()
+        );
+
+        assertThatThrownBy(service::runDueSchedules)
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.MCP_REQUEST_FAILED);
+        assertThat(executeMcpToolPort.executedToolName).isNull();
+    }
+
     private record FakeLoadDueSchedulesPort(Schedule schedule) implements LoadDueSchedulesPort {
 
         @Override

@@ -25,8 +25,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -44,7 +42,6 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> PARAMETER_MAP = new TypeReference<>() {};
-    private static final DateTimeFormatter DEAL_YMD_FORMATTER = DateTimeFormatter.ofPattern("yyyyMM");
     private static final Pattern REGION = Pattern.compile(
             "([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구)|서울|부산|대구|인천|광주|대전|울산|세종|제주)"
     );
@@ -144,7 +141,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 .map(this::parameters)
                 .orElseGet(() -> fallbackParameters(query));
         if (tool.name().startsWith("search_house_price")) {
-            return searchHousePriceArguments(parameters, now);
+            return SearchHousePriceMcpInput.from(parameters, now).toArguments();
         }
         return parameters;
     }
@@ -166,28 +163,6 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
             return Map.of();
         }
         return Map.of("region", region);
-    }
-
-    private Map<String, Object> searchHousePriceArguments(Map<String, Object> parameters, LocalDateTime now) {
-        Map<String, Object> input = new LinkedHashMap<>();
-        String region = stringValue(parameters.get("region"));
-        if (!isBlank(region)) {
-            input.put("region", region);
-        }
-        input.put("deal_ymd", dealYmd(parameters, now));
-        return Map.of("input", input);
-    }
-
-    private String dealYmd(Map<String, Object> parameters, LocalDateTime now) {
-        String dealYmd = stringValue(parameters.get("deal_ymd"));
-        if (!isBlank(dealYmd)) {
-            return dealYmd;
-        }
-        dealYmd = stringValue(parameters.get("dealYmd"));
-        if (!isBlank(dealYmd)) {
-            return dealYmd;
-        }
-        return now.minusMonths(1).format(DEAL_YMD_FORMATTER);
     }
 
     private String extractRegion(String query) {
