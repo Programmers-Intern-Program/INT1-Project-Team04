@@ -64,6 +64,10 @@ class Settings(BaseSettings):
         default="",
         description="국토교통부 연립다세대 전월세 실거래가 (RTMSDataSvcRHRent) 서비스 키.",
     )
+    molit_rh_trade_api_key: str = Field(
+        default="",
+        description="국토교통부 연립다세대 매매 실거래가 (RTMSDataSvcRHTrade) 서비스 키.",
+    )
 
 
 @lru_cache
