@@ -10,6 +10,14 @@ import {
   type NotificationChannelId,
 } from "../lib/subscriptions";
 import {
+  SUBSCRIPTION_CHAT_SESSION_KEY,
+  decodeSubscriptionChatSession,
+  encodeSubscriptionChatSession,
+  type ChatMessage,
+  type DebugJsonSnapshot,
+  type SubscriptionChatSessionSnapshot,
+} from "../lib/subscription-chat-session";
+import {
   deleteSubscriptionSummary,
   getSubscriptionSummaries,
   sendConversationAction,
@@ -19,19 +27,7 @@ import {
   type SubscriptionSummary,
 } from "../lib/subscription-conversations";
 
-type ChatMessage = {
-  id: string;
-  role: "assistant" | "user";
-  content: string;
-  status?: "pending" | "error";
-};
-
 type SubmitState = "idle" | "sending";
-
-type DebugJsonSnapshot = {
-  request: string;
-  response: string;
-};
 
 const PENDING_CHANNEL_KEY = "subscription-chat-pending-channel";
 
@@ -64,6 +60,7 @@ export function SubscriptionChat({
     request: "{}",
     response: "{}",
   });
+  const [hasRestoredSession, setHasRestoredSession] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const reloadSubscriptions = useCallback(async () => {
@@ -153,6 +150,38 @@ export function SubscriptionChat({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [reloadSubscriptions]);
+
+  useEffect(() => {
+    if (!hasRestoredSession) {
+      return;
+    }
+
+    sessionStorage.setItem(
+      SUBSCRIPTION_CHAT_SESSION_KEY,
+      encodeSubscriptionChatSession({
+        messages,
+        conversationId,
+        actions,
+        draft,
+        debugJson,
+      }),
+    );
+  }, [actions, conversationId, debugJson, draft, hasRestoredSession, messages]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const snapshot = readChatSession();
+      if (snapshot) {
+        setMessages(snapshot.messages);
+        setConversationId(snapshot.conversationId);
+        setActions(snapshot.actions);
+        setDraft(snapshot.draft);
+        setDebugJson(snapshot.debugJson);
+      }
+      setHasRestoredSession(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -553,6 +582,19 @@ function readPendingChannel():
   }
 
   return null;
+}
+
+function readChatSession(): SubscriptionChatSessionSnapshot | null {
+  const raw = sessionStorage.getItem(SUBSCRIPTION_CHAT_SESSION_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  const snapshot = decodeSubscriptionChatSession(raw);
+  if (!snapshot) {
+    sessionStorage.removeItem(SUBSCRIPTION_CHAT_SESSION_KEY);
+  }
+  return snapshot;
 }
 
 function formatDateTime(value: string | null): string {

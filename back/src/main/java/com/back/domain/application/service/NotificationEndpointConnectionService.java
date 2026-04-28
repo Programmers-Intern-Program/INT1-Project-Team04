@@ -3,6 +3,9 @@ package com.back.domain.application.service;
 import com.back.domain.adapter.out.notification.NotificationClientProperties;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaEntity;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaRepository;
+import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
+import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
+import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaRepository;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.port.out.SaveNotificationEndpointPort;
@@ -11,6 +14,7 @@ import com.back.domain.application.result.NotificationEndpointStatusResult;
 import com.back.domain.model.notification.NotificationChannel;
 import com.back.domain.model.notification.NotificationEndpoint;
 import com.back.domain.model.user.OAuthProvider;
+import com.back.domain.model.user.OAuthUserProfile;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
 import java.time.Duration;
@@ -32,6 +36,7 @@ public class NotificationEndpointConnectionService {
 
     private final LoadNotificationEndpointPort loadNotificationEndpointPort;
     private final SaveNotificationEndpointPort saveNotificationEndpointPort;
+    private final UserJpaRepository userRepository;
     private final UserOAuthConnectionJpaRepository oauthConnectionRepository;
     private final NotificationConnectionTokenJpaRepository connectionTokenRepository;
     private final NotificationClientProperties notificationClientProperties;
@@ -70,6 +75,50 @@ public class NotificationEndpointConnectionService {
                         authorizationUrl,
                         "Discord 로그인 후 알림 연결을 완료할 수 있습니다."
                 ));
+    }
+
+    public NotificationEndpointConnectionResult completeDiscordConnection(Long userId, OAuthUserProfile profile) {
+        if (profile.provider() != OAuthProvider.DISCORD
+                || profile.providerUserId() == null
+                || profile.providerUserId().isBlank()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+
+        Optional<UserOAuthConnectionJpaEntity> existingIdentity = oauthConnectionRepository
+                .findByProviderAndProviderUserId(OAuthProvider.DISCORD, profile.providerUserId());
+        if (existingIdentity.isPresent() && !existingIdentity.get().getUser().getId().equals(userId)) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+
+        if (existingIdentity.isEmpty()) {
+            Optional<UserOAuthConnectionJpaEntity> existingUserDiscord = oauthConnectionRepository
+                    .findFirstByUserIdAndProvider(userId, OAuthProvider.DISCORD);
+            if (existingUserDiscord.isPresent()
+                    && !existingUserDiscord.get().getProviderUserId().equals(profile.providerUserId())) {
+                throw new ApiException(ErrorCode.INVALID_REQUEST);
+            }
+
+            UserJpaEntity user = userRepository.findById(userId)
+                    .filter(storedUser -> storedUser.getDeletedAt() == null)
+                    .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST));
+            oauthConnectionRepository.save(new UserOAuthConnectionJpaEntity(
+                    user,
+                    OAuthProvider.DISCORD,
+                    profile.providerUserId(),
+                    profile.email() == null || profile.email().isBlank() ? user.getEmail() : profile.email(),
+                    profile.accessToken()
+            ));
+        }
+
+        saveOrUpdateEndpoint(userId, NotificationChannel.DISCORD_DM, profile.providerUserId());
+        return new NotificationEndpointConnectionResult(
+                NotificationChannel.DISCORD_DM,
+                true,
+                "연결됨",
+                null,
+                null,
+                "Discord DM 연결이 완료되었습니다."
+        );
     }
 
     public NotificationEndpointConnectionResult startTelegramConnection(Long userId) {

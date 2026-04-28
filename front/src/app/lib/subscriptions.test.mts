@@ -127,8 +127,12 @@ describe("subscription form helpers", () => {
       new URL("../components/subscription-chat.tsx", import.meta.url),
       "utf8",
     );
+    const sessionSource = readFileSync(
+      new URL("./subscription-chat-session.ts", import.meta.url),
+      "utf8",
+    );
 
-    assert.equal(source.includes('status?: "pending" | "error"'), true);
+    assert.equal(sessionSource.includes('status?: "pending" | "error"'), true);
     assert.equal(source.includes("답변을 준비하고 있어요"), true);
     assert.equal(source.includes('aria-live="polite"'), true);
   });

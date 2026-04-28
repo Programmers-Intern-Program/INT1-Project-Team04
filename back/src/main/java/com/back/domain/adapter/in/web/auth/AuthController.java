@@ -8,8 +8,10 @@ import com.back.domain.application.result.MemberResult;
 import com.back.domain.application.result.OAuthLoginResult;
 import com.back.domain.application.service.CurrentUserService;
 import com.back.domain.application.service.MemberService;
+import com.back.domain.application.service.NotificationEndpointConnectionService;
 import com.back.domain.application.service.OAuthLoginService;
 import com.back.domain.model.user.OAuthProvider;
+import com.back.domain.model.user.OAuthUserProfile;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
 import jakarta.servlet.http.Cookie;
@@ -36,10 +38,13 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AuthController {
 
+    private static final String DISCORD_NOTIFICATION_CONNECT_COOKIE = "DISCORD_NOTIFICATION_CONNECT";
+
     private final OAuthProviderClientRegistry providerClientRegistry;
     private final OAuthLoginService oauthLoginService;
     private final CurrentUserService currentUserService;
     private final MemberService memberService;
+    private final NotificationEndpointConnectionService notificationEndpointConnectionService;
     private final OAuthClientProperties properties;
 
     @GetMapping("/oauth/{provider}/authorize")
@@ -69,7 +74,19 @@ public class AuthController {
         }
 
         OAuthProvider oauthProvider = OAuthProvider.fromPath(provider);
-        OAuthLoginResult login = oauthLoginService.login(providerClientRegistry.get(oauthProvider).fetchProfile(code));
+        OAuthUserProfile profile = providerClientRegistry.get(oauthProvider).fetchProfile(code);
+        if (oauthProvider == OAuthProvider.DISCORD && isDiscordNotificationConnect(request)) {
+            UserJpaEntity user = currentUserService.requireCurrentUser(readSessionCookie(request).orElse(null));
+            notificationEndpointConnectionService.completeDiscordConnection(user.getId(), profile);
+            return ResponseEntity
+                    .status(HttpStatus.FOUND)
+                    .location(URI.create(properties.getFrontend().getBaseUrl()))
+                    .header(HttpHeaders.SET_COOKIE, clearCookie(properties.getAuth().getStateCookieName()).toString())
+                    .header(HttpHeaders.SET_COOKIE, clearCookie(DISCORD_NOTIFICATION_CONNECT_COOKIE).toString())
+                    .build();
+        }
+
+        OAuthLoginResult login = oauthLoginService.login(profile);
 
         return ResponseEntity
                 .status(HttpStatus.FOUND)
@@ -96,6 +113,12 @@ public class AuthController {
 
     private Optional<String> readSessionCookie(HttpServletRequest request) {
         return readCookie(request, properties.getAuth().getSessionCookieName());
+    }
+
+    private boolean isDiscordNotificationConnect(HttpServletRequest request) {
+        return readCookie(request, DISCORD_NOTIFICATION_CONNECT_COOKIE)
+                .filter("true"::equals)
+                .isPresent();
     }
 
     private Optional<String> readCookie(HttpServletRequest request, String name) {

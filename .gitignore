@@ -17,6 +17,9 @@ Thumbs.db
 ### Logs ###
 *.log
 
+### Local build caches ###
+.gradle-user-home/
+
 ### Misc ###
 *.pem
 *.key
@@ -33,4 +36,3 @@ crash.*.log
 *.tfplan
 *.tfvars
 *.tfvars.json
-
