@@ -23,7 +23,7 @@ import {
 describe("subscription form helpers", () => {
   it("does not expose AI-flavored explanatory copy in the product UI", () => {
     const sourceFiles = [
-      new URL("../components/subscription-mvp.tsx", import.meta.url),
+      new URL("../components/subscription-chat.tsx", import.meta.url),
       new URL("../layout.tsx", import.meta.url),
       new URL("./subscriptions.ts", import.meta.url),
     ];
@@ -53,7 +53,7 @@ describe("subscription form helpers", () => {
 
   it("does not expose user or domain ID inputs in the product UI", () => {
     const source = readFileSync(
-      new URL("../components/subscription-mvp.tsx", import.meta.url),
+      new URL("../components/subscription-chat.tsx", import.meta.url),
       "utf8",
     );
     const bannedCopy = [
@@ -63,7 +63,6 @@ describe("subscription form helpers", () => {
       'htmlFor="domainId"',
       'id="userId"',
       'id="domainId"',
-      "JSON.stringify",
       "<pre",
     ];
 
@@ -75,7 +74,7 @@ describe("subscription form helpers", () => {
 
   it("does not expose backend subscription internals in the product UI", () => {
     const source = readFileSync(
-      new URL("../components/subscription-mvp.tsx", import.meta.url),
+      new URL("../components/subscription-chat.tsx", import.meta.url),
       "utf8",
     );
     const bannedCopy = [
@@ -94,6 +93,93 @@ describe("subscription form helpers", () => {
       bannedCopy.filter((copy) => source.includes(copy)),
       [],
     );
+  });
+
+  it("uses the chat subscription experience on the authenticated home screen", () => {
+    const pageSource = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
+
+    assert.equal(pageSource.includes("SubscriptionChat"), true);
+    assert.equal(pageSource.includes("SubscriptionMvp"), false);
+  });
+
+  it("does not render the old domain cadence channel fieldsets in the chat UI", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+    const bannedSource = [
+      "selectedDomainId",
+      "CADENCE_PRESETS",
+      "CHANNEL_PRESETS",
+      "<fieldset",
+      "buildSubscriptionPayload",
+      "createSubscription(",
+    ];
+
+    assert.deepEqual(
+      bannedSource.filter((copy) => source.includes(copy)),
+      [],
+    );
+  });
+
+  it("renders a pending assistant response while a chat request is in flight", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+    const sessionSource = readFileSync(
+      new URL("./subscription-chat-session.ts", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(sessionSource.includes('status?: "pending" | "error"'), true);
+    assert.equal(source.includes("답변을 준비하고 있어요"), true);
+    assert.equal(source.includes('aria-live="polite"'), true);
+  });
+
+  it("records selected quick replies as user chat messages", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("appendUserMessage(action.label)"), true);
+    assert.equal(source.includes('role: "user", content: action.label'), true);
+  });
+
+  it("keeps the chat scrolled to the latest conversation update", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("useRef"), true);
+    assert.equal(source.includes("chatEndRef"), true);
+    assert.equal(source.includes("scrollIntoView"), true);
+    assert.equal(source.includes("[messages, actions, draft]"), true);
+  });
+
+  it("renders delete controls for active subscription summaries", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("deleteSubscriptionSummary"), true);
+    assert.equal(source.includes("handleDeleteSubscription"), true);
+    assert.equal(source.includes("삭제"), true);
+  });
+
+  it("renders temporary json request and response snapshots below the chat form", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("debugJson"), true);
+    assert.equal(source.includes("요청 JSON"), true);
+    assert.equal(source.includes("응답 JSON"), true);
+    assert.equal(source.includes("formatDebugJson"), true);
   });
 
   it("maps backend domain names to product labels and examples", () => {

@@ -10,6 +10,8 @@ public enum ErrorCode {
     MEMBER_NOT_FOUND(HttpStatus.NOT_FOUND, "회원을 찾을 수 없습니다."),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
     DOMAIN_NOT_FOUND(HttpStatus.NOT_FOUND, "도메인을 찾을 수 없습니다."),
+    SUBSCRIPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "구독을 찾을 수 없습니다."),
+    DUPLICATE_SUBSCRIPTION(HttpStatus.CONFLICT, "이미 같은 알림을 구독 중입니다."),
     NOTIFICATION_ENDPOINT_NOT_CONNECTED(HttpStatus.BAD_REQUEST, "알림 채널 연결이 필요합니다."),
     NOTIFICATION_ENDPOINT_CONFIGURATION_MISSING(HttpStatus.BAD_REQUEST, "알림 채널 설정이 필요합니다."),
     MCP_TOOL_NOT_FOUND(HttpStatus.NOT_FOUND, "사용 가능한 MCP 도구를 찾을 수 없습니다."),
