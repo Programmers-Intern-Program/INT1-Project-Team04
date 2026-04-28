@@ -17,10 +17,15 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from mcp_server.tools.real_estate import SearchHousePriceInput
+from mcp_server.tools.real_estate import MolitRealEstateInput
 
+# 부동산 5종 모두 region + deal_ymd 공통 입력 모델을 공유.
 _TOOL_INPUT_MODELS: dict[str, type[BaseModel]] = {
-    "search_house_price": SearchHousePriceInput,
+    "search_house_price": MolitRealEstateInput,
+    "search_apt_rent": MolitRealEstateInput,
+    "search_offi_trade": MolitRealEstateInput,
+    "search_offi_rent": MolitRealEstateInput,
+    "search_rh_rent": MolitRealEstateInput,
 }
 
 
