@@ -37,7 +37,8 @@ class ParseTaskServiceTest {
         parseTaskService = new ParseTaskService(
             parseNaturalLanguagePort,
             saveParseSessionPort,
-            loadParseSessionPort
+            loadParseSessionPort,
+            new FakeTokenManagementUseCase() // 토큰 체크 없는 가짜 구현
         );
     }
 
@@ -282,6 +283,29 @@ class ParseTaskServiceTest {
         @Override
         public Optional<ParseSession> loadById(String sessionId) {
             return Optional.ofNullable(session);
+        }
+    }
+
+    private static class FakeTokenManagementUseCase implements com.back.domain.application.port.in.TokenManagementUseCase {
+        @Override
+        public com.back.domain.application.result.UserTokenResult getBalance(Long userId) {
+            return new com.back.domain.application.result.UserTokenResult(userId, 1000, 1000, 0, java.time.LocalDateTime.now());
+        }
+
+        @Override
+        public com.back.domain.application.result.UserTokenResult useToken(com.back.domain.application.command.UseTokenCommand command) {
+            // 토큰 체크 없이 항상 성공
+            return new com.back.domain.application.result.UserTokenResult(command.userId(), 1000, 1000, 0, java.time.LocalDateTime.now());
+        }
+
+        @Override
+        public com.back.domain.application.result.UserTokenResult grantToken(com.back.domain.application.command.GrantTokenCommand command) {
+            return new com.back.domain.application.result.UserTokenResult(command.userId(), 1000, 1000, 0, java.time.LocalDateTime.now());
+        }
+
+        @Override
+        public java.util.List<com.back.domain.application.result.TokenUsageHistoryResult> getUsageHistory(Long userId, int limit) {
+            return java.util.List.of();
         }
     }
 }

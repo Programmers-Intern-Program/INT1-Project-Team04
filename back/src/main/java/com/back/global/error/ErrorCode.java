@@ -16,7 +16,10 @@ public enum ErrorCode {
     MCP_REQUEST_FAILED(HttpStatus.BAD_GATEWAY, "MCP 서버 요청에 실패했습니다."),
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않습니다."),
     AI_PARSE_FAILED(HttpStatus.BAD_GATEWAY, "AI 응답 파싱에 실패했습니다."),
-    SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "세션을 찾을 수 없습니다.");
+    SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "세션을 찾을 수 없습니다."),
+    TOKEN_NOT_FOUND(HttpStatus.NOT_FOUND, "토큰 정보를 찾을 수 없습니다."),
+    INSUFFICIENT_TOKEN(HttpStatus.PAYMENT_REQUIRED, "토큰이 부족합니다."),
+    INVALID_TOKEN_AMOUNT(HttpStatus.BAD_REQUEST, "토큰 금액이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String message;
