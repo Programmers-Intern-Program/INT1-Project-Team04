@@ -24,7 +24,7 @@
 - **역할**: 외부 데이터 소스(공공 API)에 접근하는 모든 호출을 한 곳에 모아 MCP 프로토콜로 노출.
 - **호출자**: Spring Boot 백엔드의 Spring AI MCP Client. SSE 트랜스포트로 접속(§5).
 - **반환**: 모든 도구는 `{ text, structured, source_url, metadata }` **공통 스키마**(§6)로 응답.
-- **경계 원칙** (CLAUDE.md "절대 지킬 것" 1번): 메인 DB ↔ MCP 경계 분리.
+- **경계 원칙**: 메인 DB ↔ MCP 경계 분리.
   - 백엔드는 **tool 이름 + 인자**만 보낸다.
   - MCP 서버는 가공된 결과 텍스트만 돌려준다.
   - 백엔드는 내부에서 어떤 자료원을 썼는지 알지 못한다 — **수집 방식이 바뀌어도 백엔드 영향 없어야 한다**.
@@ -226,7 +226,7 @@ McpSchema.CallToolResult result = clientFor(tool.name()).callTool(
 
 ### 5.5 응답 처리 시 주의
 
-도구 응답은 §6의 공통 스키마. **`text`만 LLM에 다시 넣고**, `structured`는 백엔드에서 후처리(임베딩·차이 비교·알림 메시지 빌드)에 활용. 백엔드가 자유 텍스트를 정규식으로 파싱하지 말 것 (CLAUDE.md anti-pattern).
+도구 응답은 §6의 공통 스키마. **`text`만 LLM에 다시 넣고**, `structured`는 백엔드에서 후처리(임베딩·차이 비교·알림 메시지 빌드)에 활용. 백엔드가 자유 텍스트를 정규식으로 파싱하지 말 것
 
 ---
 
@@ -258,7 +258,7 @@ McpSchema.CallToolResult result = clientFor(tool.name()).callTool(
 
 - `text`: **LLM 컨텍스트 / 사용자 알림 본문**용. 토큰 효율을 위해 통계 한 단락으로 압축.
 - `structured`: **프로그램이 처리하는 데이터**(임베딩, 변화 감지, 차트 렌더링)용. 손실 없는 정형 dict.
-- 한 문자열 안에 두 정보가 섞이면 백엔드가 자유 텍스트를 정규식 파싱해야 함 → 할루시네이션 / 파싱 실패 위험. CLAUDE.md "할루시네이션 방어는 구조로" 원칙(anti-pattern).
+- 한 문자열 안에 두 정보가 섞이면 백엔드가 자유 텍스트를 정규식 파싱해야 함 → 할루시네이션 / 파싱 실패 위험. "할루시네이션 방어는 구조로" 원칙(anti-pattern).
 
 ### 단위 규약
 
@@ -328,11 +328,11 @@ McpSchema.CallToolResult result = clientFor(tool.name()).callTool(
 
 영역과 무관하게 모든 새 작업이 따라야 하는 규약. 이걸 어기면 다른 팀원의 작업과 충돌하거나, 운영에서 보안/관측 사고로 이어진다.
 
-1. **`@mcp.tool()` + `@traced("이름")` 두 데코레이터 모두**. 트레이싱은 옵션이 아님 (CLAUDE.md "Langfuse 연동 시점: 처음부터 붙일 것").
+1. **`@mcp.tool()` + `@traced("이름")` 두 데코레이터 모두**. 트레이싱은 옵션이 아님
 2. **외부 호출은 sources/ 또는 도메인 service 레이어로 분리**. 도구 함수 안에서 `httpx`/외부 SDK 직접 import 금지. 이유는 §8.
 3. **비밀값을 도구 입력 스키마에 넣지 말 것.** `@traced`가 입력을 자동 캡처해 Langfuse에 평문이 남는다. 도구 내부에서 `settings.xxx`를 합성.
 4. **도구 응답은 §6 공통 스키마**. `text`(LLM/사용자용 한 단락) + `structured`(프로그램용 정형 dict) 분리. 한 문자열 안에 두 정보 섞으면 백엔드가 자유 텍스트 정규식 파싱하다 깨진다.
-5. **도구 이름은 동사+명사** (`search_*`, `save_*`, `send_*`, `get_*`, `register_*`). 모호한 `process_*`, `handle_*`, `do_*` 금지 (CLAUDE.md "Tool 이름과 Description이 AI의 판단 근거" 원칙).
+5. **도구 이름은 동사+명사** (`search_*`, `save_*`, `send_*`, `get_*`, `register_*`). 모호한 `process_*`, `handle_*`, `do_*` 금지
 6. **새 환경변수는 `Settings`와 `.env.example` 양쪽에 동시 추가**. 한 쪽만 추가하면 다음 사람이 셋업할 때 막힌다.
 
 ### 7.4 단계별 체크리스트 (영역 무관)
@@ -386,19 +386,6 @@ asyncio.run(main())
 "
 ```
 
-### 7.7 ADR — 작업 시작 전 한 장 작성
-
-코드 시작 전에 `/docs/adr/NNNN-<주제>.md`를 작성한다 (CLAUDE.md "의사결정 기록" 섹션). 다음 항목 정도면 충분:
-
-- **상태**: Accepted / Superseded by …
-- **날짜**: YYYY-MM-DD
-- **배경**: 왜 이 작업을 MCP 서버에 넣는가 (다른 위치 — 백엔드, 메인 DB — 와 비교해 왜 여기인가)
-- **결정**: 어떤 패턴·테이블·도구로 갈 것인가
-- **영향**: 새로 생기는 환경변수·테이블·도구·의존성. 백엔드와의 인터페이스 변화.
-- **재평가 조건**: 어떤 상황이 오면 이 결정을 뒤집어야 하는가
-
-ADR이 있으면 다른 팀원이 코드 리뷰할 때 "왜 이렇게 짰지?" 묻지 않아도 되고, 6개월 뒤 본인도 이유를 잊지 않는다.
-
 ---
 
 ## 8. 외부 호출 규약 (외부 API/SDK를 부르는 작업만 해당)
@@ -419,7 +406,7 @@ source_id = await api_source_service.resolve_source_id_by_tool_name("search_hous
 - **캐시**(향후 `api_cache` 활용) / 트레이싱 / 에러 분류가 한 곳에 모임
 - API 키 같은 비밀값을 도구 코드 안에 박지 않음
 - URL 템플릿이 `api_source.url_template` DB 컬럼에서 관리됨 → **엔드포인트 변경 시 DB만 update, 코드 수정 불필요**
-- 메인 백엔드는 수집 방식을 알 필요 없음 (CLAUDE.md "절대 지킬 것" 1번)
+- 메인 백엔드는 수집 방식을 알 필요 없음
 
 `fetch()` 반환은 `RawResult` (`sources/result.py`):
 ```python
@@ -582,8 +569,6 @@ mcp-server/
 
 ## 13. 더 깊이 알아보기
 
-- **프로젝트 원칙 / Tool 설계 / Anti-pattern**: 루트 `CLAUDE.md`
-- **의사결정 기록(ADR)**: `docs/adr/NNNN-*.md` (작성 가이드는 CLAUDE.md "의사결정 기록" 섹션, 본 가이드 §7.7)
 - **Spring AI MCP Client 공식 문서**: <https://docs.spring.io/spring-ai/reference/api/mcp/mcp-client.html>
 - **MCP 공식 스펙**: <https://modelcontextprotocol.io/>
 - **운영 배포(Dockerfile / CI / docker-compose)**: 본 문서는 **로컬 개발 + 백엔드 통합**까지 다룬다. 인프라는 별도 문서.
@@ -607,10 +592,10 @@ mcp-server/
 
 1. `crawl_source_service._render()` 구현 — Playwright 또는 httpx + BeautifulSoup/trafilatura 분기 (CSR 사이트는 Playwright 필수)
 2. Playwright 브라우저 설치: `uv run playwright install chromium`
-3. `crawl_cache` read/write 활성화 (도메인별 TTL 가이드: CLAUDE.md "캐시 TTL 가이드")
+3. `crawl_cache` read/write 활성화
 4. 영역별 시드 스크립트에 `CrawlSource` upsert 추가
 5. 도구 작성 시 `crawl_source_service.fetch()` 경유 (§8 패턴 동일)
-6. **봇 방지 대응** — User-Agent 로테이션 / 요청 간격 / 캡차 회피 정책 결정 (CLAUDE.md "크롤링 대상별 전략" 참조)
+6. **봇 방지 대응** — User-Agent 로테이션 / 요청 간격 / 캡차 회피 정책 결정 
 7. ADR 작성: 어떤 사이트를 어떤 방식(Playwright vs httpx)으로 크롤링하는지
 
 활성화 전까지는 본 문서 §1~§13이 단일 진실 원천. 코드에서 `CrawlSource` / `crawl_source_service` / `playwright` 등을 마주쳐도 **현재는 사용하지 않는 코드**라고 이해하면 됨.
