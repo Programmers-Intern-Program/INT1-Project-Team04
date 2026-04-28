@@ -1,11 +1,12 @@
 """부동산 도메인 MCP 도구.
 
-등록 도구 (5종):
+등록 도구 (6종):
 - search_house_price (= 아파트 매매)
 - search_apt_rent          (아파트 전월세)
 - search_offi_trade        (오피스텔 매매)
 - search_offi_rent         (오피스텔 전월세)
 - search_rh_rent           (연립다세대 전월세)
+- search_rh_trade          (연립다세대 매매)
 
 원칙:
 - serviceKey 같은 비밀값은 도구 함수 인자로 받지 않는다 (Langfuse @traced 가 입력을
@@ -33,11 +34,13 @@ from mcp_server.domains.real_estate.normalizer import (
     OffiRent,
     OffiTrade,
     RHRent,
+    RHTrade,
     normalize_apt_rent,
     normalize_apt_trade,
     normalize_offi_rent,
     normalize_offi_trade,
     normalize_rh_rent,
+    normalize_rh_trade,
 )
 from mcp_server.domains.real_estate.region import resolve_lawd_cd
 from mcp_server.observability.tracing import traced
@@ -514,6 +517,58 @@ async def search_rh_rent(input: MolitRealEstateInput) -> dict[str, Any]:
     )
 
 
+# ─────────────────────────────────────────────
+# 도구 6: 연립다세대 매매
+# ─────────────────────────────────────────────
+
+_TOOL_RH_TRADE = "search_rh_trade"
+
+
+@mcp.tool()
+@traced(_TOOL_RH_TRADE)
+async def search_rh_trade(input: MolitRealEstateInput) -> dict[str, Any]:
+    """국토교통부 **연립다세대(빌라·연립·다세대주택) 매매** 실거래가 조회.
+
+    지정한 시군구(LAWD_CD 5자리) + 거래연월(YYYYMM) 의 연립·다세대주택 매매
+    실거래 목록을 국토교통부 공식 API 에서 조회한다. 아파트나 오피스텔이 아닌
+    빌라/연립/다세대주택이 대상.
+
+    반환 dict 의 trades 항목엔 단지명(mhouse_name) 외에 house_type(예: '연립',
+    '다세대') 필드가 포함된다. 정렬은 거래금액 내림차순.
+
+    Raises:
+        RealEstateConfigError: MOLIT_RH_TRADE_API_KEY 미설정.
+        (그 외 매매 도구와 동일.)
+    """
+    settings = get_settings()
+    if not settings.molit_rh_trade_api_key:
+        raise RealEstateConfigError(
+            "MOLIT_RH_TRADE_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
+        )
+
+    lawd_cd = resolve_lawd_cd(input.region)
+    source_id = await _resolve_source_id(_TOOL_RH_TRADE)
+    params = _build_params(settings.molit_rh_trade_api_key, lawd_cd, input.deal_ymd)
+
+    raw = await api_source_service.fetch(source_id=source_id, params=params)
+    records: list[RHTrade] = normalize_rh_trade(raw.content, lawd_cd=lawd_cd)
+    summary = _summarize_trade(records)
+
+    return _build_response(
+        raw=raw,
+        records=records,
+        sort_key=lambda r: r.deal_amount,
+        summary=summary,
+        text=_trade_text(f"LAWD_CD {lawd_cd}", input.deal_ymd, "연립다세대 매매", summary),
+        region=input.region,
+        lawd_cd=lawd_cd,
+        deal_ymd=input.deal_ymd,
+        params=params,
+        tool_name=_TOOL_RH_TRADE,
+        source_id=source_id,
+    )
+
+
 __all__ = [
     "MolitRealEstateInput",
     "SearchHousePriceInput",  # 호환 alias
@@ -522,4 +577,5 @@ __all__ = [
     "search_offi_rent",
     "search_offi_trade",
     "search_rh_rent",
+    "search_rh_trade",
 ]
