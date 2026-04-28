@@ -2,13 +2,16 @@ package com.back.domain.adapter.out.persistence.subscription;
 
 import com.back.domain.adapter.out.persistence.notification.NotificationPreferenceJpaRepository;
 import com.back.domain.adapter.out.persistence.schedule.ScheduleJpaRepository;
+import com.back.domain.application.port.out.DeactivateSubscriptionPort;
 import com.back.domain.application.port.out.LoadDuplicateSubscriptionPort;
+import com.back.domain.application.port.out.LoadSubscriptionPort;
 import com.back.domain.application.port.out.SaveSubscriptionPort;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.notification.NotificationChannel;
 import com.back.domain.model.subscription.Subscription;
 import com.back.domain.model.user.User;
 import java.util.Locale;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,7 +23,11 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 @RequiredArgsConstructor
-public class SubscriptionPersistenceAdapter implements SaveSubscriptionPort, LoadDuplicateSubscriptionPort {
+public class SubscriptionPersistenceAdapter implements
+        SaveSubscriptionPort,
+        LoadDuplicateSubscriptionPort,
+        LoadSubscriptionPort,
+        DeactivateSubscriptionPort {
 
     private final SubscriptionJpaRepository subscriptionJpaRepository;
     private final ScheduleJpaRepository scheduleJpaRepository;
@@ -31,20 +38,21 @@ public class SubscriptionPersistenceAdapter implements SaveSubscriptionPort, Loa
     public Subscription save(Subscription subscription) {
         SubscriptionJpaEntity saved = subscriptionJpaRepository.save(SubscriptionJpaEntity.from(subscription));
 
-        return new Subscription(
-            saved.getId(),
-            new User(
-                    saved.getUser().getId(),
-                    saved.getUser().getEmail(),
-                    saved.getUser().getNickname(),
-                    saved.getUser().getCreatedAt(),
-                    saved.getUser().getDeletedAt()),
-            new Domain(saved.getDomain().getId(), saved.getDomain().getName()),
-            saved.getQuery(),
-            saved.getIntent(),
-            saved.isActive(),
-            saved.getCreatedAt()
-        );
+        return toDomain(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Subscription> loadActiveByIdAndUserId(String subscriptionId, Long userId) {
+        return subscriptionJpaRepository.findByIdAndUserIdAndActiveTrue(subscriptionId, userId)
+                .map(this::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public void deactivate(String subscriptionId) {
+        subscriptionJpaRepository.findById(subscriptionId)
+                .ifPresent(SubscriptionJpaEntity::deactivate);
     }
 
     @Override
@@ -84,5 +92,23 @@ public class SubscriptionPersistenceAdapter implements SaveSubscriptionPort, Loa
             return "";
         }
         return query.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private Subscription toDomain(SubscriptionJpaEntity subscription) {
+        return new Subscription(
+                subscription.getId(),
+                new User(
+                        subscription.getUser().getId(),
+                        subscription.getUser().getEmail(),
+                        subscription.getUser().getNickname(),
+                        subscription.getUser().getCreatedAt(),
+                        subscription.getUser().getDeletedAt()
+                ),
+                new Domain(subscription.getDomain().getId(), subscription.getDomain().getName()),
+                subscription.getQuery(),
+                subscription.getIntent(),
+                subscription.isActive(),
+                subscription.getCreatedAt()
+        );
     }
 }

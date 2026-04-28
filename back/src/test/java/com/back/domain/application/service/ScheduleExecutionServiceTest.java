@@ -29,8 +29,10 @@ import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
 import java.time.LocalDateTime;
 import java.time.Month;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -78,7 +80,9 @@ class ScheduleExecutionServiceTest {
         service.runDueSchedules();
 
         assertThat(executeMcpToolPort.executedToolName).isEqualTo("search_house_price");
-        assertThat(executeMcpToolPort.executedQuery).isEqualTo("강남구 아파트 실거래가");
+        assertThat(executeMcpToolPort.executedInput())
+                .containsEntry("region", "강남구")
+                .containsEntry("deal_ymd", latestAvailableDealYmd());
         assertThat(saveAiDataHubPort.saved).hasSize(1);
         assertThat(saveNotificationPort.saved).extracting(Notification::status)
                 .contains(NotificationStatus.PENDING, NotificationStatus.SENT);
@@ -209,7 +213,7 @@ class ScheduleExecutionServiceTest {
                 new FakeLoadMcpToolPort(tool),
                 subscriptionId -> Optional.empty(),
                 subscriptionId -> List.of(),
-                (mcpTool, query) -> {
+                (mcpTool, arguments) -> {
                     throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
                 },
                 saveAiDataHubPort,
@@ -279,10 +283,10 @@ class ScheduleExecutionServiceTest {
         service.runDueSchedules();
 
         assertThat(executeMcpToolPort.executedToolName).isEqualTo("search_house_price_v2");
-        assertThat(executeMcpToolPort.executedQuery)
-                .contains("강남구 아파트 실거래가")
-                .contains("apartment_trade_price")
-                .contains("\"condition\":\"5% 이상 상승\"");
+        assertThat(executeMcpToolPort.executedInput())
+                .containsEntry("region", "강남구")
+                .containsEntry("deal_ymd", latestAvailableDealYmd())
+                .doesNotContainKey("condition");
         assertThat(saveNotificationPort.saved).extracting(Notification::channel)
                 .containsOnly("TELEGRAM_DM");
     }
@@ -320,14 +324,23 @@ class ScheduleExecutionServiceTest {
     private static class FakeExecuteMcpToolPort implements ExecuteMcpToolPort {
 
         private String executedToolName;
-        private String executedQuery;
+        private Map<String, Object> executedArguments;
 
         @Override
-        public McpExecutionResult execute(McpTool tool, String query) {
+        public McpExecutionResult execute(McpTool tool, Map<String, Object> arguments) {
             this.executedToolName = tool.name();
-            this.executedQuery = query;
+            this.executedArguments = arguments;
             return new McpExecutionResult("REAL_ESTATE", "result content", "{\"source\":\"mcp\"}");
         }
+
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> executedInput() {
+            return (Map<String, Object>) executedArguments.get("input");
+        }
+    }
+
+    private static String latestAvailableDealYmd() {
+        return LocalDateTime.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyyMM"));
     }
 
     private static class FakeSaveAiDataHubPort implements SaveAiDataHubPort {

@@ -7,8 +7,11 @@ import com.back.domain.adapter.out.persistence.subscription.SubscriptionJpaEntit
 import com.back.domain.adapter.out.persistence.subscription.SubscriptionJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.application.command.CreateSubscriptionCommand;
+import com.back.domain.application.port.in.CancelSubscriptionUseCase;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.service.CurrentUserService;
+import com.back.domain.application.service.SubscriptionNotificationMessageFormatter;
+import com.back.domain.model.notification.NotificationChannel;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -24,10 +27,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
-import com.back.domain.model.notification.NotificationChannel;
-import com.back.global.error.ApiException;
-import com.back.global.error.ErrorCode;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * [Incoming Web Adapter] 구독 생성 요청을 처리하는 REST controller
@@ -38,7 +37,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class SubscriptionController {
 
     private final CreateSubscriptionUseCase createSubscriptionUseCase;
+    private final CancelSubscriptionUseCase cancelSubscriptionUseCase;
     private final CurrentUserService currentUserService;
+    private final SubscriptionNotificationMessageFormatter notificationMessageFormatter;
     private final OAuthClientProperties properties;
     private final SubscriptionJpaRepository subscriptionRepository;
     private final ScheduleJpaRepository scheduleRepository;
@@ -73,17 +74,12 @@ public class SubscriptionController {
 
     @DeleteMapping("/{subscriptionId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Transactional
     public void delete(
             @PathVariable String subscriptionId,
             HttpServletRequest servletRequest
     ) {
         UserJpaEntity user = currentUserService.requireCurrentUser(readSessionCookie(servletRequest));
-        SubscriptionJpaEntity subscription = subscriptionRepository
-                .findByIdAndUserIdAndActiveTrue(subscriptionId, user.getId())
-                .orElseThrow(() -> new ApiException(ErrorCode.SUBSCRIPTION_NOT_FOUND));
-
-        subscription.deactivate();
+        cancelSubscriptionUseCase.cancelForUser(user.getId(), subscriptionId);
     }
 
     private String readSessionCookie(HttpServletRequest request) {
@@ -116,32 +112,13 @@ public class SubscriptionController {
         return new SubscriptionSummaryResponse(
                 subscription.getId(),
                 subscription.getQuery(),
-                domainLabel(subscription.getDomain().getName()),
-                cadenceLabel(cronExpr),
+                notificationMessageFormatter.formatDomainName(subscription.getDomain().getName()),
+                notificationMessageFormatter.formatCronLabel(cronExpr),
                 channel,
                 channelLabel(channel),
                 nextRun,
                 subscription.isActive()
         );
-    }
-
-    private String domainLabel(String domainName) {
-        return switch (domainName == null ? "" : domainName) {
-            case "real-estate" -> "부동산";
-            case "law-regulation" -> "법률/규제";
-            case "recruitment" -> "채용";
-            case "auction" -> "경매/희소매물";
-            default -> domainName;
-        };
-    }
-
-    private String cadenceLabel(String cronExpr) {
-        return switch (cronExpr == null ? "" : cronExpr) {
-            case "0 0 * * * *" -> "매시간";
-            case "0 0 9 * * *" -> "매일 오전 9시";
-            case "0 0 9 * * MON-FRI" -> "평일 오전 9시";
-            default -> cronExpr;
-        };
     }
 
     private String channelLabel(NotificationChannel channel) {

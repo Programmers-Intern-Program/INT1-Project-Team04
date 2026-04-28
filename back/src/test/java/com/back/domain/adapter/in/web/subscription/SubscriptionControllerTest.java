@@ -257,6 +257,133 @@ class SubscriptionControllerTest extends IntegrationTestBase {
         assertThat(listResponse.body()).doesNotContain(subscriptionId, "강남구 아파트 실거래가");
     }
 
+    @Test
+    @DisplayName("Web: 알림 채널이 연결된 구독 삭제는 취소 알림을 예약한다")
+    void createsSubscriptionCancelledDeliveryWhenDeletingConnectedNotificationSubscription() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-delete-notify@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        String cookieHeader = createSession(user, "subscription-delete-notify-session");
+        HttpResponse<String> createResponse = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 9 * * MON-FRI",
+                  "notificationChannel": "TELEGRAM_DM",
+                  "notificationTargetAddress": "123456789"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+        String subscriptionId = readSubscriptionId(createResponse.body());
+        notificationDeliveryRepository.deleteAll();
+
+        HttpResponse<String> deleteResponse = deleteSubscription(subscriptionId, cookieHeader);
+
+        assertThat(createResponse.statusCode()).as(createResponse.body()).isEqualTo(201);
+        assertThat(deleteResponse.statusCode()).as(deleteResponse.body()).isEqualTo(204);
+        assertThat(notificationDeliveryRepository.findAll())
+                .singleElement()
+                .satisfies(delivery -> {
+                    assertThat(delivery.getAlertEventId()).isEqualTo("subscription-cancelled-" + subscriptionId);
+                    assertThat(delivery.getSubscriptionId()).isEqualTo(subscriptionId);
+                    assertThat(delivery.getUserId()).isEqualTo(user.getId());
+                    assertThat(delivery.getChannel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
+                    assertThat(delivery.getRecipient()).isEqualTo("123456789");
+                    assertThat(delivery.getTitle()).isEqualTo("알림 설정이 취소됐어요");
+                    assertThat(delivery.getStatus()).isEqualTo(NotificationDeliveryStatus.PENDING);
+                    assertThat(delivery.getMessage()).contains(
+                            "알림 설정 취소",
+                            "요청: 강남구 아파트 실거래가",
+                            "감시 영역: 부동산",
+                            "확인 주기: 평일 오전 9시",
+                            "이제부터 이 조건으로는 알림을 보내지 않을게요."
+                    );
+                    assertThat(delivery.getMessage()).doesNotContain("기존 확인 주기");
+                });
+    }
+
+    @Test
+    @DisplayName("Web: Discord 구독 삭제 취소 알림은 시작 알림과 같은 라벨 규칙을 사용한다")
+    void createsDiscordSubscriptionCancelledDeliveryWithUnifiedCopy() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-delete-discord@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        String cookieHeader = createSession(user, "subscription-delete-discord-session");
+        HttpResponse<String> createResponse = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 * * * *",
+                  "notificationChannel": "DISCORD_DM",
+                  "notificationTargetAddress": "discord-user-1"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+        String subscriptionId = readSubscriptionId(createResponse.body());
+        notificationDeliveryRepository.deleteAll();
+
+        HttpResponse<String> deleteResponse = deleteSubscription(subscriptionId, cookieHeader);
+
+        assertThat(createResponse.statusCode()).as(createResponse.body()).isEqualTo(201);
+        assertThat(deleteResponse.statusCode()).as(deleteResponse.body()).isEqualTo(204);
+        assertThat(notificationDeliveryRepository.findAll())
+                .singleElement()
+                .satisfies(delivery -> {
+                    assertThat(delivery.getChannel()).isEqualTo(NotificationChannel.DISCORD_DM);
+                    assertThat(delivery.getTitle()).isEqualTo("알림 설정이 취소됐어요");
+                    assertThat(delivery.getMessage()).contains(
+                            "**알림 설정 취소**",
+                            "이제부터 이 조건으로는 알림을 보내지 않을게요.",
+                            "**요청**",
+                            "`강남구 아파트 실거래가`",
+                            "**감시 영역**",
+                            "부동산",
+                            "**확인 주기**",
+                            "매시간 정각",
+                            "필요하면 언제든 다시 설정할 수 있어요."
+                    );
+                    assertThat(delivery.getMessage()).doesNotContain("기존 확인 주기", "0 0 * * * *");
+                });
+    }
+
+    @Test
+    @DisplayName("Web: Email 구독 삭제 취소 알림은 시작 알림과 같은 카드 구조를 사용한다")
+    void createsEmailSubscriptionCancelledDeliveryWithUnifiedCardCopy() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("web-delete-email@example.com", "웹사용자"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        String cookieHeader = createSession(user, "subscription-delete-email-session");
+        HttpResponse<String> createResponse = postSubscription("""
+                {
+                  "domainId": %d,
+                  "query": "강남구 아파트 실거래가",
+                  "cronExpr": "0 0 * * * *",
+                  "notificationChannel": "EMAIL",
+                  "notificationTargetAddress": "web-delete-email@example.com"
+                }
+                """.formatted(domain.getId()), cookieHeader);
+        String subscriptionId = readSubscriptionId(createResponse.body());
+        notificationDeliveryRepository.deleteAll();
+
+        HttpResponse<String> deleteResponse = deleteSubscription(subscriptionId, cookieHeader);
+
+        assertThat(createResponse.statusCode()).as(createResponse.body()).isEqualTo(201);
+        assertThat(deleteResponse.statusCode()).as(deleteResponse.body()).isEqualTo(204);
+        assertThat(notificationDeliveryRepository.findAll())
+                .singleElement()
+                .satisfies(delivery -> {
+                    assertThat(delivery.getChannel()).isEqualTo(NotificationChannel.EMAIL);
+                    assertThat(delivery.getTitle()).isEqualTo("알림 설정이 취소됐어요");
+                    assertThat(delivery.getMessage()).startsWith("<!doctype html>");
+                    assertThat(delivery.getMessage()).contains(
+                            "role=\"presentation\"",
+                            "알림 설정 취소</span>",
+                            "알림 설정이 취소됐어요",
+                            "강남구 아파트 실거래가",
+                            "부동산",
+                            "확인 주기</p>",
+                            "매시간 정각",
+                            "이제부터 이 조건으로는 알림을 보내지 않을게요."
+                    );
+                    assertThat(delivery.getMessage()).doesNotContain("기존 확인 주기", "0 0 * * * *");
+                });
+    }
+
     private String createSession(UserJpaEntity user, String rawToken) {
         sessionRepository.save(new UserSessionJpaEntity(
                 user,

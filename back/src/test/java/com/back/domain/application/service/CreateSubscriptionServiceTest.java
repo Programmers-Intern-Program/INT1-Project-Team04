@@ -50,7 +50,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         SubscriptionResult result = service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -88,7 +89,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 saveEndpointPort,
                 savePreferencePort,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -143,7 +145,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -183,7 +186,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -243,7 +247,8 @@ class CreateSubscriptionServiceTest {
                 )),
                 saveEndpointPort,
                 savePreferencePort,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -277,7 +282,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -304,7 +310,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
@@ -329,7 +336,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
@@ -355,7 +363,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
@@ -389,7 +398,8 @@ class CreateSubscriptionServiceTest {
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(user.id(), new CreateSubscriptionCommand(
