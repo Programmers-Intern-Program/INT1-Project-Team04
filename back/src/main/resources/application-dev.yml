@@ -13,6 +13,48 @@ spring:
     hibernate:
       ddl-auto: update
     show-sql: true
+
   ai:
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY}
+    # 1. 모델 통신 설정 (구형 라이브러리 사용 + OS 환경변수 위임)
+    vertex:
+      ai:
+        gemini:
+          project-id: ${GOOGLE_CLOUD_PROJECT_ID:project-0642120c-b67a-4a76-a64}
+          location: ${VERTEX_AI_LOCATION:us-central1}
+          # 💡 핵심: .env에서 가져온 C:/... 앞에 file:/// 를 강제로 붙여줍니다.
+          # 결과적으로 "file:///C:/Users/sayho/..." 가 완성됩니다.
+          #credentials-uri: "file:///${GOOGLE_APPLICATION_CREDENTIALS}"
+          chat:
+            options:
+              model: gemini-2.5-flash
+
+    # 2. 관찰성(Langfuse) 글로벌 설정 (M4 최신 규격 적용)
+    chat:
+      # ChatModel (로우 레벨 모델 통신 기록)
+      observations:
+        log-prompt: true
+        log-completion: true
+      # ChatClient (AiConfig에서 만든 빌더 레벨의 기록)
+      client:
+        observations:
+          log-prompt: true
+
+    mcp:
+      client:
+        enabled: ${MCP_ENABLED:false}   # MCP 서버 없이 기동할 때 false (기본값)
+
+langfuse:
+  otlp-endpoint: ${LANGFUSE_OTLP_ENDPOINT:http://localhost:3001/api/public/otel/v1/traces}
+  auth: ${LANGFUSE_AUTH_DEV:}
+
+management:
+  tracing:
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${langfuse.otlp-endpoint}
+          headers:
+            Authorization: "Basic ${langfuse.auth:}"

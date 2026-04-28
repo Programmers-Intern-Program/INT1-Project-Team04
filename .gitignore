@@ -13,6 +13,9 @@ Thumbs.db
 *.env
 *.env.*
 !.env.example
+*-service-account.json
+*-sa-key.json
+vertex-key*.json
 
 ### Logs ###
 *.log
