@@ -25,6 +25,7 @@ spring:
     # 마이그레이션은 환경 무관해야 하므로 ${...} 치환 비활성화.
     placeholder-replacement: false
 
+  ai:
     mcp:
       client:
         sse:
