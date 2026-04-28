@@ -41,6 +41,22 @@ services:
       "
     restart: "no"
 
+  postgres-mcp-init:
+    image: pgvector/pgvector:pg16
+    environment:
+      PGPASSWORD: ${PG_PASSWORD:-devpass}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: >
+      bash -c "
+      psql -h postgres -U ${PG_USER:-devuser} -d postgres
+      -tc \"SELECT 1 FROM pg_database WHERE datname='mcp_dev'\"
+      | grep -q 1
+      || psql -h postgres -U ${PG_USER:-devuser} -d postgres -c 'CREATE DATABASE mcp_dev;'
+      "
+    restart: "no"
+
   # ── Langfuse V3 ───────────────────────────────────────────
   # 기동 순서: clickhouse → minio → minio-init → langfuse-web + langfuse-worker
   # 대시보드: http://localhost:3001
