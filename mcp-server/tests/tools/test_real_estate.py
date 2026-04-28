@@ -42,7 +42,7 @@ def reset_module_cache(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def set_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """기본 키 주입. 키 미설정 분기 테스트는 자기 안에서 다시 비운다."""
-    monkeypatch.setenv("MOLIT_TRADE_API_KEY", "test-key-12345")
+    monkeypatch.setenv("MOLIT_APT_TRADE_API_KEY", "test-key-12345")
     get_settings.cache_clear()
 
 
@@ -193,9 +193,9 @@ async def test_search_propagates_normalization_error(
 async def test_search_raises_when_api_key_missing(
     patched_session_factory, monkeypatch: pytest.MonkeyPatch
 ):
-    """MOLIT_TRADE_API_KEY 빈 값 → RealEstateConfigError, fetch 호출 X."""
+    """MOLIT_APT_TRADE_API_KEY 빈 값 → RealEstateConfigError, fetch 호출 X."""
     await _seed_source()
-    monkeypatch.setenv("MOLIT_TRADE_API_KEY", "")
+    monkeypatch.setenv("MOLIT_APT_TRADE_API_KEY", "")
     get_settings.cache_clear()
 
     fetch_called = False
