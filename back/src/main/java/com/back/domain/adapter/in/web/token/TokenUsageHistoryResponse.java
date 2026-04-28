@@ -28,7 +28,7 @@ record TokenUsageHistoryDto(
     static TokenUsageHistoryDto from(TokenUsageHistoryResult result) {
         return new TokenUsageHistoryDto(
                 result.id(),
-                result.type(),
+                result.usageType(),
                 result.amount(),
                 result.balanceBefore(),
                 result.balanceAfter(),

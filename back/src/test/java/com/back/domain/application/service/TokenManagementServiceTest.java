@@ -258,8 +258,8 @@ class TokenManagementServiceTest {
 
         // Then
         assertThat(results).hasSize(2);
-        assertThat(results.get(0).type()).isEqualTo(TokenUsageType.GRANT);
-        assertThat(results.get(1).type()).isEqualTo(TokenUsageType.USE);
+        assertThat(results.get(0).usageType()).isEqualTo(TokenUsageType.GRANT);
+        assertThat(results.get(1).usageType()).isEqualTo(TokenUsageType.USE);
     }
 
     // Fake Implementations

@@ -37,4 +37,15 @@ public class TokenUsageHistoryPersistenceAdapter implements SaveTokenUsageHistor
                 .map(TokenUsageHistoryJpaEntity::toDomain)
                 .toList();
     }
+
+    /**
+     * 관리자용: 모든 사용자의 최근 토큰 사용 내역 조회
+     */
+    @Transactional(readOnly = true)
+    public List<TokenUsageHistory> findRecentHistory(int limit) {
+        return historyRepository.findRecentWithUser(PageRequest.of(0, limit))
+                .stream()
+                .map(TokenUsageHistoryJpaEntity::toDomain)
+                .toList();
+    }
 }

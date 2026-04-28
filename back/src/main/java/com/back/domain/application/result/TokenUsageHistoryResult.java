@@ -10,21 +10,29 @@ import java.util.List;
  */
 public record TokenUsageHistoryResult(
         String id,
-        TokenUsageType type,
+        Long userId,
+        String userEmail,
+        String userNickname,
+        TokenUsageType usageType,
         int amount,
         int balanceBefore,
         int balanceAfter,
         String description,
+        String sessionId,
         LocalDateTime createdAt
 ) {
     public static TokenUsageHistoryResult from(TokenUsageHistory history) {
         return new TokenUsageHistoryResult(
                 history.id(),
+                history.user().id(),
+                history.user().email(),
+                history.user().nickname(),
                 history.type(),
                 history.amount(),
                 history.balanceBefore(),
                 history.balanceAfter(),
                 history.description(),
+                history.referenceId(),
                 history.createdAt()
         );
     }
