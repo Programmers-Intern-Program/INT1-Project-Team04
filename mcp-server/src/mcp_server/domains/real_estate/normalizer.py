@@ -4,12 +4,13 @@ api_source_service.fetch() 가 돌려준 XML 본문을 자료유형별 도메인
 정규화는 도메인 책임이라 sources 계층 예외(SourceError) 와 분리된
 RealEstateNormalizationError 사용.
 
-지원 자료유형 (5종):
+지원 자료유형 (6종):
 - 아파트 매매 (AptTrade) — dealAmount
 - 아파트 전월세 (AptRent) — deposit + monthlyRent
 - 오피스텔 매매 (OffiTrade) — dealAmount, 단지명 offiNm
 - 오피스텔 전월세 (OffiRent) — deposit + monthlyRent, 단지명 offiNm
 - 연립다세대 전월세 (RHRent) — deposit + monthlyRent, 단지명 mhouseNm, houseType 보존
+- 연립다세대 매매 (RHTrade) — dealAmount, 단지명 mhouseNm, houseType 보존
 """
 
 from datetime import date
@@ -98,6 +99,21 @@ class RHRent(BaseModel):
     build_year: int | None = Field(default=None, description="건축년도")
 
 
+class RHTrade(BaseModel):
+    """연립다세대 매매 실거래 1건."""
+
+    mhouse_name: str = Field(description="단지명 (mhouseNm)")
+    house_type: str | None = Field(default=None, description="주택 유형 (예: '다세대', '연립')")
+    deal_amount: int = Field(description="거래 금액 (만원, 콤마 제거)")
+    deal_date: date = Field(description="계약 일자")
+    area: float = Field(description="전용면적 m²")
+    floor: int = Field(description="층")
+    lawd_cd: str = Field(description="법정동 코드 5자리")
+    dong: str = Field(description="법정동명")
+    jibun: str | None = Field(default=None, description="지번")
+    build_year: int | None = Field(default=None, description="건축년도")
+
+
 # ─────────────────────────────────────────────
 # 정규화 함수
 # ─────────────────────────────────────────────
@@ -153,6 +169,16 @@ def normalize_rh_rent(xml_text: str, *, lawd_cd: str) -> list[RHRent]:
     """
     items = _parse_items(xml_text)
     return [_build_rh_rent(item, lawd_cd=lawd_cd) for item in items]
+
+
+def normalize_rh_trade(xml_text: str, *, lawd_cd: str) -> list[RHTrade]:
+    """MOLIT 연립다세대 매매 실거래가 XML → list[RHTrade].
+
+    Raises:
+        RealEstateNormalizationError: 응답 코드 비정상, XML 파싱 실패, 필수 필드 누락.
+    """
+    items = _parse_items(xml_text)
+    return [_build_rh_trade(item, lawd_cd=lawd_cd) for item in items]
 
 
 # ─────────────────────────────────────────────
@@ -279,6 +305,26 @@ def _build_rh_rent(item: ET.Element, *, lawd_cd: str) -> RHRent:
     )
 
 
+def _build_rh_trade(item: ET.Element, *, lawd_cd: str) -> RHTrade:
+    try:
+        common = _build_common(item, lawd_cd=lawd_cd, name_tag="mhouseNm")
+        deal_amount = _parse_amount(_required(item, "dealAmount"))
+    except (KeyError, ValueError) as exc:
+        raise RealEstateNormalizationError(f"item 필수 필드 파싱 실패: {exc}") from exc
+    return RHTrade(
+        mhouse_name=common["name"],
+        house_type=_find_text(item, "houseType"),
+        deal_amount=deal_amount,
+        deal_date=common["deal_date"],
+        area=common["area"],
+        floor=common["floor"],
+        lawd_cd=common["lawd_cd"],
+        dong=common["dong"],
+        jibun=common["jibun"],
+        build_year=common["build_year"],
+    )
+
+
 # ─────────────────────────────────────────────
 # 공통 필드/유틸
 # ─────────────────────────────────────────────
@@ -342,10 +388,12 @@ __all__ = [
     "OffiRent",
     "OffiTrade",
     "RHRent",
+    "RHTrade",
     "RealEstateNormalizationError",
     "normalize_apt_rent",
     "normalize_apt_trade",
     "normalize_offi_rent",
     "normalize_offi_trade",
     "normalize_rh_rent",
+    "normalize_rh_trade",
 ]
