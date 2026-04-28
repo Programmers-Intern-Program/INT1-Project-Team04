@@ -1,6 +1,6 @@
 """부동산 도메인 api_source row 등록.
 
-국토교통부 부동산 실거래가 5종 자료유형 메타데이터를 mcp 내부 DB 의
+국토교통부 부동산 실거래가 6종 자료유형 메타데이터를 mcp 내부 DB 의
 api_source 테이블에 시드한다.
 멱등: 각 row 는 tool_name 기준으로 존재하면 update, 없으면 insert.
 
@@ -79,6 +79,12 @@ SOURCES: list[dict] = [
         "tool_name": "search_rh_rent",
         "name": "국토교통부 연립다세대 전월세 실거래가",
         "url_template": f"{_BASE_URL}/RTMSDataSvcRHRent/getRTMSDataSvcRHRent",
+        "param_schema": _COMMON_PARAM_SCHEMA,
+    },
+    {
+        "tool_name": "search_rh_trade",
+        "name": "국토교통부 연립다세대 매매 실거래가",
+        "url_template": f"{_BASE_URL}/RTMSDataSvcRHTrade/getRTMSDataSvcRHTrade",
         "param_schema": _COMMON_PARAM_SCHEMA,
     },
 ]
