@@ -127,23 +127,23 @@ async def search_house_price(input: SearchHousePriceInput) -> dict[str, Any]:
     빈 응답(거래 0건) 은 정상 동작 — text 가 "0건" 으로 명시된다. 예외 아님.
 
     Raises:
-        RealEstateConfigError: MOLIT_TRADE_API_KEY 미설정.
+        RealEstateConfigError: MOLIT_APT_TRADE_API_KEY 미설정.
         RealEstateRegionNotFoundError: region 매칭 실패 또는 동음이의(자동 선택 거부).
         RealEstateNormalizationError: API 응답이 비정상(코드 != "000") 또는 XML 파싱 실패.
         SourceNotFoundError: api_source 시드 미실행.
         SourceFetchError: API 호출 실패 (네트워크/4xx/5xx).
     """
     settings = get_settings()
-    if not settings.molit_trade_api_key:
+    if not settings.molit_apt_trade_api_key:
         raise RealEstateConfigError(
-            "MOLIT_TRADE_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
+            "MOLIT_APT_TRADE_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
     lawd_cd = resolve_lawd_cd(input.region)
     source_id = await _resolve_source_id()
 
     params: dict[str, Any] = {
-        "serviceKey": settings.molit_trade_api_key,
+        "serviceKey": settings.molit_apt_trade_api_key,
         "LAWD_CD": lawd_cd,
         "DEAL_YMD": input.deal_ymd,
         "numOfRows": _DEFAULT_NUM_OF_ROWS,
