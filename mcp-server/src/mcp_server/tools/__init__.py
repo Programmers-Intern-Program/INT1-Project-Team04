@@ -8,4 +8,7 @@
 한 줄씩 추가한다.
 """
 
+from mcp_server.tools import auction  # noqa: F401
+from mcp_server.tools import jobs  # noqa: F401
+from mcp_server.tools import law  # noqa: F401
 from mcp_server.tools import real_estate  # noqa: F401
