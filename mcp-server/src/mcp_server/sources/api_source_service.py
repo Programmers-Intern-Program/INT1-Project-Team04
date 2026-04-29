@@ -166,11 +166,19 @@ async def check_cache(tool_name: str, params: dict) -> dict:
 
     if cached is None:
         return {"cache_hit": False, "cached_at": None, "tool_name": tool_name, "content": None}
+
+    content = cached.content
+    if content:
+        try:
+            content = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
     return {
         "cache_hit": True,
         "cached_at": cached.cached_at.isoformat(),
         "tool_name": tool_name,
-        "content": cached.content,
+        "content": content,
     }
 
 
