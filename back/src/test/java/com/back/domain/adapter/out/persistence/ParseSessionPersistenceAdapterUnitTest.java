@@ -135,6 +135,33 @@ class ParseSessionPersistenceAdapterUnitTest {
     }
 
     @Test
+    @DisplayName("성공: 저장된 턴 수를 정확히 복원한다")
+    void restoresPersistedTurnCountExactly() throws Exception {
+        ParsedTask task = new ParsedTask(
+                "create", "부동산", "집값", "",
+                "0 9 * * *", "discord", "crawl", "아파트 시세",
+                List.of(), 0.3, true, "지역을 알려주세요"
+        );
+        ParseSessionJpaEntity mockEntity = new ParseSessionJpaEntity(
+                1L,
+                "집값 알려줘",
+                objectMapper.writeValueAsString(List.of(task)),
+                objectMapper.writeValueAsString(List.of(
+                        new ParseSession.ConversationMessage("user", "집값 알려줘")
+                )),
+                4,
+                3,
+                false
+        );
+        when(repository.findById("session-1")).thenReturn(Optional.of(mockEntity));
+
+        ParseSession loaded = adapter.loadById("session-1").orElseThrow();
+
+        assertThat(loaded.getTurnCount()).isEqualTo(4);
+        assertThat(loaded.isMaxTurnsExceeded()).isTrue();
+    }
+
+    @Test
     @DisplayName("성공: 멀티턴 대화 시뮬레이션 (Mock)")
     void simulatesMultiTurnConversation() throws Exception {
         // Given - 1턴: 모호한 입력

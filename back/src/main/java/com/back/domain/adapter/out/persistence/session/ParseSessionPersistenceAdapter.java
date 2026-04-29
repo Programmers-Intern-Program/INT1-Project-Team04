@@ -66,18 +66,16 @@ public class ParseSessionPersistenceAdapter implements SaveParseSessionPort, Loa
                     new TypeReference<List<ParseSession.ConversationMessage>>() {}
             );
 
-            ParseSession session = new ParseSession(
+            return ParseSession.restore(
                     entity.getId(),
                     entity.getUserId(),
                     entity.getOriginalInput(),
-                    tasks
+                    tasks,
+                    messages,
+                    entity.getTurnCount(),
+                    entity.getMaxTurns(),
+                    entity.isComplete()
             );
-            session.incrementTurn(); // 생성자에서 turnCount=0이므로
-            for (ParseSession.ConversationMessage msg : messages) {
-                session.addMessage(msg.role(), msg.content());
-            }
-
-            return session;
         } catch (Exception e) {
             log.error("세션 변환 실패", e);
             return null;

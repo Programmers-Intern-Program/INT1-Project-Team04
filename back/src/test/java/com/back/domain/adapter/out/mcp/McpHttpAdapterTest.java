@@ -2,11 +2,10 @@ package com.back.domain.adapter.out.mcp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
-import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
-import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.back.domain.adapter.out.persistence.mcp.McpHttpAdapter;
 import com.back.domain.application.result.McpExecutionResult;
@@ -15,78 +14,84 @@ import com.back.domain.model.mcp.McpServer;
 import com.back.domain.model.mcp.McpTool;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.modelcontextprotocol.client.McpSyncClient;
+import io.modelcontextprotocol.spec.McpSchema;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
-import org.springframework.test.web.client.MockRestServiceServer;
-import org.springframework.web.client.RestClient;
+import org.mockito.ArgumentCaptor;
 
 @DisplayName("Adapter: MCP 외부 서버 통신 어댑터 테스트")
 class McpHttpAdapterTest {
 
-    @Test
-    @DisplayName("Adapter: 도구 이름과 쿼리를 포함하여 외부 MCP 서버에 실행 요청 및 응답 수신 테스트")
-    void executesMcpToolByPostingToolNameAndQuery() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        McpHttpAdapter adapter = new McpHttpAdapter(builder);
+    private McpSyncClient client;
+    private McpHttpAdapter adapter;
+    private McpTool tool;
 
-        McpTool tool = new McpTool(
+    @BeforeEach
+    void setUp() {
+        client = mock(McpSyncClient.class);
+        adapter = new McpHttpAdapter(List.of(client), new ObjectMapper());
+        tool = new McpTool(
                 1L,
-                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                new McpServer(1L, "monitoring-mcp", "server", "http://localhost:8090"),
                 new Domain(1L, "real-estate"),
                 "search_house_price",
                 "부동산 실거래가 조회",
                 "{}"
         );
-
-        server.expect(requestTo("http://localhost:8090/tools/execute"))
-                .andExpect(method(HttpMethod.POST))
-                .andExpect(content().json("""
-                {
-                  "toolName": "search_house_price",
-                  "query": "강남구 아파트 실거래가"
-                }
-                """))
-                .andRespond(withSuccess("""
-                {
-                  "apiType": "REAL_ESTATE",
-                  "content": "result content",
-                  "metadata": "{\\"source\\":\\"mcp\\"}"
-                }
-                """, MediaType.APPLICATION_JSON));
-
-        McpExecutionResult result = adapter.execute(tool, "강남구 아파트 실거래가");
-
-        assertThat(result.apiType()).isEqualTo("REAL_ESTATE");
-        assertThat(result.content()).isEqualTo("result content");
-        assertThat(result.metadata()).contains("mcp");
-        server.verify();
     }
 
     @Test
-    @DisplayName("Adapter: MCP 서버 요청이 실패하면 표준 API 예외로 변환한다")
-    void throwsApiExceptionWhenMcpServerFails() {
-        RestClient.Builder builder = RestClient.builder();
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        McpHttpAdapter adapter = new McpHttpAdapter(builder);
-        McpTool tool = new McpTool(
-                1L,
-                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
-                new Domain(1L, "real-estate"),
-                "search_house_price",
-                "부동산 실거래가 조회",
-                "{}"
+    @DisplayName("Adapter: 구조화된 인자로 MCP 도구를 호출하고 결과를 변환한다")
+    void executesMcpToolByCallingMcpClientWithStructuredArguments() {
+        when(client.listTools()).thenReturn(new McpSchema.ListToolsResult(
+                List.of(McpSchema.Tool.builder().name("search_house_price").build()),
+                null,
+                null
+        ));
+        when(client.callTool(any())).thenReturn(McpSchema.CallToolResult.builder()
+                .structuredContent(Map.of(
+                        "text", "강남구 202603 아파트 매매 실거래 3건.",
+                        "structured", Map.of("summary", Map.of("count", 3)),
+                        "source_url", "https://apis.data.go.kr/...",
+                        "metadata", Map.of("tool_name", "search_house_price")
+                ))
+                .build());
+
+        Map<String, Object> arguments = Map.of(
+                "input",
+                Map.of("region", "강남구", "deal_ymd", "202603")
         );
 
-        server.expect(requestTo("http://localhost:8090/tools/execute"))
-                .andRespond(withServerError());
+        McpExecutionResult result = adapter.execute(tool, arguments);
 
-        assertThatThrownBy(() -> adapter.execute(tool, "강남구 아파트 실거래가"))
+        ArgumentCaptor<McpSchema.CallToolRequest> requestCaptor =
+                ArgumentCaptor.forClass(McpSchema.CallToolRequest.class);
+        verify(client).callTool(requestCaptor.capture());
+        McpSchema.CallToolRequest request = requestCaptor.getValue();
+
+        assertThat(request.name()).isEqualTo("search_house_price");
+        assertThat(request.arguments()).isEqualTo(arguments);
+        assertThat(result.apiType()).isEqualTo("REAL_ESTATE");
+        assertThat(result.content()).isEqualTo("강남구 202603 아파트 매매 실거래 3건.");
+        assertThat(result.metadata())
+                .contains("\"summary\"")
+                .contains("\"source_url\"")
+                .contains("\"tool_name\"");
+    }
+
+    @Test
+    @DisplayName("Adapter: MCP client 호출이 실패하면 표준 API 예외로 변환한다")
+    void throwsApiExceptionWhenMcpServerFails() {
+        when(client.listTools()).thenThrow(new IllegalStateException("connection failed"));
+
+        assertThatThrownBy(() -> adapter.execute(tool, Map.of("input", Map.of("region", "강남구"))))
                 .isInstanceOf(ApiException.class)
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.MCP_REQUEST_FAILED);
-        server.verify();
     }
 }

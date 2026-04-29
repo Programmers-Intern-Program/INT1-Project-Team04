@@ -2,22 +2,22 @@ package com.back.domain.adapter.out.ai;
 
 import java.util.Optional;
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallbackProvider;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
+@Profile("!test")
 @Configuration
-@ConditionalOnProperty(name = "spring.ai.anthropic.api-key")
 public class AiConfig {
 
     @Bean
-    public ChatClient monitorChatClient(ChatModel chatModel, Optional<ToolCallbackProvider> toolCallbackProvider) {
-        // TEST : spring.ai.mcp.client.enabled: false로 MCP를 비활성화하자 ToolCallbackProvider 빈이 사라짐. Optional로 변경
+    public ChatClient monitorChatClient(ChatClient.Builder builder,
+                                        Optional<ToolCallbackProvider> toolCallbackProvider) {
 
-        ChatClient.Builder builder = ChatClient.builder(chatModel);
-        toolCallbackProvider.ifPresent(builder::defaultTools);
+        toolCallbackProvider.ifPresent(builder::defaultToolCallbacks);
+
+        // Spring이 세팅해둔 관찰성(Langfuse 등)이 포함된 빌더를 그대로 빌드합니다.
         return builder.build();
     }
 }

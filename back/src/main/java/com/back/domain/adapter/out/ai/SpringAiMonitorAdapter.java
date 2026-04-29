@@ -4,6 +4,7 @@ import com.back.domain.application.port.out.RunAiMonitorPort;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
@@ -13,9 +14,14 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort {
 
     @Nullable
     private final ChatClient monitorChatClient;
+    private final String anthropicApiKey;
 
-    public SpringAiMonitorAdapter(@Autowired(required = false) ChatClient monitorChatClient) {
+    public SpringAiMonitorAdapter(
+            @Autowired(required = false) ChatClient monitorChatClient,
+            @Value("${spring.ai.anthropic.api-key:}") String anthropicApiKey
+    ) {
         this.monitorChatClient = monitorChatClient;
+        this.anthropicApiKey = anthropicApiKey;
     }
 
     // [레버 1] system prompt로 tool 호출 순서/조건 유도
@@ -32,7 +38,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort {
 
     @Override
     public void run() {
-        if (monitorChatClient == null) {
+        if (monitorChatClient == null || anthropicApiKey == null || anthropicApiKey.isBlank()) {
             log.warn("[SpringAiMonitorAdapter] ChatClient 미구성 (ANTHROPIC_API_KEY 미설정) — 스킵");
             return;
         }

@@ -59,13 +59,14 @@ def main() -> None:
 
     transport 값 검증은 config.Settings 의 Literal 타입이 담당 — 잘못된 값은 Settings
     인스턴스화 단계에서 ValidationError 로 거부된다.
+
+    실행은 항상 `python -m mcp_server` (또는 console_script `mcp-server`) 로 한다.
+    `python -m mcp_server.server` 는 server.py 를 `__main__` 으로 로드해 도구 모듈이
+    참조하는 mcp 인스턴스와 별개 객체가 생기는 함정이 있어 의도적으로 막아 두었다
+    (이 모듈 하단에 `if __name__ == "__main__"` 블록을 두지 않는다).
     """
     # 도구 등록 트리거 — top-level 이 아닌 함수 안 import 로 순환 회피.
     import mcp_server.tools  # noqa: F401
 
     s = get_settings()
     mcp.run(transport=s.mcp_transport)
-
-
-if __name__ == "__main__":
-    main()

@@ -113,7 +113,7 @@ describe("auth UI source rules", () => {
     const source =
       readFileSync(new URL("../page.tsx", import.meta.url), "utf8") +
       readFileSync(
-        new URL("../components/subscription-mvp.tsx", import.meta.url),
+        new URL("../components/subscription-chat.tsx", import.meta.url),
         "utf8",
       );
 

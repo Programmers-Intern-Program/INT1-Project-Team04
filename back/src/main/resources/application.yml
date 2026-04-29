@@ -22,19 +22,10 @@ spring:
   flyway:
     baseline-on-migrate: true
     baseline-version: 0
+    # 마이그레이션은 환경 무관해야 하므로 ${...} 치환 비활성화.
+    placeholder-replacement: false
+
   ai:
-    anthropic:
-      api-key: ${ANTHROPIC_API_KEY:} # 없어도 warn만 내뱉고 기동 — SpringAiMonitorAdapter 참고
-      chat:
-        options:
-          model: claude-sonnet-4-6
-        client:
-          observations:
-            include-input: true   # 프롬프트를 Langfuse에 기록
-        model:
-          observations:
-            include-input: true
-            include-output: true  # 응답을 Langfuse에 기록
     mcp:
       client:
         sse:
@@ -94,3 +85,10 @@ app:
       bot-token: ${APP_NOTIFICATION_TELEGRAM_BOT_TOKEN:}
       bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
       api-base-url: ${APP_NOTIFICATION_TELEGRAM_API_BASE_URL:https://api.telegram.org}
+
+ai-parser:
+  base-url: ${AI_PARSER_BASE_URL:}
+  api-key: ${AI_PARSER_API_KEY:}
+  model: ${AI_PARSER_MODEL:glm-4.5}
+  max-tokens: ${AI_PARSER_MAX_TOKENS:2048}
+  temperature: ${AI_PARSER_TEMPERATURE:0.3}

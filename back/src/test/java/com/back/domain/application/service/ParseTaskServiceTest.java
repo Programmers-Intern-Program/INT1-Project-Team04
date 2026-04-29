@@ -13,6 +13,7 @@ import com.back.domain.application.result.ParsedTask;
 import com.back.domain.model.session.ParseSession;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -39,6 +40,7 @@ class ParseTaskServiceTest {
             saveParseSessionPort,
             loadParseSessionPort,
             new FakeTokenManagementUseCase() // 토큰 체크 없는 가짜 구현
+            new ObjectMapper()
         );
     }
 
@@ -145,6 +147,37 @@ class ParseTaskServiceTest {
     }
 
     @Test
+    @DisplayName("성공: 후속 파싱에 assistant 질문과 이전 JSON 컨텍스트를 포함한다")
+    void continueParseIncludesAssistantQuestionAndPreviousJsonContext() {
+        ParsedTask initialTask = new ParsedTask(
+            "create", "부동산", "집값", "",
+            "0 9 * * *", "discord", "crawl", "아파트 가격",
+            List.of(), 0.4, true, "어느 지역의 어떤 조건으로 알려드릴까요?"
+        );
+        parseNaturalLanguagePort.setParseResult(List.of(initialTask));
+        ParseResult firstResult = parseTaskService.parse(new ParseTaskCommand(1L, "집값 알려줘"));
+        loadParseSessionPort.setSession(saveParseSessionPort.savedSession);
+        parseNaturalLanguagePort.setContinueParseResult(List.of(new ParsedTask(
+            "create", "부동산", "강남 아파트 가격", "5% 이상 상승",
+            "0 9 * * *", "discord", "crawl", "강남 지역 아파트 시세",
+            List.of(), 0.85, false, ""
+        )));
+
+        parseTaskService.continueParse(new ContinueParseCommand(
+            1L, firstResult.sessionId(), "강남, 5% 오르면"
+        ));
+
+        assertThat(parseNaturalLanguagePort.lastContinueHistory)
+            .extracting(ParseNaturalLanguagePort.ConversationMessage::role)
+            .containsExactly("user", "assistant", "assistant", "user");
+        assertThat(parseNaturalLanguagePort.lastContinueHistory.get(1).content())
+            .contains("현재 파싱 결과 JSON")
+            .contains("\"query\":\"집값\"");
+        assertThat(parseNaturalLanguagePort.lastContinueHistory.get(2).content())
+            .isEqualTo("어느 지역의 어떤 조건으로 알려드릴까요?");
+    }
+
+    @Test
     @DisplayName("실패: 존재하지 않는 세션으로 후속 파싱 시 예외 발생")
     void throwsExceptionWhenSessionNotFound() {
         // Given
@@ -243,6 +276,7 @@ class ParseTaskServiceTest {
     private static class FakeParseNaturalLanguagePort implements ParseNaturalLanguagePort {
         private List<ParsedTask> parseResult;
         private List<ParsedTask> continueParseResult;
+        private List<ConversationMessage> lastContinueHistory = List.of();
 
         void setParseResult(List<ParsedTask> tasks) {
             this.parseResult = tasks;
@@ -259,6 +293,7 @@ class ParseTaskServiceTest {
 
         @Override
         public List<ParsedTask> continueParse(List<ConversationMessage> history) {
+            this.lastContinueHistory = List.copyOf(history);
             return continueParseResult;
         }
     }

@@ -13,9 +13,15 @@ Thumbs.db
 *.env
 *.env.*
 !.env.example
+*-service-account.json
+*-sa-key.json
+vertex-key*.json
 
 ### Logs ###
 *.log
+
+### Local build caches ###
+.gradle-user-home/
 
 ### Misc ###
 *.pem
@@ -33,4 +39,3 @@ crash.*.log
 *.tfplan
 *.tfvars
 *.tfvars.json
-

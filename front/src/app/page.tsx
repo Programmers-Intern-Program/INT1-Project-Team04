@@ -3,7 +3,7 @@
 import type { FormEvent } from "react";
 import { useEffect, useState } from "react";
 
-import { SubscriptionMvp } from "./components/subscription-mvp";
+import { SubscriptionChat } from "./components/subscription-chat";
 import {
   buildOAuthLoginUrl,
   getCurrentMember,
@@ -291,7 +291,7 @@ export default function Home() {
       </header>
 
       <section className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
-        <SubscriptionMvp
+        <SubscriptionChat
           onUnauthenticated={() => setAuthState({ status: "guest" })}
         />
       </section>

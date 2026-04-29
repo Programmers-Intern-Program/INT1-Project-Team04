@@ -1,10 +1,12 @@
 package com.back.domain.adapter.out.persistence.schedule;
 
 import com.back.domain.application.port.out.LoadDueSchedulesPort;
+import com.back.domain.application.port.out.LoadSubscriptionSchedulePort;
 import com.back.domain.application.port.out.SaveSchedulePort;
 import com.back.domain.model.schedule.Schedule;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,7 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Component
 @RequiredArgsConstructor
-public class SchedulePersistenceAdapter implements SaveSchedulePort, LoadDueSchedulesPort {
+public class SchedulePersistenceAdapter implements SaveSchedulePort, LoadDueSchedulesPort, LoadSubscriptionSchedulePort {
     private final ScheduleJpaRepository scheduleJpaRepository;
 
     @Override
@@ -30,9 +32,16 @@ public class SchedulePersistenceAdapter implements SaveSchedulePort, LoadDueSche
     @Override
     @Transactional(readOnly = true)
     public List<Schedule> loadDueSchedules(LocalDateTime now) {
-        return scheduleJpaRepository.findByNextRunLessThanEqual(now)
+        return scheduleJpaRepository.findDueActiveSubscriptionSchedules(now)
                 .stream()
                 .map(ScheduleJpaEntity::toDomain)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<Schedule> loadFirstBySubscriptionId(String subscriptionId) {
+        return scheduleJpaRepository.findFirstBySubscriptionIdOrderByNextRunAsc(subscriptionId)
+                .map(ScheduleJpaEntity::toDomain);
     }
 }

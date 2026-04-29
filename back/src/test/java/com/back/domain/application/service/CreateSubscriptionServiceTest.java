@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.back.domain.application.command.CreateSubscriptionCommand;
 import com.back.domain.application.port.out.LoadDomainPort;
+import com.back.domain.application.port.out.LoadDuplicateSubscriptionPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.port.out.LoadUserPort;
 import com.back.domain.application.port.out.SaveNotificationDeliveryPort;
@@ -43,12 +44,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(user),
                 new FakeLoadDomainPort(domain),
+                new NoDuplicateSubscriptionPort(),
                 saveSubscriptionPort,
                 saveSchedulePort,
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         SubscriptionResult result = service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -80,12 +83,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(user),
                 new FakeLoadDomainPort(domain),
+                new NoDuplicateSubscriptionPort(),
                 new FakeSaveSubscriptionPort(),
                 new FakeSaveSchedulePort(),
                 (endpointUserId, channel) -> Optional.empty(),
                 saveEndpointPort,
                 savePreferencePort,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -134,12 +139,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(user),
                 new FakeLoadDomainPort(domain),
+                new NoDuplicateSubscriptionPort(),
                 new FakeSaveSubscriptionPort(),
                 new FakeSaveSchedulePort(),
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -173,12 +180,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(user),
                 new FakeLoadDomainPort(domain),
+                new NoDuplicateSubscriptionPort(),
                 new FakeSaveSubscriptionPort(),
                 new FakeSaveSchedulePort(),
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -226,6 +235,7 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(user),
                 new FakeLoadDomainPort(domain),
+                new NoDuplicateSubscriptionPort(),
                 new FakeSaveSubscriptionPort(),
                 new FakeSaveSchedulePort(),
                 new FakeLoadNotificationEndpointPort(new NotificationEndpoint(
@@ -237,7 +247,8 @@ class CreateSubscriptionServiceTest {
                 )),
                 saveEndpointPort,
                 savePreferencePort,
-                saveDeliveryPort
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -265,12 +276,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(user),
                 new FakeLoadDomainPort(domain),
+                new NoDuplicateSubscriptionPort(),
                 new FakeSaveSubscriptionPort(),
                 new FakeSaveSchedulePort(),
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(user.id(), new CreateSubscriptionCommand(
@@ -291,12 +304,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(null),
                 new FakeLoadDomainPort(new Domain(10L, "real-estate")),
+                new NoDuplicateSubscriptionPort(),
                 subscription -> subscription,
                 schedule -> schedule,
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
@@ -315,12 +330,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null)),
                 new FakeLoadDomainPort(null),
+                new NoDuplicateSubscriptionPort(),
                 subscription -> subscription,
                 schedule -> schedule,
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
@@ -340,12 +357,14 @@ class CreateSubscriptionServiceTest {
         CreateSubscriptionService service = new CreateSubscriptionService(
                 new FakeLoadUserPort(new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null)),
                 new FakeLoadDomainPort(new Domain(10L, "real-estate")),
+                new NoDuplicateSubscriptionPort(),
                 saveSubscriptionPort,
                 schedule -> schedule,
                 (endpointUserId, channel) -> Optional.empty(),
                 endpoint -> endpoint,
                 preference -> preference,
-                delivery -> delivery
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
         );
 
         assertThatThrownBy(() -> service.createForUser(1L, new CreateSubscriptionCommand(
@@ -357,6 +376,57 @@ class CreateSubscriptionServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(ErrorCode.INVALID_REQUEST);
         assertThat(saveSubscriptionPort.saved).isNull();
+    }
+
+    @Test
+    @DisplayName("Application: 정규화한 요청이 같은 활성 구독은 저장 전에 중복으로 거부한다")
+    void rejectsDuplicateActiveSubscriptionBeforeSaving() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        FakeSaveSubscriptionPort saveSubscriptionPort = new FakeSaveSubscriptionPort();
+        CreateSubscriptionService service = new CreateSubscriptionService(
+                new FakeLoadUserPort(user),
+                new FakeLoadDomainPort(domain),
+                (userId, domainId, normalizedQuery, cronExpr, notificationChannel) ->
+                        userId.equals(user.id())
+                                && domainId.equals(domain.id())
+                                && normalizedQuery.equals("강남구 아파트 실거래가")
+                                && cronExpr.equals("0 0 9 * * *")
+                                && notificationChannel == NotificationChannel.TELEGRAM_DM,
+                saveSubscriptionPort,
+                new FakeSaveSchedulePort(),
+                (endpointUserId, channel) -> Optional.empty(),
+                endpoint -> endpoint,
+                preference -> preference,
+                delivery -> delivery,
+                new SubscriptionNotificationMessageFormatter()
+        );
+
+        assertThatThrownBy(() -> service.createForUser(user.id(), new CreateSubscriptionCommand(
+                domain.id(),
+                "  강남구   아파트 실거래가  ",
+                "0 0 9 * * *",
+                NotificationChannel.TELEGRAM_DM,
+                "123456789"
+        )))
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.DUPLICATE_SUBSCRIPTION);
+        assertThat(saveSubscriptionPort.saved).isNull();
+    }
+
+    private static class NoDuplicateSubscriptionPort implements LoadDuplicateSubscriptionPort {
+
+        @Override
+        public boolean existsActiveDuplicate(
+                Long userId,
+                Long domainId,
+                String normalizedQuery,
+                String cronExpr,
+                NotificationChannel notificationChannel
+        ) {
+            return false;
+        }
     }
 
     private record FakeLoadNotificationEndpointPort(NotificationEndpoint endpoint) implements LoadNotificationEndpointPort {

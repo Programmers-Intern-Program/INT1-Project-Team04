@@ -64,3 +64,15 @@ def test_health_endpoint_returns_ok() -> None:
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_package_main_module_delegates_to_server_main() -> None:
+    """`python -m mcp_server` 표준 엔트리가 server.main 으로 위임되어야 한다.
+
+    회귀 방지: 과거 `python -m mcp_server.server` 가 server.py 를 `__main__` 으로
+    로드해 mcp 인스턴스가 이중화되어 SSE list_tools 가 [] 를 반환하던 함정을 막는다.
+    `mcp_server/__main__.py` 가 server 를 모듈로만 import 하면 인스턴스는 단일화된다.
+    """
+    import mcp_server.__main__ as entry
+
+    assert entry.main is server_mod.main

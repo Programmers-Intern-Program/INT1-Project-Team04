@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+  <header>
+    <resultCode>000</resultCode>
+    <resultMsg>OK</resultMsg>
+  </header>
+  <body>
+    <items>
+      <item>
+        <offiNm>강남 오피스텔</offiNm>
+        <dealAmount>  27,500 </dealAmount>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>20</dealDay>
+        <excluUseAr>21.9</excluUseAr>
+        <floor>9</floor>
+        <umdNm>청담동</umdNm>
+        <jibun>130-9</jibun>
+        <buildYear>1991</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+      <item>
+        <offiNm>역삼 시그마</offiNm>
+        <dealAmount>15,000</dealAmount>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>25</dealDay>
+        <excluUseAr>18.5</excluUseAr>
+        <floor>3</floor>
+        <umdNm>역삼동</umdNm>
+        <jibun>702</jibun>
+        <buildYear>2010</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+    </items>
+    <numOfRows>10</numOfRows>
+    <pageNo>1</pageNo>
+    <totalCount>2</totalCount>
+  </body>
+</response>

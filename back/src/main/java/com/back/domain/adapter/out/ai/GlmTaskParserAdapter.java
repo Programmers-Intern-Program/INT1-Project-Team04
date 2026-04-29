@@ -4,7 +4,6 @@ import com.back.domain.application.port.out.ParseNaturalLanguagePort;
 import com.back.domain.application.result.ParsedTask;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
-import com.fasterxml.jackson.core.JsonPointer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -19,6 +18,8 @@ import org.springframework.web.client.RestClient;
 @Slf4j
 @Component
 public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
+
+    private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
 
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
@@ -39,7 +40,7 @@ public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
             ObjectMapper objectMapper
     ) {
         this.restClient = restClientBuilder
-                .baseUrl(baseUrl)
+                .baseUrl(normalizeBaseUrl(baseUrl))
                 .defaultHeader("Authorization", "Bearer " + apiKey)
                 .defaultHeader("Content-Type", "application/json")
                 .build();
@@ -71,6 +72,7 @@ public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
         GlmApiDto.Request request = new GlmApiDto.Request(model, messages, maxTokens, temperature);
         try {
             String responseBody = restClient.post()
+                    .uri(CHAT_COMPLETIONS_PATH)
                     .body(request)
                     .retrieve()
                     .body(String.class);
@@ -89,6 +91,17 @@ public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
             log.error("GLM API 호출 실패", e);
             throw new ApiException(ErrorCode.AI_PARSE_FAILED);
         }
+    }
+
+    private String normalizeBaseUrl(String baseUrl) {
+        String normalized = baseUrl == null ? "" : baseUrl.trim();
+        while (normalized.endsWith("/")) {
+            normalized = normalized.substring(0, normalized.length() - 1);
+        }
+        if (normalized.endsWith(CHAT_COMPLETIONS_PATH)) {
+            return normalized.substring(0, normalized.length() - CHAT_COMPLETIONS_PATH.length());
+        }
+        return normalized;
     }
 
     private List<ParsedTask> parseTasks(String raw) {
@@ -110,6 +123,8 @@ public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
     }
 
     private ParsedTask parseSingleTask(JsonNode node) {
+        AiParsedTaskSchema.validate(node);
+
         JsonNode meta = node.path("metadata");
         return new ParsedTask(
                 node.path("intent").asText(""),

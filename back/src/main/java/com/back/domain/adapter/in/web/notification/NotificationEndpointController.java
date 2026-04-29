@@ -1,16 +1,25 @@
 package com.back.domain.adapter.in.web.notification;
 
 import com.back.domain.adapter.out.oauth.OAuthClientProperties;
+import com.back.domain.adapter.out.oauth.OAuthProviderClient;
+import com.back.domain.adapter.out.oauth.OAuthProviderClientRegistry;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.application.result.NotificationEndpointConnectionResult;
 import com.back.domain.application.service.CurrentUserService;
 import com.back.domain.application.service.NotificationEndpointConnectionService;
+import com.back.domain.model.notification.NotificationChannel;
+import com.back.domain.model.user.OAuthProvider;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import com.back.domain.model.notification.NotificationChannel;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,8 +34,11 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 @RequiredArgsConstructor
 public class NotificationEndpointController {
 
+    private static final String DISCORD_NOTIFICATION_CONNECT_COOKIE = "DISCORD_NOTIFICATION_CONNECT";
+
     private final NotificationEndpointConnectionService connectionService;
     private final CurrentUserService currentUserService;
+    private final OAuthProviderClientRegistry providerClientRegistry;
     private final OAuthClientProperties properties;
 
     @GetMapping
@@ -45,6 +57,20 @@ public class NotificationEndpointController {
                 user.getId(),
                 discordAuthorizationUrl()
         ));
+    }
+
+    @GetMapping("/discord/authorize")
+    public ResponseEntity<Void> authorizeDiscordNotification(HttpServletRequest request) {
+        currentUserService.requireCurrentUser(readSessionCookie(request));
+        OAuthProviderClient client = providerClientRegistry.get(OAuthProvider.DISCORD);
+        String state = UUID.randomUUID().toString();
+
+        return ResponseEntity
+                .status(HttpStatus.FOUND)
+                .location(client.authorizationUri(state))
+                .header(HttpHeaders.SET_COOKIE, stateCookie(state).toString())
+                .header(HttpHeaders.SET_COOKIE, discordNotificationConnectCookie().toString())
+                .build();
     }
 
     @PostMapping("/telegram/connect")
@@ -86,8 +112,28 @@ public class NotificationEndpointController {
 
     private String discordAuthorizationUrl() {
         return ServletUriComponentsBuilder.fromCurrentContextPath()
-                .path("/api/auth/oauth/discord/authorize")
+                .path("/api/notification-endpoints/discord/authorize")
                 .toUriString();
+    }
+
+    private ResponseCookie stateCookie(String value) {
+        return baseCookie(properties.getAuth().getStateCookieName(), value)
+                .maxAge(Duration.ofMinutes(5))
+                .build();
+    }
+
+    private ResponseCookie discordNotificationConnectCookie() {
+        return baseCookie(DISCORD_NOTIFICATION_CONNECT_COOKIE, "true")
+                .maxAge(Duration.ofMinutes(5))
+                .build();
+    }
+
+    private ResponseCookie.ResponseCookieBuilder baseCookie(String name, String value) {
+        return ResponseCookie.from(name, value)
+                .httpOnly(true)
+                .secure(properties.getAuth().isSecureCookies())
+                .sameSite("Lax")
+                .path("/");
     }
 
     private String telegramMessageText(TelegramWebhookRequest request) {

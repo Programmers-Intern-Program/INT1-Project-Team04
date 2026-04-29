@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.back.domain.application.port.out.ExecuteMcpToolPort;
+import com.back.domain.application.port.out.LoadEnabledNotificationPreferencePort;
 import com.back.domain.application.port.out.LoadDueSchedulesPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
+import com.back.domain.application.port.out.LoadSubscriptionMonitoringConfigPort;
 import com.back.domain.application.port.out.SaveAiDataHubPort;
 import com.back.domain.application.port.out.SaveNotificationPort;
 import com.back.domain.application.port.out.SaveSchedulePort;
@@ -16,16 +18,21 @@ import com.back.domain.model.hub.AiDataHub;
 import com.back.domain.model.mcp.McpServer;
 import com.back.domain.model.mcp.McpTool;
 import com.back.domain.model.notification.Notification;
+import com.back.domain.model.notification.NotificationChannel;
+import com.back.domain.model.notification.NotificationPreference;
 import com.back.domain.model.notification.NotificationStatus;
 import com.back.domain.model.schedule.Schedule;
 import com.back.domain.model.subscription.Subscription;
+import com.back.domain.model.subscription.SubscriptionMonitoringConfig;
 import com.back.domain.model.user.User;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
 import java.time.LocalDateTime;
 import java.time.Month;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.DisplayName;
@@ -61,6 +68,8 @@ class ScheduleExecutionServiceTest {
         ScheduleExecutionService service = new ScheduleExecutionService(
                 loadDueSchedulesPort,
                 loadMcpToolPort,
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
                 executeMcpToolPort,
                 saveAiDataHubPort,
                 saveNotificationPort,
@@ -71,7 +80,9 @@ class ScheduleExecutionServiceTest {
         service.runDueSchedules();
 
         assertThat(executeMcpToolPort.executedToolName).isEqualTo("search_house_price");
-        assertThat(executeMcpToolPort.executedQuery).isEqualTo("강남구 아파트 실거래가");
+        assertThat(executeMcpToolPort.executedInput())
+                .containsEntry("region", "강남구")
+                .containsEntry("deal_ymd", latestAvailableDealYmd());
         assertThat(saveAiDataHubPort.saved).hasSize(1);
         assertThat(saveNotificationPort.saved).extracting(Notification::status)
                 .contains(NotificationStatus.PENDING, NotificationStatus.SENT);
@@ -101,6 +112,8 @@ class ScheduleExecutionServiceTest {
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
                 new FakeLoadMcpToolPort(tool),
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
                 new FakeExecuteMcpToolPort(),
                 new FakeSaveAiDataHubPort(),
                 new FakeSaveNotificationPort(),
@@ -125,7 +138,9 @@ class ScheduleExecutionServiceTest {
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
-                domainId -> Optional.empty(),
+                new FakeLoadMcpToolPort(),
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
                 new FakeExecuteMcpToolPort(),
                 new FakeSaveAiDataHubPort(),
                 new FakeSaveNotificationPort(),
@@ -158,6 +173,8 @@ class ScheduleExecutionServiceTest {
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
                 new FakeLoadMcpToolPort(tool),
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
                 new FakeExecuteMcpToolPort(),
                 new FakeSaveAiDataHubPort(),
                 saveNotificationPort,
@@ -194,7 +211,9 @@ class ScheduleExecutionServiceTest {
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
                 new FakeLoadMcpToolPort(tool),
-                (mcpTool, query) -> {
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
+                (mcpTool, arguments) -> {
                     throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
                 },
                 saveAiDataHubPort,
@@ -212,6 +231,109 @@ class ScheduleExecutionServiceTest {
         assertThat(saveSchedulePort.saved).isEmpty();
     }
 
+    @Test
+    @DisplayName("Application: 저장된 모니터링 설정과 알림 채널 기준으로 MCP 실행 및 알림 저장을 수행한다")
+    void runsScheduleWithStoredMonitoringConfigAndNotificationPreference() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool defaultTool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        McpTool configuredTool = new McpTool(
+                101L,
+                defaultTool.server(),
+                domain,
+                "search_house_price_v2",
+                "부동산 실거래가 조회 v2",
+                "{}"
+        );
+        FakeLoadMcpToolPort loadMcpToolPort = new FakeLoadMcpToolPort(defaultTool, configuredTool);
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort();
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price_v2",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )
+        );
+        LoadEnabledNotificationPreferencePort loadPreferencePort = subscriptionId -> List.of(
+                new NotificationPreference("pref-1", subscriptionId, NotificationChannel.TELEGRAM_DM, true)
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                loadMcpToolPort,
+                loadConfigPort,
+                loadPreferencePort,
+                executeMcpToolPort,
+                new FakeSaveAiDataHubPort(),
+                saveNotificationPort,
+                notification -> true,
+                new FakeSaveSchedulePort()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(executeMcpToolPort.executedToolName).isEqualTo("search_house_price_v2");
+        assertThat(executeMcpToolPort.executedInput())
+                .containsEntry("region", "강남구")
+                .containsEntry("deal_ymd", latestAvailableDealYmd())
+                .doesNotContainKey("condition");
+        assertThat(saveNotificationPort.saved).extracting(Notification::channel)
+                .containsOnly("TELEGRAM_DM");
+    }
+
+    @Test
+    @DisplayName("Application: MCP input validation rejects malformed configured deal_ymd before calling MCP")
+    void rejectsMalformedConfiguredDealYmdBeforeCallingMcp() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"deal_ymd\":\"2024-03\"}"
+                )
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                loadConfigPort,
+                subscriptionId -> List.of(),
+                executeMcpToolPort,
+                new FakeSaveAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                new FakeSaveSchedulePort()
+        );
+
+        assertThatThrownBy(service::runDueSchedules)
+                .isInstanceOf(ApiException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.MCP_REQUEST_FAILED);
+        assertThat(executeMcpToolPort.executedToolName).isNull();
+    }
+
     private record FakeLoadDueSchedulesPort(Schedule schedule) implements LoadDueSchedulesPort {
 
         @Override
@@ -220,25 +342,48 @@ class ScheduleExecutionServiceTest {
         }
     }
 
-    private record FakeLoadMcpToolPort(McpTool tool) implements LoadMcpToolPort {
+    private record FakeLoadMcpToolPort(McpTool tool, McpTool namedTool) implements LoadMcpToolPort {
+
+        private FakeLoadMcpToolPort() {
+            this(null, null);
+        }
+
+        private FakeLoadMcpToolPort(McpTool tool) {
+            this(tool, tool);
+        }
 
         @Override
         public Optional<McpTool> loadByDomainId(Long domainId) {
-            return Optional.of(tool);
+            return Optional.ofNullable(tool);
+        }
+
+        @Override
+        public Optional<McpTool> loadByDomainIdAndName(Long domainId, String toolName) {
+            return Optional.ofNullable(namedTool)
+                    .filter(tool -> tool.name().equals(toolName));
         }
     }
 
     private static class FakeExecuteMcpToolPort implements ExecuteMcpToolPort {
 
         private String executedToolName;
-        private String executedQuery;
+        private Map<String, Object> executedArguments;
 
         @Override
-        public McpExecutionResult execute(McpTool tool, String query) {
+        public McpExecutionResult execute(McpTool tool, Map<String, Object> arguments) {
             this.executedToolName = tool.name();
-            this.executedQuery = query;
+            this.executedArguments = arguments;
             return new McpExecutionResult("REAL_ESTATE", "result content", "{\"source\":\"mcp\"}");
         }
+
+        @SuppressWarnings("unchecked")
+        private Map<String, Object> executedInput() {
+            return (Map<String, Object>) executedArguments.get("input");
+        }
+    }
+
+    private static String latestAvailableDealYmd() {
+        return LocalDateTime.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyyMM"));
     }
 
     private static class FakeSaveAiDataHubPort implements SaveAiDataHubPort {
