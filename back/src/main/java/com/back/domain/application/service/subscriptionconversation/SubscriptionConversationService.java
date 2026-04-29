@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -43,7 +42,6 @@ import org.springframework.transaction.annotation.Transactional;
 public class SubscriptionConversationService {
 
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
-    private static final Pattern PERCENT_THRESHOLD = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:%|퍼센트|프로)?");
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
 
@@ -86,9 +84,9 @@ public class SubscriptionConversationService {
             return completeOrAsk(conversation);
         }
 
-        Response percentConditionResponse = completePercentConditionIfPossible(conversation, message);
-        if (percentConditionResponse != null) {
-            return percentConditionResponse;
+        Response conditionResponse = completeConditionIfPossible(conversation, message);
+        if (conditionResponse != null) {
+            return conditionResponse;
         }
 
         Response shortAnswerResponse = completeShortAnswerIfPossible(conversation, message);
@@ -407,25 +405,23 @@ public class SubscriptionConversationService {
         return List.of();
     }
 
-    private Response completePercentConditionIfPossible(
+    private Response completeConditionIfPossible(
             SubscriptionConversationJpaEntity conversation,
             String message
     ) {
         if (conversation.getStatus() != SubscriptionConversationStatus.COLLECTING
-                || isBlank(conversation.getLastAssistantMessage())
-                || !conversation.getLastAssistantMessage().contains("%")) {
+                || !missingPersistedFields(conversation).contains("condition")) {
             return null;
         }
 
-        Matcher matcher = PERCENT_THRESHOLD.matcher(message == null ? "" : message);
-        if (!matcher.find()) {
+        Optional<StructuredCondition> condition = StructuredCondition.parse(message);
+        if (condition.isEmpty()) {
             return null;
         }
 
         Map<String, String> monitoringParams = new HashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
         monitoringParams.remove("condition");
-        StructuredCondition.parse(percentCondition(message, matcher.group(1)))
-                .ifPresent(condition -> monitoringParams.putAll(condition.toParameterMap()));
+        monitoringParams.putAll(condition.get().toParameterMap());
         conversation.updateParsedDraft(
                 conversation.getParseSessionId(),
                 conversation.getDraftQuery(),
@@ -463,17 +459,6 @@ public class SubscriptionConversationService {
         }
 
         return null;
-    }
-
-    private String percentCondition(String message, String threshold) {
-        String text = message == null ? "" : message;
-        if (text.contains("하락") || text.contains("떨어") || text.contains("내리")) {
-            return threshold + "% 이상 하락";
-        }
-        if (text.contains("상승") || text.contains("오르") || text.contains("올라")) {
-            return threshold + "% 이상 상승";
-        }
-        return threshold + "% 이상 변동";
     }
 
     private List<String> missingPersistedFields(SubscriptionConversationJpaEntity conversation) {

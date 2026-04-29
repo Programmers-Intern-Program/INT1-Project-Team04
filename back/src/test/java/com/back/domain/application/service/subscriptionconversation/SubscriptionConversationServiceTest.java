@@ -221,6 +221,46 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("percent condition answer completes missing condition even when question has no percent sign")
+    void percentConditionAnswerCompletesMissingConditionWithoutPercentQuestion() {
+        SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
+        savedConversation.updateParsedDraft(
+                "parse-1",
+                "강남구 아파트",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                null,
+                null,
+                null,
+                "강남구 아파트 시세 변동을 어떤 조건으로 모니터링할까요? 예: 시세 변동률, 특정 가격대 등",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
+                .thenReturn(Optional.of(savedConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                savedConversation.getId(),
+                "3% 상승",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
+        assertThat(savedConversation.getDraftMonitoringParams())
+                .contains("\"conditionThreshold\":\"3\"")
+                .contains("\"conditionDirection\":\"UP\"")
+                .contains("\"conditionUnit\":\"PERCENT\"");
+    }
+
+    @Test
     @DisplayName("percent condition answer keeps the current conversation even when MCP tool is not resolved yet")
     void percentConditionAnswerKeepsConversationWithoutResolvedTool() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
