@@ -110,6 +110,65 @@ class DevSubscriptionChangeSimulationServiceTest {
     }
 
     @Test
+    @DisplayName("Application: AI 브리핑이 비어 있으면 사용자용 fallback을 보내고 dev JSON을 노출하지 않는다")
+    void sendsUserFacingFallbackWithoutDevJsonWhenBriefingIsEmpty() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Subscription subscription = new Subscription(
+                "sub-1",
+                user,
+                new Domain(10L, "real-estate"),
+                "강남구 아파트 매매",
+                "create",
+                true,
+                LocalDateTime.now()
+        );
+        DeliveryStore deliveryStore = new DeliveryStore();
+        DevSubscriptionChangeSimulationService service = newService(
+                (subscriptionId, userId) -> Optional.of(subscription),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "create",
+                        """
+                                {
+                                  "region": "강남구",
+                                  "conditionMetric": "AVG_PRICE",
+                                  "conditionDirection": "UP",
+                                  "conditionOperator": "GTE",
+                                  "conditionThreshold": "3",
+                                  "conditionUnit": "PERCENT"
+                                }
+                                """
+                )),
+                new FakeGenerateMonitoringBriefingPort(null),
+                deliveryStore
+        );
+
+        DevSubscriptionChangeSimulationResult result = service.simulate(
+                "sub-1",
+                1L,
+                LocalDateTime.of(2026, 4, 29, 17, 0)
+        );
+
+        assertThat(result.briefingGenerated()).isFalse();
+        assertThat(deliveryStore.saved).singleElement()
+                .satisfies(delivery -> {
+                    String message = delivery.message();
+                    assertThat(message)
+                            .contains("강남구 아파트 매매")
+                            .contains("- 변화: 3000 (3%)")
+                            .doesNotContain(
+                                    "[개발 테스트]",
+                                    "previousSummary",
+                                    "currentSummary",
+                                    "dev-simulated"
+                            );
+                    assertThat(occurrences(message, "[변화 감지]")).isEqualTo(1);
+                    assertThat(occurrences(message, "- 도구:")).isEqualTo(1);
+                });
+    }
+
+    @Test
     @DisplayName("Application: 현재 로그인 사용자 소유 구독이 아니면 시뮬레이션을 거부한다")
     void rejectsSubscriptionOwnedByAnotherUser() {
         DeliveryStore deliveryStore = new DeliveryStore();
@@ -224,5 +283,15 @@ class DevSubscriptionChangeSimulationServiceTest {
                     .filter(delivery -> delivery.status() == NotificationDeliveryStatus.PENDING)
                     .toList();
         }
+    }
+
+    private static int occurrences(String value, String token) {
+        int count = 0;
+        int index = 0;
+        while ((index = value.indexOf(token, index)) >= 0) {
+            count++;
+            index += token.length();
+        }
+        return count;
     }
 }

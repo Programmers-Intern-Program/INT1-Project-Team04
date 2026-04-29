@@ -87,15 +87,16 @@ public class DevSubscriptionChangeSimulationService {
                 subscription.query(),
                 config.toolName(),
                 decision,
-                fakeMcpContent(subscription, summaries)
+                null
         );
+        String mcpContent = fakeMcpContent(subscription, summaries);
         Optional<String> generatedBriefing = generateMonitoringBriefingPort.generate(new MonitoringBriefingRequest(
                 subscription.query(),
                 config.toolName(),
                 decision,
                 summaries.previous().toString(),
                 summaries.current().toString(),
-                fakeMcpContent(subscription, summaries)
+                mcpContent
         )).filter(briefing -> !briefing.isBlank());
         String message = generatedBriefing.orElse(fallbackMessage);
 
@@ -211,10 +212,27 @@ public class DevSubscriptionChangeSimulationService {
                 List.of(new AlertSource(
                         "개발 시뮬레이션: " + decision.metricKey(),
                         null,
-                        summary
+                        sourceDescription(decision)
                 )),
                 now
         );
+    }
+
+    private String sourceDescription(MonitoringChangeDecision decision) {
+        return "이전 %s, 현재 %s, 변화 %s (%s)".formatted(
+                formatNumber(decision.previousValue()),
+                formatNumber(decision.currentValue()),
+                formatNumber(decision.changeValue()),
+                formatPercent(decision.changeRate())
+        );
+    }
+
+    private String formatPercent(BigDecimal value) {
+        return value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString() + "%";
+    }
+
+    private String formatNumber(BigDecimal value) {
+        return value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 
     private String fakeMcpContent(Subscription subscription, SummaryPair summaries) {
