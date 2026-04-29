@@ -69,6 +69,33 @@ class Settings(BaseSettings):
         description="국토교통부 연립다세대 매매 실거래가 (RTMSDataSvcRHTrade) 서비스 키.",
     )
 
+    # ── 법률 도메인 ──
+    moleg_law_info_api_key: str = Field(
+        default="",
+        description="법제처 국가법령정보 공유서비스 (data.go.kr/data/15000115) 서비스 키.",
+    )
+    na_bill_info_api_key: str = Field(
+        default="",
+        description="국회사무처 의안정보 통합 API (data.go.kr/data/15126134) 서비스 키.",
+    )
+
+    # ── 채용 도메인 ──
+    moef_public_job_api_key: str = Field(
+        default="",
+        description="기획재정부 공공기관 채용정보 조회서비스 (data.go.kr/data/15125273) 서비스 키.",
+    )
+    keis_worknet_job_api_key: str = Field(
+        default="",
+        description="한국고용정보원 워크넷 채용정보 (data.go.kr/data/3038225) 서비스 키. "
+        "현재 발급 키는 사용 불가 응답을 반환할 수 있음 — 도구 호출 경로 자체는 정상 동작.",
+    )
+
+    # ── 경매 도메인 ──
+    pps_g2b_bid_api_key: str = Field(
+        default="",
+        description="조달청 나라장터 입찰공고정보서비스 (data.go.kr/data/15129394) 서비스 키.",
+    )
+
 
 @lru_cache
 def get_settings() -> Settings:
