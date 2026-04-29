@@ -2,7 +2,9 @@ package com.back.domain.application.service;
 
 import com.back.domain.application.command.ContinueParseCommand;
 import com.back.domain.application.command.ParseTaskCommand;
+import com.back.domain.application.command.UseTokenCommand;
 import com.back.domain.application.port.in.ParseTaskUseCase;
+import com.back.domain.application.port.in.TokenManagementUseCase;
 import com.back.domain.application.port.out.LoadParseSessionPort;
 import com.back.domain.application.port.out.ParseNaturalLanguagePort;
 import com.back.domain.application.port.out.SaveParseSessionPort;
@@ -33,11 +35,35 @@ public class ParseTaskService implements ParseTaskUseCase {
     private final ParseNaturalLanguagePort parseNaturalLanguagePort;
     private final SaveParseSessionPort saveParseSessionPort;
     private final LoadParseSessionPort loadParseSessionPort;
+    private final TokenManagementUseCase tokenManagementUseCase;
     private final ObjectMapper objectMapper;
 
     @Override
     public ParseResult parse(ParseTaskCommand command) {
         log.info("자연어 파싱 시작 - userId: {}, input: {}", command.userId(), command.input());
+
+        // Step 0: 토큰 차감 (10 토큰)
+        String inputPreview = command.input().length() > 50 
+                ? command.input().substring(0, 50) + "..." 
+                : command.input();
+        
+        try {
+            tokenManagementUseCase.useToken(new UseTokenCommand(
+                command.userId(),
+                10,
+                "AI 자연어 파싱: " + inputPreview,
+                null
+            ));
+            log.info("토큰 차감 완료 - userId: {}, amount: 10", command.userId());
+        } catch (ApiException e) {
+            if (e.getErrorCode() == ErrorCode.INSUFFICIENT_TOKEN) {
+                log.warn("토큰 부족으로 파싱 실패 - userId: {}", command.userId());
+                throw e;
+            }
+            // TOKEN_NOT_FOUND의 경우 초기 토큰이 없는 것이므로 계속 진행하지 않음
+            log.error("토큰 차감 실패 - userId: {}, error: {}", command.userId(), e.getMessage());
+            throw e;
+        }
 
         // Step 1: AI로 자연어 파싱
         List<ParsedTask> tasks = parseNaturalLanguagePort.parse(command.input());
@@ -109,10 +135,35 @@ public class ParseTaskService implements ParseTaskUseCase {
             return new ParseResult(saved.getId(), saved.getCurrentResult());
         }
 
-        // Step 5: 사용자 응답 추가
+        // Step 5: 토큰 차감 (5 토큰)
+        String responsePreview = command.response().length() > 50 
+                ? command.response().substring(0, 50) + "..." 
+                : command.response();
+        
+        try {
+            tokenManagementUseCase.useToken(new UseTokenCommand(
+                command.userId(),
+                5,
+                "AI 후속 파싱: " + responsePreview,
+                command.sessionId()
+            ));
+            log.info("토큰 차감 완료 - userId: {}, sessionId: {}, amount: 5", 
+                    command.userId(), command.sessionId());
+        } catch (ApiException e) {
+            if (e.getErrorCode() == ErrorCode.INSUFFICIENT_TOKEN) {
+                log.warn("토큰 부족으로 후속 파싱 실패 - userId: {}, sessionId: {}", 
+                        command.userId(), command.sessionId());
+                throw e;
+            }
+            log.error("토큰 차감 실패 - userId: {}, sessionId: {}, error: {}", 
+                    command.userId(), command.sessionId(), e.getMessage());
+            throw e;
+        }
+
+        // Step 6: 사용자 응답 추가
         session.addMessage("user", command.response());
 
-        // Step 6: AI 후속 파싱 (대화 이력 포함)
+        // Step 7: AI 후속 파싱 (대화 이력 포함)
         List<ParseNaturalLanguagePort.ConversationMessage> history = session.getMessages().stream()
             .map(m -> new ParseNaturalLanguagePort.ConversationMessage(m.role(), m.content()))
             .toList();
@@ -124,18 +175,18 @@ public class ParseTaskService implements ParseTaskUseCase {
             throw new ApiException(ErrorCode.AI_PARSE_FAILED);
         }
 
-        // Step 7: 결과 업데이트
+        // Step 8: 결과 업데이트
         session.updateResult(updatedTasks);
         session.incrementTurn();
         addAssistantContextIfNeeded(session);
 
-        // Step 8: 세션 저장
+        // Step 9: 세션 저장
         ParseSession saved = saveParseSessionPort.save(session);
 
         log.info("후속 파싱 완료 - sessionId: {}, turnCount: {}, complete: {}", 
             saved.getId(), saved.getTurnCount(), saved.isComplete());
 
-        // Step 9: 여전히 확인이 필요한지 로그 출력
+        // Step 10: 여전히 확인이 필요한지 로그 출력
         if (!saved.isComplete()) {
             String question = saved.getFirstConfirmationQuestion();
             log.info("추가 확인 필요 - sessionId: {}, question: {}", saved.getId(), question);

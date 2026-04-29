@@ -1,14 +1,18 @@
 package com.back.domain.adapter.in.web.parse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.back.domain.adapter.out.persistence.session.ParseSessionJpaRepository;
+import com.back.domain.application.command.UseTokenCommand;
+import com.back.domain.application.port.in.TokenManagementUseCase;
 import com.back.domain.application.port.out.ParseNaturalLanguagePort;
 import com.back.domain.application.result.ParsedTask;
+import com.back.domain.application.result.UserTokenResult;
 import com.back.support.IntegrationTestBase;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -47,6 +51,17 @@ class ParseTaskControllerTest extends IntegrationTestBase {
         @Primary
         ParseNaturalLanguagePort mockParseNaturalLanguagePort() {
             return mock(ParseNaturalLanguagePort.class);
+        }
+
+        @Bean
+        @Primary
+        TokenManagementUseCase mockTokenManagementUseCase() {
+            TokenManagementUseCase mock = mock(TokenManagementUseCase.class);
+            // 토큰 체크 없이 항상 성공하도록 모킹
+            when(mock.useToken(any(UseTokenCommand.class))).thenReturn(
+                    new UserTokenResult(1L, 1000, 1000, 0, java.time.LocalDateTime.now())
+            );
+            return mock;
         }
     }
 

@@ -3,6 +3,7 @@ package com.back.domain.application.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.back.domain.adapter.out.persistence.notification.NotificationEndpointJpaRepository;
+import com.back.domain.adapter.out.persistence.token.UserTokenJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaEntity;
@@ -33,6 +34,9 @@ class OAuthLoginServiceTest extends IntegrationTestBase {
     @Autowired
     private NotificationEndpointJpaRepository endpointRepository;
 
+    @Autowired
+    private UserTokenJpaRepository userTokenRepository;
+
     @Test
     @DisplayName("새 provider 계정이면 사용자를 만들고 세션을 만든다")
     void createsUserAndSessionForNewProviderAccount() {
@@ -48,6 +52,12 @@ class OAuthLoginServiceTest extends IntegrationTestBase {
         assertThat(result.member().email()).isEqualTo("new@example.com");
         assertThat(userJpaRepository.findByEmailAndDeletedAtIsNull("new@example.com")).isPresent();
         assertThat(connectionRepository.findByProviderAndProviderUserId(OAuthProvider.GOOGLE, "google-1")).isPresent();
+
+        // 신규 사용자에게 웰컴 토큰이 지급되었는지 확인
+        var userToken = userTokenRepository.findByUserId(result.member().id());
+        assertThat(userToken).isPresent();
+        assertThat(userToken.get().getBalance()).isEqualTo(100);
+        assertThat(userToken.get().getTotalGranted()).isEqualTo(100);
     }
 
     @Test
@@ -65,6 +75,10 @@ class OAuthLoginServiceTest extends IntegrationTestBase {
 
         assertThat(result.member().id()).isEqualTo(existing.getId());
         assertThat(connectionRepository.findByProviderAndProviderUserId(OAuthProvider.KAKAO, "kakao-1")).isPresent();
+
+        // 기존 사용자는 웰컴 토큰을 받지 않음
+        var userToken = userTokenRepository.findByUserId(result.member().id());
+        assertThat(userToken).isEmpty();
     }
 
     @Test
@@ -92,5 +106,9 @@ class OAuthLoginServiceTest extends IntegrationTestBase {
                 .get()
                 .extracting("targetAddress")
                 .isEqualTo("discord-1");
+
+        // 기존 사용자는 웰컴 토큰을 받지 않음
+        var userToken = userTokenRepository.findByUserId(result.member().id());
+        assertThat(userToken).isEmpty();
     }
 }
