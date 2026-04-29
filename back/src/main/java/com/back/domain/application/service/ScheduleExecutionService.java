@@ -2,6 +2,7 @@ package com.back.domain.application.service;
 
 import com.back.domain.application.port.in.RunDueSchedulesUseCase;
 import com.back.domain.application.port.out.ExecuteMcpToolPort;
+import com.back.domain.application.port.out.GenerateMonitoringBriefingPort;
 import com.back.domain.application.port.out.LoadDueSchedulesPort;
 import com.back.domain.application.port.out.LoadEnabledNotificationPreferencePort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
@@ -14,6 +15,7 @@ import com.back.domain.application.port.out.SendNotificationPort;
 import com.back.domain.application.result.McpExecutionResult;
 import com.back.domain.application.service.monitoring.McpSnapshotEnvelope;
 import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
+import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
 import com.back.domain.application.service.monitoring.MonitoringChangeDecision;
 import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
 import com.back.domain.application.service.monitoring.MonitoringQueryMatcher;
@@ -70,6 +72,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
     private final MonitoringQueryMatcher monitoringQueryMatcher;
     private final MonitoringChangeDetector monitoringChangeDetector;
     private final MonitoringAlertMessageBuilder monitoringAlertMessageBuilder;
+    private final GenerateMonitoringBriefingPort generateMonitoringBriefingPort;
 
     @Override
     public void runDueSchedules() {
@@ -115,14 +118,16 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         }
 
         McpSnapshotEnvelope snapshot = currentSnapshot.get();
-        previousSnapshot
-                .map(previous -> monitoringChangeDetector.detect(
-                        previous.summary(),
-                        snapshot.summary(),
-                        stringParameters(parameters)
-                ))
-                .filter(MonitoringChangeDecision::triggered)
-                .ifPresent(decision -> sendAlertNotification(schedule, tool, aiDataHub, result, decision, now));
+        previousSnapshot.ifPresent(previous -> {
+            MonitoringChangeDecision decision = monitoringChangeDetector.detect(
+                    previous.summary(),
+                    snapshot.summary(),
+                    stringParameters(parameters)
+            );
+            if (decision.triggered()) {
+                sendAlertNotification(schedule, tool, aiDataHub, result, previous, snapshot, decision, now);
+            }
+        });
 
         advanceSchedule(schedule, now);
     }
@@ -132,15 +137,27 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
             McpTool tool,
             AiDataHub aiDataHub,
             McpExecutionResult result,
+            McpSnapshotEnvelope previousSnapshot,
+            McpSnapshotEnvelope currentSnapshot,
             MonitoringChangeDecision decision,
             LocalDateTime now
     ) {
-        String message = monitoringAlertMessageBuilder.build(
+        String fallbackMessage = monitoringAlertMessageBuilder.build(
                 schedule.subscription().query(),
                 tool.name(),
                 decision,
                 result.content()
         );
+        String message = generateMonitoringBriefingPort.generate(new MonitoringBriefingRequest(
+                        schedule.subscription().query(),
+                        tool.name(),
+                        decision,
+                        previousSnapshot.summary().toString(),
+                        currentSnapshot.summary().toString(),
+                        result.content()
+                ))
+                .filter(briefing -> !briefing.isBlank())
+                .orElse(fallbackMessage);
         saveAndSendNotification(schedule, aiDataHub, message, now);
     }
 

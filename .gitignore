@@ -39,3 +39,4 @@ crash.*.log
 *.tfplan
 *.tfvars
 *.tfvars.json
+vertex-key.json

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.back.domain.application.port.out.ExecuteMcpToolPort;
+import com.back.domain.application.port.out.GenerateMonitoringBriefingPort;
 import com.back.domain.application.port.out.LoadDueSchedulesPort;
 import com.back.domain.application.port.out.LoadEnabledNotificationPreferencePort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
@@ -14,6 +15,7 @@ import com.back.domain.application.port.out.SaveNotificationPort;
 import com.back.domain.application.port.out.SaveSchedulePort;
 import com.back.domain.application.port.out.SendNotificationPort;
 import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
+import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
 import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
 import com.back.domain.application.service.monitoring.MonitoringQueryMatcher;
 import com.back.domain.application.result.McpExecutionResult;
@@ -83,7 +85,8 @@ class ScheduleExecutionServiceTest {
                 saveSchedulePort,
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort()
         );
 
         service.runDueSchedules();
@@ -125,6 +128,7 @@ class ScheduleExecutionServiceTest {
         FakeSaveAiDataHubPort saveAiDataHubPort = new FakeSaveAiDataHubPort();
         FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
         FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        FakeGenerateMonitoringBriefingPort generateBriefingPort = new FakeGenerateMonitoringBriefingPort();
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
                 new FakeLoadMcpToolPort(tool),
@@ -138,7 +142,8 @@ class ScheduleExecutionServiceTest {
                 saveSchedulePort,
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                generateBriefingPort
         );
 
         service.runDueSchedules();
@@ -151,6 +156,7 @@ class ScheduleExecutionServiceTest {
                 .contains(NotificationStatus.PENDING, NotificationStatus.SENT);
         assertThat(saveNotificationPort.saved).extracting(Notification::message)
                 .containsOnly("law result content");
+        assertThat(generateBriefingPort.requests).isEmpty();
         assertThat(saveSchedulePort.saved).hasSize(1);
     }
 
@@ -183,7 +189,8 @@ class ScheduleExecutionServiceTest {
                 saveSchedulePort,
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort()
         );
 
         service.runDueSchedules();
@@ -214,7 +221,8 @@ class ScheduleExecutionServiceTest {
                 new FakeSaveSchedulePort(),
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -260,7 +268,8 @@ class ScheduleExecutionServiceTest {
                 new FakeSaveSchedulePort(),
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort()
         );
 
         service.runDueSchedules();
@@ -304,7 +313,8 @@ class ScheduleExecutionServiceTest {
                 saveSchedulePort,
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -366,7 +376,8 @@ class ScheduleExecutionServiceTest {
                 new FakeSaveSchedulePort(),
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort()
         );
 
         service.runDueSchedules();
@@ -378,6 +389,57 @@ class ScheduleExecutionServiceTest {
                 .doesNotContainKey("condition");
         assertThat(saveNotificationPort.saved).extracting(Notification::channel)
                 .containsOnly("TELEGRAM_DM");
+    }
+
+    @Test
+    @DisplayName("Application: 변화가 감지되면 AI 브리핑 알림을 우선 발송한다")
+    void sendsAiBriefingNotificationWhenChangeDetected() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeGenerateMonitoringBriefingPort generateBriefingPort =
+                new FakeGenerateMonitoringBriefingPort("AI 브리핑 알림");
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                loadConfigPort,
+                subscriptionId -> List.of(),
+                new FakeExecuteMcpToolPort(),
+                new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(previousHub(user, tool, subscription.id(), 100000)),
+                saveNotificationPort,
+                notification -> true,
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                generateBriefingPort
+        );
+
+        service.runDueSchedules();
+
+        assertThat(generateBriefingPort.requests).hasSize(1);
+        assertThat(generateBriefingPort.requests.get(0).decision().metricKey()).isEqualTo("avg_deal_amount");
+        assertThat(saveNotificationPort.saved).extracting(Notification::message)
+                .containsOnly("AI 브리핑 알림");
     }
 
     @Test
@@ -417,7 +479,8 @@ class ScheduleExecutionServiceTest {
                 new FakeSaveSchedulePort(),
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
-                new MonitoringAlertMessageBuilder()
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -564,6 +627,26 @@ class ScheduleExecutionServiceTest {
         public AiDataHub save(AiDataHub aiDataHub) {
             saved.add(aiDataHub);
             return aiDataHub;
+        }
+    }
+
+    private static class FakeGenerateMonitoringBriefingPort implements GenerateMonitoringBriefingPort {
+
+        private final Optional<String> briefing;
+        private final List<MonitoringBriefingRequest> requests = new ArrayList<>();
+
+        private FakeGenerateMonitoringBriefingPort() {
+            this(null);
+        }
+
+        private FakeGenerateMonitoringBriefingPort(String briefing) {
+            this.briefing = Optional.ofNullable(briefing);
+        }
+
+        @Override
+        public Optional<String> generate(MonitoringBriefingRequest request) {
+            requests.add(request);
+            return briefing;
         }
     }
 
