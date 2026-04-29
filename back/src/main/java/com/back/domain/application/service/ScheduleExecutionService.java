@@ -94,8 +94,8 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 executionArguments(tool, parameters, now)
         );
 
-        McpSnapshotEnvelope currentSnapshot = McpSnapshotEnvelope.parse(OBJECT_MAPPER, result.metadata());
-        Optional<McpSnapshotEnvelope> previousSnapshot = previousSnapshot(schedule, tool, currentSnapshot);
+        Optional<McpSnapshotEnvelope> currentSnapshot = McpSnapshotEnvelope.parseIfSummaryPresent(OBJECT_MAPPER, result.metadata());
+        Optional<McpSnapshotEnvelope> previousSnapshot = currentSnapshot.flatMap(snapshot -> previousSnapshot(schedule, tool, snapshot));
 
         AiDataHub aiDataHub = saveAiDataHubPort.save(new AiDataHub(
                 UuidGenerator.create(),
@@ -108,10 +108,17 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 now
         ));
 
+        if (currentSnapshot.isEmpty()) {
+            saveAndSendNotification(schedule, aiDataHub, result.content(), now);
+            advanceSchedule(schedule, now);
+            return;
+        }
+
+        McpSnapshotEnvelope snapshot = currentSnapshot.get();
         previousSnapshot
                 .map(previous -> monitoringChangeDetector.detect(
                         previous.summary(),
-                        currentSnapshot.summary(),
+                        snapshot.summary(),
                         stringParameters(parameters)
                 ))
                 .filter(MonitoringChangeDecision::triggered)

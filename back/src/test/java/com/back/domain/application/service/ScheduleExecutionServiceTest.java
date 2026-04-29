@@ -104,6 +104,57 @@ class ScheduleExecutionServiceTest {
     }
 
     @Test
+    @DisplayName("Application: summary 없는 MCP 결과는 변화 감지를 생략하고 기존 알림 흐름으로 처리한다")
+    void sendsNotificationForMcpResultWithoutStructuredSummary() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(20L, "law");
+        Subscription subscription = new Subscription("sub-law", user, domain, "근로기준법 변경 확인", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-law", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                200L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_law_info",
+                "법령 조회",
+                "{}"
+        );
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort(
+                "law result content",
+                rawPassthroughMetadata()
+        );
+        FakeSaveAiDataHubPort saveAiDataHubPort = new FakeSaveAiDataHubPort();
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
+                executeMcpToolPort,
+                saveAiDataHubPort,
+                new FakeLoadRecentAiDataHubPort(),
+                saveNotificationPort,
+                notification -> true,
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(saveAiDataHubPort.saved).hasSize(1);
+        assertThat(saveAiDataHubPort.saved.get(0).metadata())
+                .contains("\"subscription_id\":\"sub-law\"")
+                .contains("\"schedule_id\":\"schedule-law\"");
+        assertThat(saveNotificationPort.saved).extracting(Notification::status)
+                .contains(NotificationStatus.PENDING, NotificationStatus.SENT);
+        assertThat(saveNotificationPort.saved).extracting(Notification::message)
+                .containsOnly("law result content");
+        assertThat(saveSchedulePort.saved).hasSize(1);
+    }
+
+    @Test
     @DisplayName("Application: 스케줄 실행 후 저장된 cron 표현식 기준으로 다음 실행 시각을 갱신한다")
     void updatesNextRunByCronExpression() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
@@ -410,6 +461,8 @@ class ScheduleExecutionServiceTest {
 
         private String executedToolName;
         private Map<String, Object> executedArguments;
+        private final String content;
+        private final String metadata;
         private final int avgDealAmount;
 
         private FakeExecuteMcpToolPort() {
@@ -417,6 +470,16 @@ class ScheduleExecutionServiceTest {
         }
 
         private FakeExecuteMcpToolPort(int avgDealAmount) {
+            this("result content", null, avgDealAmount);
+        }
+
+        private FakeExecuteMcpToolPort(String content, String metadata) {
+            this(content, metadata, 106000);
+        }
+
+        private FakeExecuteMcpToolPort(String content, String metadata, int avgDealAmount) {
+            this.content = content;
+            this.metadata = metadata;
             this.avgDealAmount = avgDealAmount;
         }
 
@@ -424,7 +487,7 @@ class ScheduleExecutionServiceTest {
         public McpExecutionResult execute(McpTool tool, Map<String, Object> arguments) {
             this.executedToolName = tool.name();
             this.executedArguments = arguments;
-            return new McpExecutionResult("REAL_ESTATE", "result content", snapshotMetadata(null, avgDealAmount));
+            return new McpExecutionResult("REAL_ESTATE", content, metadata == null ? snapshotMetadata(null, avgDealAmount) : metadata);
         }
 
         @SuppressWarnings("unchecked")
@@ -465,6 +528,20 @@ class ScheduleExecutionServiceTest {
                   "metadata": {"tool_name": "search_house_price"}%s
                 }
                 """.formatted(avgDealAmount, execution);
+    }
+
+    private static String rawPassthroughMetadata() {
+        return """
+                {
+                  "structured": {
+                    "raw": "<xml/>",
+                    "raw_truncated": false,
+                    "raw_length": 6,
+                    "query": {"query": "근로기준법"}
+                  },
+                  "metadata": {"tool_name": "search_law_info"}
+                }
+                """;
     }
 
     private record FakeLoadRecentAiDataHubPort(List<AiDataHub> hubs) implements LoadRecentAiDataHubPort {
