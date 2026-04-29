@@ -21,6 +21,8 @@ import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
 import com.back.domain.application.service.monitoring.MonitoringQueryMatcher;
 import com.back.domain.model.hub.AiDataHub;
 import com.back.domain.model.mcp.McpTool;
+import com.back.domain.model.notification.AlertEvent;
+import com.back.domain.model.notification.AlertSource;
 import com.back.domain.model.notification.Notification;
 import com.back.domain.model.notification.NotificationPreference;
 import com.back.domain.model.notification.NotificationStatus;
@@ -36,6 +38,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -73,6 +76,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
     private final MonitoringChangeDetector monitoringChangeDetector;
     private final MonitoringAlertMessageBuilder monitoringAlertMessageBuilder;
     private final GenerateMonitoringBriefingPort generateMonitoringBriefingPort;
+    private final NotificationDeliveryCreationService notificationDeliveryCreationService;
 
     @Override
     public void runDueSchedules() {
@@ -179,6 +183,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         ));
 
         boolean sent = sendNotificationPort.send(pending);
+        notificationDeliveryCreationService.createFor(alertEvent(schedule, message, now));
         saveNotificationPort.save(new Notification(
                 pending.id(),
                 pending.schedule(),
@@ -189,6 +194,43 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 sent ? now : null,
                 sent ? NotificationStatus.SENT : NotificationStatus.FAILED
         ));
+    }
+
+    private AlertEvent alertEvent(Schedule schedule, String message, LocalDateTime now) {
+        String title = notificationTitle(message);
+        String summary = notificationSummary(message);
+        return new AlertEvent(
+                UuidGenerator.create(),
+                schedule.subscription(),
+                title,
+                summary,
+                "기존 스냅샷과 최신 MCP 응답을 비교해 구독 조건에 맞는 변화가 감지되었습니다.",
+                List.of(new AlertSource(title, null, summary)),
+                now
+        );
+    }
+
+    private String notificationTitle(String message) {
+        String title = message == null
+                ? ""
+                : message.lines()
+                        .filter(line -> !line.isBlank())
+                        .findFirst()
+                        .orElse("");
+        title = stripPrefix(title.strip(), "[AI 변화 브리핑]");
+        title = stripPrefix(title.strip(), "[변화 감지]");
+        return isBlank(title) ? "변화 감지 알림" : title;
+    }
+
+    private String notificationSummary(String message) {
+        return isBlank(message) ? "구독 조건에 맞는 변화가 감지되었습니다." : message.strip();
+    }
+
+    private String stripPrefix(String value, String prefix) {
+        if (value.startsWith(prefix)) {
+            return value.substring(prefix.length()).strip();
+        }
+        return value;
     }
 
     private void advanceSchedule(Schedule schedule, LocalDateTime now) {

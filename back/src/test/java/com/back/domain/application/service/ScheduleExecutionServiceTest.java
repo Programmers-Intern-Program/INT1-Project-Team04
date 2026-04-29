@@ -11,6 +11,7 @@ import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadRecentAiDataHubPort;
 import com.back.domain.application.port.out.LoadSubscriptionMonitoringConfigPort;
 import com.back.domain.application.port.out.SaveAiDataHubPort;
+import com.back.domain.application.port.out.SaveNotificationDeliveryPort;
 import com.back.domain.application.port.out.SaveNotificationPort;
 import com.back.domain.application.port.out.SaveSchedulePort;
 import com.back.domain.application.port.out.SendNotificationPort;
@@ -25,6 +26,9 @@ import com.back.domain.model.mcp.McpServer;
 import com.back.domain.model.mcp.McpTool;
 import com.back.domain.model.notification.Notification;
 import com.back.domain.model.notification.NotificationChannel;
+import com.back.domain.model.notification.NotificationDelivery;
+import com.back.domain.model.notification.NotificationDeliveryStatus;
+import com.back.domain.model.notification.NotificationEndpoint;
 import com.back.domain.model.notification.NotificationPreference;
 import com.back.domain.model.notification.NotificationStatus;
 import com.back.domain.model.schedule.Schedule;
@@ -86,7 +90,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                new FakeGenerateMonitoringBriefingPort()
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
         );
 
         service.runDueSchedules();
@@ -143,7 +148,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                generateBriefingPort
+                generateBriefingPort,
+                noOpDeliveryCreationService()
         );
 
         service.runDueSchedules();
@@ -190,7 +196,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                new FakeGenerateMonitoringBriefingPort()
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
         );
 
         service.runDueSchedules();
@@ -222,7 +229,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                new FakeGenerateMonitoringBriefingPort()
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -269,7 +277,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                new FakeGenerateMonitoringBriefingPort()
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
         );
 
         service.runDueSchedules();
@@ -314,7 +323,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                new FakeGenerateMonitoringBriefingPort()
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -377,7 +387,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                new FakeGenerateMonitoringBriefingPort()
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
         );
 
         service.runDueSchedules();
@@ -431,7 +442,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                generateBriefingPort
+                generateBriefingPort,
+                noOpDeliveryCreationService()
         );
 
         service.runDueSchedules();
@@ -440,6 +452,69 @@ class ScheduleExecutionServiceTest {
         assertThat(generateBriefingPort.requests.get(0).decision().metricKey()).isEqualTo("avg_deal_amount");
         assertThat(saveNotificationPort.saved).extracting(Notification::message)
                 .containsOnly("AI 브리핑 알림");
+    }
+
+    @Test
+    @DisplayName("Application: AI 브리핑 변화 알림은 실제 채널 발송용 Delivery를 생성한다")
+    void createsNotificationDeliveryForAiBriefingChangeAlert() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeSaveNotificationDeliveryPort saveDeliveryPort = new FakeSaveNotificationDeliveryPort();
+        LoadEnabledNotificationPreferencePort loadPreferencePort = subscriptionId -> List.of(
+                new NotificationPreference("pref-1", subscriptionId, NotificationChannel.TELEGRAM_DM, true)
+        );
+        NotificationDeliveryCreationService deliveryCreationService = new NotificationDeliveryCreationService(
+                loadPreferencePort,
+                (userId, channel) -> Optional.of(new NotificationEndpoint(
+                        "endpoint-1",
+                        userId,
+                        channel,
+                        "123456789",
+                        true
+                )),
+                saveDeliveryPort
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )),
+                loadPreferencePort,
+                new FakeExecuteMcpToolPort(),
+                new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(previousHub(user, tool, subscription.id(), 100000)),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort("AI 브리핑 알림"),
+                deliveryCreationService
+        );
+
+        service.runDueSchedules();
+
+        assertThat(saveDeliveryPort.saved).hasSize(1);
+        NotificationDelivery delivery = saveDeliveryPort.saved.get(0);
+        assertThat(delivery.channel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
+        assertThat(delivery.recipient()).isEqualTo("123456789");
+        assertThat(delivery.status()).isEqualTo(NotificationDeliveryStatus.PENDING);
+        assertThat(delivery.message()).contains("AI 브리핑 알림", "요청: 강남구 아파트 실거래가");
     }
 
     @Test
@@ -480,7 +555,8 @@ class ScheduleExecutionServiceTest {
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
-                new FakeGenerateMonitoringBriefingPort()
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -607,6 +683,14 @@ class ScheduleExecutionServiceTest {
                 """;
     }
 
+    private static NotificationDeliveryCreationService noOpDeliveryCreationService() {
+        return new NotificationDeliveryCreationService(
+                subscriptionId -> List.of(),
+                (userId, channel) -> Optional.empty(),
+                new FakeSaveNotificationDeliveryPort()
+        );
+    }
+
     private record FakeLoadRecentAiDataHubPort(List<AiDataHub> hubs) implements LoadRecentAiDataHubPort {
 
         private FakeLoadRecentAiDataHubPort(AiDataHub... hubs) {
@@ -658,6 +742,17 @@ class ScheduleExecutionServiceTest {
         public Notification save(Notification notification) {
             saved.add(notification);
             return notification;
+        }
+    }
+
+    private static class FakeSaveNotificationDeliveryPort implements SaveNotificationDeliveryPort {
+
+        private final List<NotificationDelivery> saved = new ArrayList<>();
+
+        @Override
+        public NotificationDelivery save(NotificationDelivery delivery) {
+            saved.add(delivery);
+            return delivery;
         }
     }
 
