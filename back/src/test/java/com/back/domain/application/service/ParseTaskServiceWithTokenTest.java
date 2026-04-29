@@ -18,6 +18,7 @@ import com.back.domain.application.result.UserTokenResult;
 import com.back.domain.model.session.ParseSession;
 import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -48,7 +49,8 @@ class ParseTaskServiceWithTokenTest {
                 fakeParsePort,
                 fakeSaveSessionPort,
                 fakeLoadSessionPort,
-                fakeTokenManagement
+                fakeTokenManagement,
+                new ObjectMapper()
         );
     }
 

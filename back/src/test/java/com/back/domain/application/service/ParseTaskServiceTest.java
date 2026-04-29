@@ -39,7 +39,7 @@ class ParseTaskServiceTest {
             parseNaturalLanguagePort,
             saveParseSessionPort,
             loadParseSessionPort,
-            new FakeTokenManagementUseCase() // 토큰 체크 없는 가짜 구현
+            new FakeTokenManagementUseCase(), // 토큰 체크 없는 가짜 구현
             new ObjectMapper()
         );
     }
