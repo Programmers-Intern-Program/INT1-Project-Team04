@@ -1,6 +1,7 @@
 package com.back.domain.adapter.out.persistence.hub;
 
 import java.util.List;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 /**
@@ -11,4 +12,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface AiDataHubJpaRepository extends JpaRepository<AiDataHubJpaEntity, String> {
 
     List<AiDataHubJpaEntity> findByUserId(Long userId);
+
+    List<AiDataHubJpaEntity> findByUserIdAndMcpToolIdOrderByCreatedAtDescIdDesc(
+            Long userId,
+            Long mcpToolId,
+            Pageable pageable
+    );
 }
