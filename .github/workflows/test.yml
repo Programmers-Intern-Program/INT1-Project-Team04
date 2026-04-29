@@ -7,6 +7,50 @@ on:
     branches: [develop]
 
 jobs:
+  mcp-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp-server
+
+    env:
+      PG_URL: postgresql+asyncpg://test:test@localhost:5432/test
+      LANGFUSE_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if mcp-server files changed
+        id: mcp_changes
+        run: |
+          if git diff --name-only origin/${{ github.base_ref || 'develop' }}...HEAD | grep -q "^mcp-server/"; then
+            echo "mcp=true" >> $GITHUB_OUTPUT
+          else
+            echo "mcp=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Skip (no mcp-server changes)
+        if: steps.mcp_changes.outputs.mcp == 'false'
+        run: echo "mcp-server 코드 변경 없음 — 테스트 건너뜁니다."
+
+      - name: Install uv
+        if: steps.mcp_changes.outputs.mcp == 'true'
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        if: steps.mcp_changes.outputs.mcp == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.mcp_changes.outputs.mcp == 'true'
+        run: uv sync --dev
+
+      - name: Run tests
+        if: steps.mcp_changes.outputs.mcp == 'true'
+        run: uv run pytest -q
+
   test:
     runs-on: ubuntu-latest
     permissions:
