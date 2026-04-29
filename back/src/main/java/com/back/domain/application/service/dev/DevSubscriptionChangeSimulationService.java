@@ -191,7 +191,6 @@ public class DevSubscriptionChangeSimulationService {
         ObjectNode summary = OBJECT_MAPPER.createObjectNode();
         summary.put("avg_deal_amount", value.setScale(0, RoundingMode.HALF_UP).longValue());
         summary.put("count", 10);
-        summary.put("source", "dev-simulated");
         return summary;
     }
 
@@ -208,14 +207,30 @@ public class DevSubscriptionChangeSimulationService {
                 subscription,
                 title,
                 summary,
-                "개발 테스트 버튼으로 fake summary를 생성한 뒤 실제 변화 감지 결과가 조건을 만족했습니다.",
+                "구독 조건에 맞는 변화가 감지되었습니다.",
                 List.of(new AlertSource(
-                        "개발 시뮬레이션: " + decision.metricKey(),
+                        metricLabel(decision.metricKey()),
                         null,
                         sourceDescription(decision)
                 )),
                 now
         );
+    }
+
+    private String metricLabel(String metricKey) {
+        if ("avg_deal_amount".equals(metricKey)) {
+            return "평균 거래금액 변화";
+        }
+        if ("avg_deposit".equals(metricKey)) {
+            return "평균 보증금 변화";
+        }
+        if ("avg_monthly_rent".equals(metricKey)) {
+            return "평균 월세 변화";
+        }
+        if ("count".equals(metricKey)) {
+            return "거래 건수 변화";
+        }
+        return "구독 지표 변화";
     }
 
     private String sourceDescription(MonitoringChangeDecision decision) {
@@ -237,10 +252,10 @@ public class DevSubscriptionChangeSimulationService {
 
     private String fakeMcpContent(Subscription subscription, SummaryPair summaries) {
         return """
-                [개발 테스트]
-                구독 조건: %s
-                previousSummary: %s
-                currentSummary: %s
+                구독 조건에 맞는 변화가 감지되었습니다.
+                요청: %s
+                이전 요약: %s
+                현재 요약: %s
                 """.formatted(subscription.query(), summaries.previous(), summaries.current()).trim();
     }
 

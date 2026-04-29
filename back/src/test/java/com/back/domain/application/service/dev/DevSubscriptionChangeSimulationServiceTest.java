@@ -95,6 +95,15 @@ class DevSubscriptionChangeSimulationServiceTest {
                     assertThat(request.toolName()).isEqualTo("search_house_price");
                     assertThat(request.previousSummaryJson()).contains("\"avg_deal_amount\":100000");
                     assertThat(request.currentSummaryJson()).contains("\"avg_deal_amount\":103000");
+                    assertThat(request.previousSummaryJson()).doesNotContain("source", "dev-simulated", "개발", "테스트");
+                    assertThat(request.currentSummaryJson()).doesNotContain("source", "dev-simulated", "개발", "테스트");
+                    assertThat(request.mcpContent()).doesNotContain(
+                            "개발",
+                            "테스트",
+                            "dev-simulated",
+                            "previousSummary",
+                            "currentSummary"
+                    );
                     assertThat(request.decision().triggered()).isTrue();
                 });
         assertThat(deliveryStore.saved).singleElement()
@@ -105,7 +114,9 @@ class DevSubscriptionChangeSimulationServiceTest {
                     assertThat(delivery.recipient()).isEqualTo("123456789");
                     assertThat(delivery.status()).isEqualTo(NotificationDeliveryStatus.SENT);
                     assertThat(delivery.providerMessageId()).isEqualTo("dev-provider-message-id");
-                    assertThat(delivery.message()).contains("강남구 아파트 평균 시세가 상승했습니다.");
+                    assertThat(delivery.message())
+                            .contains("강남구 아파트 평균 시세가 상승했습니다.")
+                            .doesNotContain("개발", "테스트", "dev-simulated");
                 });
     }
 
@@ -159,6 +170,8 @@ class DevSubscriptionChangeSimulationServiceTest {
                             .contains("- 변화: 3000 (3%)")
                             .doesNotContain(
                                     "[개발 테스트]",
+                                    "개발",
+                                    "테스트",
                                     "previousSummary",
                                     "currentSummary",
                                     "dev-simulated"
