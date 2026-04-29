@@ -6,6 +6,7 @@ import {
   getSubscriptionSummaries,
   sendConversationAction,
   sendConversationMessage,
+  simulateSubscriptionChangeAlert,
   type SubscriptionConversationFetch,
 } from "./subscription-conversations.ts";
 
@@ -139,6 +140,46 @@ describe("subscription conversation API client", () => {
     });
 
     assert.deepEqual(result, { ok: true });
+  });
+
+  it("requests a dev change alert simulation for a subscription", async () => {
+    const fetcher: SubscriptionConversationFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/dev/subscriptions/sub-1/simulate-change-alert");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
+      assert.equal(init?.body, undefined);
+
+      return new Response(
+        JSON.stringify({
+          subscriptionId: "sub-1",
+          triggered: true,
+          briefingGenerated: true,
+          deliveryCount: 1,
+          dispatchedCount: 1,
+          metricKey: "avg_deal_amount",
+          reason: "condition matched",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await simulateSubscriptionChangeAlert("sub-1", {
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        subscriptionId: "sub-1",
+        triggered: true,
+        briefingGenerated: true,
+        deliveryCount: 1,
+        dispatchedCount: 1,
+        metricKey: "avg_deal_amount",
+        reason: "condition matched",
+      },
+    });
   });
 
   it("returns backend error details", async () => {

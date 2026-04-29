@@ -170,6 +170,18 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes("삭제"), true);
   });
 
+  it("renders dev-only test controls for active subscription summaries", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("NEXT_PUBLIC_DEV_TOOLS"), true);
+    assert.equal(source.includes("simulateSubscriptionChangeAlert"), true);
+    assert.equal(source.includes("handleTestSubscription"), true);
+    assert.equal(source.includes("Test"), true);
+  });
+
   it("renders temporary json request and response snapshots below the chat form", () => {
     const source = readFileSync(
       new URL("../components/subscription-chat.tsx", import.meta.url),
