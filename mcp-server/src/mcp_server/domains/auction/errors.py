@@ -12,4 +12,12 @@ class AuctionConfigError(AuctionError):
     """
 
 
-__all__ = ["AuctionError", "AuctionConfigError"]
+class AuctionNormalizationError(AuctionError):
+    """API 응답 본문 정규화 실패 (JSON 파싱, 응답 코드 비정상, 필수 필드 누락).
+
+    sources 계층의 SourceError 와 분리: 외부 호출은 성공했으나 본문이 도메인
+    스키마와 맞지 않는 상황.
+    """
+
+
+__all__ = ["AuctionConfigError", "AuctionError", "AuctionNormalizationError"]
