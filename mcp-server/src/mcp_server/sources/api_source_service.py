@@ -2,6 +2,7 @@
 
 규약:
 - 도구는 직접 httpx 를 쓰지 말고 이 fetch() 만 호출한다.
+- fetch 전에 check_cache() 로 캐시 상태를 확인하고 fetch 필요 여부를 AI 가 판단하게 한다.
 
 성공: API 호출 후 api_cache 에 upsert, RawResult 반환.
 실패:
@@ -146,6 +147,33 @@ async def _upsert_cache(
         await session.commit()
 
 
+async def check_cache(tool_name: str, params: dict) -> dict:
+    """tool_name + params 조합의 캐시 상태를 반환한다.
+
+    fetch tool 호출 전 AI 가 이 결과를 보고 실제 fetch 여부를 스스로 판단한다.
+    판단 재료: cache_hit 여부, cached_at 시각, tool_name(도메인 추론용), content.
+    """
+    async with get_session() as session:
+        result = await session.execute(
+            select(ApiSource).where(ApiSource.tool_name == tool_name)
+        )
+        source = result.scalar_one_or_none()
+    if source is None:
+        raise SourceNotFoundError(f"api_source.tool_name={tool_name} 등록되지 않음")
+
+    site_url = _build_site_url(source.url_template, params)
+    cached = await _load_cache(site_url)
+
+    if cached is None:
+        return {"cache_hit": False, "cached_at": None, "tool_name": tool_name, "content": None}
+    return {
+        "cache_hit": True,
+        "cached_at": cached.cached_at.isoformat(),
+        "tool_name": tool_name,
+        "content": cached.content,
+    }
+
+
 async def resolve_source_id_by_tool_name(tool_name: str) -> int:
     """tool_name 으로 등록된 api_source.id 를 조회한다.
 
@@ -188,4 +216,4 @@ async def _call_external_api(
     return response.text
 
 
-__all__ = ["fetch", "resolve_source_id_by_tool_name"]
+__all__ = ["check_cache", "fetch", "resolve_source_id_by_tool_name"]
