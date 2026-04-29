@@ -38,6 +38,8 @@ jobs:
       - name: Install uv
         if: steps.mcp_changes.outputs.mcp == 'true'
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Set up Python
         if: steps.mcp_changes.outputs.mcp == 'true'
