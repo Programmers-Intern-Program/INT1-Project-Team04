@@ -4,14 +4,18 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.back.domain.application.port.out.ExecuteMcpToolPort;
-import com.back.domain.application.port.out.LoadEnabledNotificationPreferencePort;
 import com.back.domain.application.port.out.LoadDueSchedulesPort;
+import com.back.domain.application.port.out.LoadEnabledNotificationPreferencePort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
+import com.back.domain.application.port.out.LoadRecentAiDataHubPort;
 import com.back.domain.application.port.out.LoadSubscriptionMonitoringConfigPort;
 import com.back.domain.application.port.out.SaveAiDataHubPort;
 import com.back.domain.application.port.out.SaveNotificationPort;
 import com.back.domain.application.port.out.SaveSchedulePort;
 import com.back.domain.application.port.out.SendNotificationPort;
+import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
+import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
+import com.back.domain.application.service.monitoring.MonitoringQueryMatcher;
 import com.back.domain.application.result.McpExecutionResult;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.hub.AiDataHub;
@@ -31,6 +35,7 @@ import java.time.LocalDateTime;
 import java.time.Month;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -42,8 +47,8 @@ import org.junit.jupiter.api.Test;
 class ScheduleExecutionServiceTest {
 
     @Test
-    @DisplayName("Application: 예정된 스케줄을 실행하면 [AI 분석 -> 데이터 저장 -> 알림 발송 -> 다음 스케줄 갱신] 프로세스가 통합적으로 수행된다")
-    void runsDueScheduleAndSavesHubNotificationAndSchedule() {
+    @DisplayName("Application: 예정된 스케줄의 첫 실행은 기준 스냅샷을 저장하고 다음 스케줄만 갱신한다")
+    void firstRunSavesBaselineHubAndScheduleWithoutNotification() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
@@ -72,9 +77,13 @@ class ScheduleExecutionServiceTest {
                 subscriptionId -> List.of(),
                 executeMcpToolPort,
                 saveAiDataHubPort,
+                new FakeLoadRecentAiDataHubPort(),
                 saveNotificationPort,
                 sendNotificationPort,
-                saveSchedulePort
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
         );
 
         service.runDueSchedules();
@@ -84,10 +93,11 @@ class ScheduleExecutionServiceTest {
                 .containsEntry("region", "강남구")
                 .containsEntry("deal_ymd", latestAvailableDealYmd());
         assertThat(saveAiDataHubPort.saved).hasSize(1);
-        assertThat(saveNotificationPort.saved).extracting(Notification::status)
-                .contains(NotificationStatus.PENDING, NotificationStatus.SENT);
-        assertThat(saveNotificationPort.saved).extracting(Notification::channel)
-                .containsOnly("DISCORD");
+        assertThat(saveAiDataHubPort.saved.get(0).metadata())
+                .contains("\"execution\"")
+                .contains("\"subscription_id\":\"sub-1\"")
+                .contains("\"schedule_id\":\"schedule-1\"");
+        assertThat(saveNotificationPort.saved).isEmpty();
         assertThat(saveSchedulePort.saved).hasSize(1);
         assertThat(saveSchedulePort.saved.get(0).lastRun()).isNotNull();
         assertThat(saveSchedulePort.saved.get(0).nextRun()).isAfter(saveSchedulePort.saved.get(0).lastRun());
@@ -116,9 +126,13 @@ class ScheduleExecutionServiceTest {
                 subscriptionId -> List.of(),
                 new FakeExecuteMcpToolPort(),
                 new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(),
                 new FakeSaveNotificationPort(),
                 notification -> true,
-                saveSchedulePort
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
         );
 
         service.runDueSchedules();
@@ -143,9 +157,13 @@ class ScheduleExecutionServiceTest {
                 subscriptionId -> List.of(),
                 new FakeExecuteMcpToolPort(),
                 new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(),
                 new FakeSaveNotificationPort(),
                 notification -> true,
-                new FakeSaveSchedulePort()
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -170,16 +188,28 @@ class ScheduleExecutionServiceTest {
                 "{}"
         );
         FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )
+        );
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
                 new FakeLoadMcpToolPort(tool),
-                subscriptionId -> Optional.empty(),
+                loadConfigPort,
                 subscriptionId -> List.of(),
                 new FakeExecuteMcpToolPort(),
                 new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(previousHub(user, tool, subscription.id(), 100000)),
                 saveNotificationPort,
                 notification -> false,
-                new FakeSaveSchedulePort()
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
         );
 
         service.runDueSchedules();
@@ -217,9 +247,13 @@ class ScheduleExecutionServiceTest {
                     throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
                 },
                 saveAiDataHubPort,
+                new FakeLoadRecentAiDataHubPort(),
                 saveNotificationPort,
                 notification -> true,
-                saveSchedulePort
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -275,9 +309,13 @@ class ScheduleExecutionServiceTest {
                 loadPreferencePort,
                 executeMcpToolPort,
                 new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(previousHub(user, configuredTool, subscription.id(), 100000)),
                 saveNotificationPort,
                 notification -> true,
-                new FakeSaveSchedulePort()
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
         );
 
         service.runDueSchedules();
@@ -322,9 +360,13 @@ class ScheduleExecutionServiceTest {
                 subscriptionId -> List.of(),
                 executeMcpToolPort,
                 new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(),
                 new FakeSaveNotificationPort(),
                 notification -> true,
-                new FakeSaveSchedulePort()
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder()
         );
 
         assertThatThrownBy(service::runDueSchedules)
@@ -368,12 +410,21 @@ class ScheduleExecutionServiceTest {
 
         private String executedToolName;
         private Map<String, Object> executedArguments;
+        private final int avgDealAmount;
+
+        private FakeExecuteMcpToolPort() {
+            this(106000);
+        }
+
+        private FakeExecuteMcpToolPort(int avgDealAmount) {
+            this.avgDealAmount = avgDealAmount;
+        }
 
         @Override
         public McpExecutionResult execute(McpTool tool, Map<String, Object> arguments) {
             this.executedToolName = tool.name();
             this.executedArguments = arguments;
-            return new McpExecutionResult("REAL_ESTATE", "result content", "{\"source\":\"mcp\"}");
+            return new McpExecutionResult("REAL_ESTATE", "result content", snapshotMetadata(null, avgDealAmount));
         }
 
         @SuppressWarnings("unchecked")
@@ -384,6 +435,48 @@ class ScheduleExecutionServiceTest {
 
     private static String latestAvailableDealYmd() {
         return LocalDateTime.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyyMM"));
+    }
+
+    private static AiDataHub previousHub(User user, McpTool tool, String subscriptionId, int avgDealAmount) {
+        return new AiDataHub(
+                "previous-hub",
+                user,
+                tool,
+                "REAL_ESTATE",
+                "previous content",
+                null,
+                snapshotMetadata(subscriptionId, avgDealAmount),
+                LocalDateTime.now().minusDays(1)
+        );
+    }
+
+    private static String snapshotMetadata(String subscriptionId, int avgDealAmount) {
+        String execution = subscriptionId == null
+                ? ""
+                : """
+                  ,"execution":{"subscription_id":"%s","schedule_id":"previous-schedule"}
+                  """.formatted(subscriptionId);
+        return """
+                {
+                  "structured": {
+                    "summary": {"count": 10, "avg_deal_amount": %d},
+                    "query": {"region": "강남구", "lawd_cd": "11680", "deal_ymd": "202403"}
+                  },
+                  "metadata": {"tool_name": "search_house_price"}%s
+                }
+                """.formatted(avgDealAmount, execution);
+    }
+
+    private record FakeLoadRecentAiDataHubPort(List<AiDataHub> hubs) implements LoadRecentAiDataHubPort {
+
+        private FakeLoadRecentAiDataHubPort(AiDataHub... hubs) {
+            this(Arrays.asList(hubs));
+        }
+
+        @Override
+        public List<AiDataHub> loadRecentByUserIdAndToolId(Long userId, Long toolId, int limit) {
+            return hubs.stream().limit(limit).toList();
+        }
     }
 
     private static class FakeSaveAiDataHubPort implements SaveAiDataHubPort {

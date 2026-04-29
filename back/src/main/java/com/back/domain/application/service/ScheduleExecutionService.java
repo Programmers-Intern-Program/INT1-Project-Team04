@@ -5,12 +5,18 @@ import com.back.domain.application.port.out.ExecuteMcpToolPort;
 import com.back.domain.application.port.out.LoadDueSchedulesPort;
 import com.back.domain.application.port.out.LoadEnabledNotificationPreferencePort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
+import com.back.domain.application.port.out.LoadRecentAiDataHubPort;
 import com.back.domain.application.port.out.LoadSubscriptionMonitoringConfigPort;
 import com.back.domain.application.port.out.SaveAiDataHubPort;
 import com.back.domain.application.port.out.SaveNotificationPort;
 import com.back.domain.application.port.out.SaveSchedulePort;
 import com.back.domain.application.port.out.SendNotificationPort;
 import com.back.domain.application.result.McpExecutionResult;
+import com.back.domain.application.service.monitoring.McpSnapshotEnvelope;
+import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
+import com.back.domain.application.service.monitoring.MonitoringChangeDecision;
+import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
+import com.back.domain.application.service.monitoring.MonitoringQueryMatcher;
 import com.back.domain.model.hub.AiDataHub;
 import com.back.domain.model.mcp.McpTool;
 import com.back.domain.model.notification.Notification;
@@ -23,9 +29,13 @@ import com.back.global.error.ApiException;
 import com.back.global.error.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,6 +52,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> PARAMETER_MAP = new TypeReference<>() {};
+    private static final int RECENT_SNAPSHOT_LIMIT = 20;
     private static final Pattern REGION = Pattern.compile(
             "([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구)|서울|부산|대구|인천|광주|대전|울산|세종|제주)"
     );
@@ -52,9 +63,13 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
     private final LoadEnabledNotificationPreferencePort loadEnabledNotificationPreferencePort;
     private final ExecuteMcpToolPort executeMcpToolPort;
     private final SaveAiDataHubPort saveAiDataHubPort;
+    private final LoadRecentAiDataHubPort loadRecentAiDataHubPort;
     private final SaveNotificationPort saveNotificationPort;
     private final SendNotificationPort sendNotificationPort;
     private final SaveSchedulePort saveSchedulePort;
+    private final MonitoringQueryMatcher monitoringQueryMatcher;
+    private final MonitoringChangeDetector monitoringChangeDetector;
+    private final MonitoringAlertMessageBuilder monitoringAlertMessageBuilder;
 
     @Override
     public void runDueSchedules() {
@@ -70,11 +85,17 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         McpTool tool = loadConfiguredTool(schedule, monitoringConfig)
                 .or(() -> loadMcpToolPort.loadByDomainId(schedule.subscription().domain().id()))
                 .orElseThrow(() -> new ApiException(ErrorCode.MCP_TOOL_NOT_FOUND));
+        Map<String, Object> parameters = monitoringConfig
+                .map(this::parameters)
+                .orElseGet(() -> fallbackParameters(schedule.subscription().query()));
 
         McpExecutionResult result = executeMcpToolPort.execute(
                 tool,
-                executionArguments(tool, schedule.subscription().query(), monitoringConfig, now)
+                executionArguments(tool, parameters, now)
         );
+
+        McpSnapshotEnvelope currentSnapshot = McpSnapshotEnvelope.parse(OBJECT_MAPPER, result.metadata());
+        Optional<McpSnapshotEnvelope> previousSnapshot = previousSnapshot(schedule, tool, currentSnapshot);
 
         AiDataHub aiDataHub = saveAiDataHubPort.save(new AiDataHub(
                 UuidGenerator.create(),
@@ -83,17 +104,52 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 result.apiType(),
                 result.content(),
                 null,
-                result.metadata(),
+                metadataWithExecutionContext(result.metadata(), schedule),
                 now
         ));
 
+        previousSnapshot
+                .map(previous -> monitoringChangeDetector.detect(
+                        previous.summary(),
+                        currentSnapshot.summary(),
+                        stringParameters(parameters)
+                ))
+                .filter(MonitoringChangeDecision::triggered)
+                .ifPresent(decision -> sendAlertNotification(schedule, tool, aiDataHub, result, decision, now));
+
+        advanceSchedule(schedule, now);
+    }
+
+    private void sendAlertNotification(
+            Schedule schedule,
+            McpTool tool,
+            AiDataHub aiDataHub,
+            McpExecutionResult result,
+            MonitoringChangeDecision decision,
+            LocalDateTime now
+    ) {
+        String message = monitoringAlertMessageBuilder.build(
+                schedule.subscription().query(),
+                tool.name(),
+                decision,
+                result.content()
+        );
+        saveAndSendNotification(schedule, aiDataHub, message, now);
+    }
+
+    private void saveAndSendNotification(
+            Schedule schedule,
+            AiDataHub aiDataHub,
+            String message,
+            LocalDateTime now
+    ) {
         Notification pending = saveNotificationPort.save(new Notification(
                 UuidGenerator.create(),
                 schedule,
                 schedule.subscription().user(),
                 aiDataHub,
                 notificationChannel(schedule.subscription().id()),
-                result.content(),
+                message,
                 null,
                 NotificationStatus.PENDING
         ));
@@ -109,7 +165,9 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 sent ? now : null,
                 sent ? NotificationStatus.SENT : NotificationStatus.FAILED
         ));
+    }
 
+    private void advanceSchedule(Schedule schedule, LocalDateTime now) {
         saveSchedulePort.save(new Schedule(
                 schedule.id(),
                 schedule.subscription(),
@@ -117,6 +175,49 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 now,
                 CronScheduleCalculator.nextRun(schedule.cronExpr(), now)
         ));
+    }
+
+    private Optional<McpSnapshotEnvelope> previousSnapshot(
+            Schedule schedule,
+            McpTool tool,
+            McpSnapshotEnvelope currentSnapshot
+    ) {
+        Long userId = schedule.subscription().user() == null ? null : schedule.subscription().user().id();
+        Long toolId = tool.id();
+        if (userId == null || toolId == null) {
+            return Optional.empty();
+        }
+        return loadRecentAiDataHubPort.loadRecentByUserIdAndToolId(userId, toolId, RECENT_SNAPSHOT_LIMIT).stream()
+                .map(AiDataHub::metadata)
+                .map(this::parseCandidateSnapshot)
+                .flatMap(Optional::stream)
+                .filter(snapshot -> Objects.equals(schedule.subscription().id(), snapshot.subscriptionIdOrNull()))
+                .filter(snapshot -> monitoringQueryMatcher.sameTarget(snapshot.query(), currentSnapshot.query()))
+                .findFirst();
+    }
+
+    private Optional<McpSnapshotEnvelope> parseCandidateSnapshot(String metadata) {
+        try {
+            return Optional.of(McpSnapshotEnvelope.parse(OBJECT_MAPPER, metadata));
+        } catch (ApiException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private String metadataWithExecutionContext(String metadataJson, Schedule schedule) {
+        try {
+            JsonNode parsed = OBJECT_MAPPER.readTree(metadataJson == null ? "" : metadataJson);
+            if (!parsed.isObject()) {
+                throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+            }
+            ObjectNode root = (ObjectNode) parsed;
+            ObjectNode execution = root.putObject("execution");
+            execution.put("subscription_id", schedule.subscription().id());
+            execution.put("schedule_id", schedule.id());
+            return OBJECT_MAPPER.writeValueAsString(root);
+        } catch (JsonProcessingException exception) {
+            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+        }
     }
 
     private Optional<McpTool> loadConfiguredTool(
@@ -133,13 +234,9 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
 
     private Map<String, Object> executionArguments(
             McpTool tool,
-            String query,
-            Optional<SubscriptionMonitoringConfig> monitoringConfig,
+            Map<String, Object> parameters,
             LocalDateTime now
     ) {
-        Map<String, Object> parameters = monitoringConfig
-                .map(this::parameters)
-                .orElseGet(() -> fallbackParameters(query));
         if (tool.name().startsWith("search_house_price")) {
             return SearchHousePriceMcpInput.from(parameters, now).toArguments();
         }
@@ -165,13 +262,19 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         return Map.of("region", region);
     }
 
+    private Map<String, String> stringParameters(Map<String, Object> parameters) {
+        Map<String, String> values = new LinkedHashMap<>();
+        parameters.forEach((key, value) -> {
+            if (value != null) {
+                values.put(key, String.valueOf(value));
+            }
+        });
+        return values;
+    }
+
     private String extractRegion(String query) {
         Matcher matcher = REGION.matcher(query == null ? "" : query);
         return matcher.find() ? matcher.group(1) : null;
-    }
-
-    private String stringValue(Object value) {
-        return value == null ? null : String.valueOf(value);
     }
 
     private String notificationChannel(String subscriptionId) {
