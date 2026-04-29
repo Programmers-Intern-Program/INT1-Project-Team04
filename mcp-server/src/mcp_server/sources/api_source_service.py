@@ -2,16 +2,21 @@
 
 규약:
 - 도구는 직접 httpx 를 쓰지 말고 이 fetch() 만 호출한다.
-- 캐시 로직 삽입 지점은 # TODO: cache 주석으로 표시. MVP 에서는 통과.
+
+성공: API 호출 후 api_cache 에 upsert, RawResult 반환.
+실패:
+    캐시 있음 → RawResult(fetched_at=cache.cached_at) 반환.
+    캐시 없음 → fetch_error 기록 후 빈 RawResult 반환.
 """
 
 import json
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 
 import httpx
 from sqlalchemy import select
 
-from mcp_server.db.models import ApiSource
+from mcp_server.db.models import ApiCache, ApiSource
 from mcp_server.db.session import get_session
 from mcp_server.sources.errors import SourceFetchError, SourceNotFoundError
 from mcp_server.sources.result import RawResult
@@ -37,16 +42,46 @@ async def fetch(
         SourceFetchError: HTTP 호출 실패 (네트워크 오류 / 4xx-5xx 응답).
     """
     source = await _load_source(source_id)
-    # TODO: cache lookup — site_url(url_template + params) 로 api_cache 조회
-
+    params = params or {}
+    site_url = _build_site_url(source.url_template, params)
     fetched_at = datetime.now(UTC)
-    response_text = await _call_external_api(
-        endpoint=source.url_template,
-        params=params or {},
-        http_client=_test_http_client,
-    )
 
-    # TODO: cache store — api_cache 에 (site_url, content, expired_at) 기록
+    try:
+        response_text = await _call_external_api(
+            endpoint=source.url_template,
+            params=params,
+            http_client=_test_http_client,
+        )
+    except SourceFetchError as exc:
+        cached = await _load_cache(site_url)
+        base_meta = {
+            "tool_name": source.tool_name,
+            "url_template": source.url_template,
+            "params": params,
+        }
+        if cached is not None:
+            return RawResult(
+                source_type="api",
+                source_id=source.id,
+                content=cached.content or "",
+                fetched_at=cached.cached_at,
+                raw_metadata=base_meta,
+            )
+        return RawResult(
+            source_type="api",
+            source_id=source.id,
+            content="",
+            fetched_at=fetched_at,
+            raw_metadata={**base_meta, "fetch_error": str(exc)},
+        )
+
+    await _upsert_cache(
+        source_id=source.id,
+        site_url=site_url,
+        tool_name=source.tool_name,
+        content=response_text,
+        cached_at=fetched_at,
+    )
 
     return RawResult(
         source_type="api",
@@ -61,6 +96,12 @@ async def fetch(
     )
 
 
+def _build_site_url(url_template: str, params: dict) -> str:
+    """캐시 키용 URL. serviceKey 제외 (DB에 API 키 저장 방지)."""
+    cache_params = {k: v for k, v in params.items() if k != "serviceKey"}
+    return f"{url_template}?{urlencode(sorted(cache_params.items()))}"
+
+
 async def _load_source(source_id: int) -> ApiSource:
     async with get_session() as session:
         result = await session.execute(select(ApiSource).where(ApiSource.id == source_id))
@@ -68,6 +109,41 @@ async def _load_source(source_id: int) -> ApiSource:
     if source is None:
         raise SourceNotFoundError(f"api_source.id={source_id} 등록되지 않음")
     return source
+
+
+async def _load_cache(site_url: str) -> ApiCache | None:
+    async with get_session() as session:
+        result = await session.execute(
+            select(ApiCache).where(ApiCache.site_url == site_url)
+        )
+        return result.scalar_one_or_none()
+
+
+async def _upsert_cache(
+    source_id: int,
+    site_url: str,
+    tool_name: str,
+    content: str,
+    cached_at: datetime,
+) -> None:
+    async with get_session() as session:
+        result = await session.execute(
+            select(ApiCache).where(ApiCache.site_url == site_url)
+        )
+        cache = result.scalar_one_or_none()
+        if cache is None:
+            session.add(ApiCache(
+                source_id=source_id,
+                site_url=site_url,
+                api_type=tool_name,
+                content=content,
+                cached_at=cached_at,
+                expired_at=None,
+            ))
+        else:
+            cache.content = content
+            cache.cached_at = cached_at
+        await session.commit()
 
 
 async def resolve_source_id_by_tool_name(tool_name: str) -> int:
@@ -108,7 +184,6 @@ async def _call_external_api(
 
     content_type = response.headers.get("content-type", "")
     if "application/json" in content_type:
-        # JSON 은 정렬해서 hash 일관성 확보 (캐시 도입 시 활용)
         return json.dumps(response.json(), ensure_ascii=False, sort_keys=True)
     return response.text
 

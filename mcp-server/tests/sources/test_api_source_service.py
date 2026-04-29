@@ -8,10 +8,12 @@ import json
 import httpx
 import pytest
 
-from mcp_server.db.models import ApiSource
+from sqlalchemy import select
+
+from mcp_server.db.models import ApiCache, ApiSource
 from mcp_server.db.session import get_session
 from mcp_server.sources import api_source_service
-from mcp_server.sources.errors import SourceFetchError, SourceNotFoundError
+from mcp_server.sources.errors import SourceNotFoundError
 
 
 async def _create_source(**overrides) -> ApiSource:
@@ -90,8 +92,8 @@ async def test_fetch_raises_source_not_found_for_unknown_id(patched_session_fact
 
 
 @pytest.mark.asyncio
-async def test_fetch_wraps_http_errors_in_source_fetch_error(patched_session_factory):
-    """HTTP 5xx 는 SourceFetchError 로 감싼다."""
+async def test_fetch_returns_empty_result_on_http_error_without_cache(patched_session_factory):
+    """HTTP 5xx + 캐시 없음 → 빈 content + fetch_error 기록."""
     source = await _create_source(
         tool_name="failing_endpoint", url_template="https://example.gov/fail"
     )
@@ -101,5 +103,76 @@ async def test_fetch_wraps_http_errors_in_source_fetch_error(patched_session_fac
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
-        with pytest.raises(SourceFetchError):
-            await api_source_service.fetch(source_id=source.id, params={}, _test_http_client=client)
+        result = await api_source_service.fetch(
+            source_id=source.id, params={}, _test_http_client=client
+        )
+
+    assert result.content == ""
+    assert "fetch_error" in result.raw_metadata
+
+
+@pytest.mark.asyncio
+async def test_fetch_writes_cache_on_success(patched_session_factory):
+    """성공 시 api_cache 에 upsert 된다."""
+    source = await _create_source()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"items": [{"price": 1500}]},
+            headers={"content-type": "application/json"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        await api_source_service.fetch(
+            source_id=source.id,
+            params={"region": "강남구"},
+            _test_http_client=client,
+        )
+
+    async with get_session() as session:
+        result = await session.execute(select(ApiCache).where(ApiCache.source_id == source.id))
+        cache = result.scalar_one_or_none()
+
+    assert cache is not None
+    assert cache.api_type == "search_house_price"
+    assert "1500" in cache.content
+
+
+@pytest.mark.asyncio
+async def test_fetch_returns_cache_on_http_error(patched_session_factory):
+    """HTTP 5xx + 캐시 있음 → 캐시 반환, fetched_at 은 캐시 시각."""
+    source = await _create_source()
+
+    def ok_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"items": [{"price": 1500}]},
+            headers={"content-type": "application/json"},
+        )
+
+    def fail_handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, text="Service Unavailable")
+
+    # 1차: 성공 → 캐시 저장
+    transport = httpx.MockTransport(ok_handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        first = await api_source_service.fetch(
+            source_id=source.id,
+            params={"region": "강남구"},
+            _test_http_client=client,
+        )
+
+    # 2차: 실패 → 캐시 반환
+    transport = httpx.MockTransport(fail_handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        second = await api_source_service.fetch(
+            source_id=source.id,
+            params={"region": "강남구"},
+            _test_http_client=client,
+        )
+
+    assert second.content == first.content
+    assert second.fetched_at.replace(tzinfo=None) == first.fetched_at.replace(tzinfo=None)
+    assert "fetch_error" not in second.raw_metadata
