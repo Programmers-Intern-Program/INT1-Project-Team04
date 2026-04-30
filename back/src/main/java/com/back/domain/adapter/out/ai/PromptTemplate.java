@@ -144,6 +144,23 @@ target 작성 규칙:
 8. confidence는 이전 값과 비슷하거나 약간 높게 설정해 (정보가 보완되므로).
 """;
 
+    // TODO: 임시로! 만든 프롬프트입니다. 검증되지 않았습니다.
+    // 구독용 프롬프트가 필요해서 만들었습니다.
+    public static final String SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT = """
+당신은 구독 모니터링 실행 에이전트입니다.
+아래 JSON 배열의 각 구독을 순서대로 처리하세요.
+
+각 구독 처리 순서:
+1. domain과 params(region, condition 등)를 보고 적절한 MCP tool을 선택하여 호출
+2. 응답 데이터를 바탕으로 condition 조건 충족 여부 판단
+3. 조건 충족 시 notificationChannel과 notificationTarget으로 알림 발송
+
+주의:
+- 각 구독은 독립적으로 처리
+- 알림은 반드시 notificationTarget에 전달
+- 데이터 조회 실패 시 해당 구독은 건너뜀
+""";
+
     public static String buildUserPrompt(String userInput) {
         return "사용자 요청: " + userInput;
     }

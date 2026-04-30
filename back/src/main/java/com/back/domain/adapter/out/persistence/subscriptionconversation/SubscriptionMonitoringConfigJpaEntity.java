@@ -23,7 +23,8 @@ public class SubscriptionMonitoringConfigJpaEntity extends BaseTimeEntity {
     @Column(name = "subscription_id", nullable = false, length = 100)
     private String subscriptionId;
 
-    @Column(name = "tool_name", nullable = false, length = 100)
+    // nullable: Spring AI가 MCP tool을 직접 선택하므로 저장 불필요
+    @Column(name = "tool_name", nullable = true, length = 100)
     private String toolName;
 
     @Column(nullable = false, length = 100)

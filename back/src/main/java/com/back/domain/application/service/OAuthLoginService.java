@@ -91,8 +91,13 @@ public class OAuthLoginService {
             ));
             log.info("웰컴 토큰 지급 완료 - userId: {}, amount: {}", userId, WELCOME_TOKEN_AMOUNT);
         } catch (Exception e) {
-            // 토큰 지급 실패해도 로그인은 계속 진행
+            // 토큰 지급 실패해도 로그인은 계속 진행, 단 행은 반드시 생성
             log.error("웰컴 토큰 지급 실패 - userId: {}, error: {}", userId, e.getMessage(), e);
+            try {
+                tokenManagementUseCase.initializeTokenIfAbsent(userId);
+            } catch (Exception fallbackEx) {
+                log.error("토큰 행 초기화도 실패 - userId: {}", userId, fallbackEx);
+            }
         }
     }
 
