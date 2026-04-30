@@ -165,29 +165,42 @@ async def search_public_job(input: SearchPublicJobInput) -> dict[str, Any]:
             "MOEF_PUBLIC_JOB_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
+    # 도메인 단위 bulk fetch — wide 파라미터로 1회 호출해서 도메인 데이터를 캐시.
+    # 사용자 input 의 page_no/num_of_rows/ongoing_yn/recrut_pbanc_ttl 은 캐시 응답
+    # 현재는 API 호출에 반영하지 않음.
     source_id = await _resolve_source_id(_TOOL_PUBLIC_JOB)
     params: dict[str, Any] = {
         "serviceKey": settings.moef_public_job_api_key,
-        "pageNo": input.page_no,
-        "numOfRows": input.num_of_rows,
+        "pageNo": 1,
+        "numOfRows": 100,
         "resultType": "json",
     }
-    if input.ongoing_yn is not None:
-        params["ongoingYn"] = input.ongoing_yn
-    if input.recrut_pbanc_ttl:
-        params["recrutPbancTtl"] = input.recrut_pbanc_ttl
 
     raw = await api_source_service.fetch(source_id=source_id, params=params)
     records: list[PublicJobPosting] = normalize_public_job(raw.content)
-    summary = _summarize_public_job(records)
+
+    # 응답 단계 filtering — bulk fetch 결과에서 사용자 input 기준으로 추림.
+    filtered = records
+    if input.ongoing_yn == "Y":
+        filtered = [r for r in filtered if r.is_ongoing]
+    if input.recrut_pbanc_ttl:
+        keyword = input.recrut_pbanc_ttl
+        filtered = [r for r in filtered if keyword in (r.title or "")]
+
+    summary = _summarize_public_job(filtered)
 
     sorted_records = sorted(
-        records,
+        filtered,
         key=lambda r: r.pbanc_begin_date or date.min,
         reverse=True,
     )
+
+    # 페이지네이션 (사용자 page_no/num_of_rows 적용)
+    start = (input.page_no - 1) * input.num_of_rows
+    end = start + input.num_of_rows
+    paginated = sorted_records[start:end]
     truncated = len(sorted_records) > _MAX_RESULTS
-    returned = sorted_records[:_MAX_RESULTS]
+    returned = paginated[:_MAX_RESULTS]
 
     return {
         "text": _public_job_text(summary, records),
@@ -326,16 +339,15 @@ async def search_worknet_job(input: SearchWorknetJobInput) -> dict[str, Any]:
             "KEIS_WORKNET_JOB_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
+    # 도메인 단위 bulk fetch — keyword/start_page/display 입력은 #4 filtering 에서 적용.
     source_id = await _resolve_source_id(_TOOL_WORKNET_JOB)
     params: dict[str, Any] = {
         "authKey": settings.keis_worknet_job_api_key,
         "callTp": "L",
         "returnType": "XML",
-        "startPage": input.start_page,
-        "display": input.display,
+        "startPage": 1,
+        "display": 100,
     }
-    if input.keyword:
-        params["keyword"] = input.keyword
 
     raw = await api_source_service.fetch(source_id=source_id, params=params)
     source_url = _build_source_url(raw, params, secret_keys=("authKey",))
@@ -353,15 +365,29 @@ async def search_worknet_job(input: SearchWorknetJobInput) -> dict[str, Any]:
             source_id=source_id,
         )
 
-    summary = _summarize_worknet(records)
+    # 응답 단계 filtering — keyword 가 title 또는 company 에 포함되는지.
+    filtered = records
+    if input.keyword:
+        kw = input.keyword
+        filtered = [
+            r for r in filtered
+            if kw in (r.title or "") or kw in (r.company or "")
+        ]
+
+    summary = _summarize_worknet(filtered)
 
     sorted_records = sorted(
-        records,
+        filtered,
         key=lambda r: r.reg_date or date.min,
         reverse=True,
     )
+
+    # 페이지네이션 (start_page / display)
+    start = (input.start_page - 1) * input.display
+    end = start + input.display
+    paginated = sorted_records[start:end]
     truncated = len(sorted_records) > _MAX_RESULTS
-    returned = sorted_records[:_MAX_RESULTS]
+    returned = paginated[:_MAX_RESULTS]
 
     return {
         "text": _worknet_text(input.keyword, summary),
