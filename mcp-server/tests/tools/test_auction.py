@@ -139,10 +139,14 @@ async def test_search_default_dates_applied(
 
 
 @pytest.mark.asyncio
-async def test_search_explicit_dates_passed_through(
+async def test_search_uses_stable_daily_window_ignoring_input_dates(
     patched_session_factory, monkeypatch: pytest.MonkeyPatch
 ):
-    """inqry_bgn_dt 명시 시 그 값이 params 에 그대로 전달."""
+    """도메인 단위 bulk fetch — inqry_bgn_dt/inqry_end_dt 사용자 input 은 무시되고
+    일 단위로 안정화된 윈도우 (오늘 ~ 7일전 자정 ~ 오늘 23:59) 가 사용된다.
+
+    캐시 키 안정성 확보를 위해 분 단위 now() 가 아니라 일 단위로 round 한다.
+    """
     await _seed_source()
     captured: dict[str, Any] = {}
     monkeypatch.setattr(api_source_service, "fetch", _make_fake_fetch(SAMPLE_JSON, captured))
@@ -151,8 +155,14 @@ async def test_search_explicit_dates_passed_through(
         SearchG2bBidInput(inqry_bgn_dt="202604010000", inqry_end_dt="202604292359")
     )
 
-    assert captured["params"]["inqryBgnDt"] == "202604010000"
-    assert captured["params"]["inqryEndDt"] == "202604292359"
+    # 사용자 input 은 무시됨
+    assert captured["params"]["inqryBgnDt"] != "202604010000"
+    assert captured["params"]["inqryEndDt"] != "202604292359"
+    # 일 단위 윈도우 — bgn 은 ...0000 (자정), end 는 ...2359 로 끝남
+    assert captured["params"]["inqryBgnDt"].endswith("0000")
+    assert captured["params"]["inqryEndDt"].endswith("2359")
+    assert captured["params"]["pageNo"] == 1
+    assert captured["params"]["numOfRows"] == 100
 
 
 @pytest.mark.asyncio

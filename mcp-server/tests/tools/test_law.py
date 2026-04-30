@@ -123,10 +123,14 @@ async def test_search_law_info_returns_common_schema(
 
 
 @pytest.mark.asyncio
-async def test_search_law_info_passes_query_to_fetch_params(
+async def test_search_law_info_uses_bulk_fetch_params(
     patched_session_factory, monkeypatch: pytest.MonkeyPatch
 ):
-    """query/page_no/num_of_rows 가 fetch params 에 그대로 전달."""
+    """도메인 단위 bulk fetch — query/page_no/num_of_rows 사용자 input 은
+    API params 에 반영되지 않고 wide 값 (query='*', pageNo=1, numOfRows=100) 으로 고정.
+
+    필터링은 추가 예정.
+    """
     await _seed_source(
         tool_name="search_law_info",
         url_template="https://example.gov/moleg/law-info",
@@ -146,9 +150,10 @@ async def test_search_law_info_passes_query_to_fetch_params(
 
     await search_law_info(SearchLawInfoInput(query="민법", page_no=2, num_of_rows=10))
 
-    assert captured["params"]["query"] == "민법"
-    assert captured["params"]["pageNo"] == 2
-    assert captured["params"]["numOfRows"] == 10
+    # 사용자 input 은 무시되고 wide params 가 전달됨
+    assert captured["params"]["query"] == "*"
+    assert captured["params"]["pageNo"] == 1
+    assert captured["params"]["numOfRows"] == 100
     assert captured["params"]["target"] == "law"
     assert captured["params"]["serviceKey"] == "test-law-key"
 
@@ -315,10 +320,14 @@ async def test_search_bill_info_returns_common_schema(
 
 
 @pytest.mark.asyncio
-async def test_search_bill_info_passes_age_and_paging_to_params(
+async def test_search_bill_info_uses_bulk_fetch_params(
     patched_session_factory, monkeypatch: pytest.MonkeyPatch
 ):
-    """AGE/pIndex/pSize 가 fetch params 에 전달."""
+    """도메인 단위 bulk fetch — AGE 는 슬라이스 키로 유지되지만 pIndex/pSize 는
+    wide 값 (1/100) 으로 고정. 사용자 input 의 page_no/num_of_rows 는 무시됨.
+
+    필터링은 추후 추가 예정.
+    """
     await _seed_source(
         tool_name="search_bill_info",
         url_template="https://example.gov/na/bill-info",
@@ -338,9 +347,11 @@ async def test_search_bill_info_passes_age_and_paging_to_params(
 
     await search_bill_info(SearchBillInfoInput(age=21, page_no=3, num_of_rows=10))
 
+    # AGE 는 사용자 input 그대로 (슬라이스 축)
     assert captured["params"]["AGE"] == 21
-    assert captured["params"]["pIndex"] == 3
-    assert captured["params"]["pSize"] == 10
+    # pIndex/pSize 는 wide 값으로 고정 (사용자 input 무시)
+    assert captured["params"]["pIndex"] == 1
+    assert captured["params"]["pSize"] == 100
     assert captured["params"]["Type"] == "xml"
     assert captured["params"]["KEY"] == "test-bill-key"
 
