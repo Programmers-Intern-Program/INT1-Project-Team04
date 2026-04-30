@@ -140,25 +140,38 @@ async def search_law_info(input: SearchLawInfoInput) -> dict[str, Any]:
             "MOLEG_LAW_INFO_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
+    # 도메인 단위 bulk fetch — 사용자 query/page_no/num_of_rows 입력은 추후 적용.
     source_id = await _resolve_source_id(_TOOL_LAW_INFO)
     params: dict[str, Any] = {
         "serviceKey": settings.moleg_law_info_api_key,
         "target": "law",
-        "query": input.query,
-        "numOfRows": input.num_of_rows,
-        "pageNo": input.page_no,
+        "query": "*",
+        "numOfRows": 100,
+        "pageNo": 1,
     }
     raw = await api_source_service.fetch(source_id=source_id, params=params)
     records: list[LawItem] = normalize_law_info(raw.content)
-    summary = _summarize_law(records)
+
+    # 응답 단계 filtering — query 가 '*' 면 전체, 아니면 law_name substring 매칭.
+    filtered = records
+    if input.query and input.query != "*":
+        kw = input.query
+        filtered = [r for r in filtered if kw in (r.law_name or "")]
+
+    summary = _summarize_law(filtered)
 
     sorted_records = sorted(
-        records,
+        filtered,
         key=lambda r: r.promulgation_date or date.min,
         reverse=True,
     )
+
+    # 페이지네이션
+    start = (input.page_no - 1) * input.num_of_rows
+    end = start + input.num_of_rows
+    paginated = sorted_records[start:end]
     truncated = len(sorted_records) > _MAX_RESULTS
-    returned = sorted_records[:_MAX_RESULTS]
+    returned = paginated[:_MAX_RESULTS]
 
     url_template = raw.raw_metadata.get("url_template", "")
     source_url = (
@@ -274,16 +287,20 @@ async def search_bill_info(input: SearchBillInfoInput) -> dict[str, Any]:
             "NA_BILL_INFO_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
+    # 도메인 단위 bulk fetch — page_no/num_of_rows 입력은 #4 filtering 에서 적용.
+    # AGE 는 도메인 분기 축이라 wide fetch 의 일부로 유지 (대수별로 캐시가 덮어씌워짐).
     source_id = await _resolve_source_id(_TOOL_BILL_INFO)
     params: dict[str, Any] = {
         "KEY": settings.na_bill_info_api_key,
         "Type": "xml",
-        "pIndex": input.page_no,
-        "pSize": input.num_of_rows,
+        "pIndex": 1,
+        "pSize": 100,
         "AGE": input.age,
     }
     raw = await api_source_service.fetch(source_id=source_id, params=params)
     records: list[BillItem] = normalize_bill_info(raw.content)
+
+    # 의안 도메인은 추가 필터 인자 없음 (AGE 는 API params 단계). 페이지네이션만 적용.
     summary = _summarize_bill(records)
 
     sorted_records = sorted(
@@ -291,8 +308,13 @@ async def search_bill_info(input: SearchBillInfoInput) -> dict[str, Any]:
         key=lambda r: r.propose_date or date.min,
         reverse=True,
     )
+
+    # 페이지네이션
+    start = (input.page_no - 1) * input.num_of_rows
+    end = start + input.num_of_rows
+    paginated = sorted_records[start:end]
     truncated = len(sorted_records) > _MAX_RESULTS
-    returned = sorted_records[:_MAX_RESULTS]
+    returned = paginated[:_MAX_RESULTS]
 
     url_template = raw.raw_metadata.get("url_template", "")
     source_url = (
