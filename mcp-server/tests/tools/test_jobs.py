@@ -128,10 +128,14 @@ async def test_search_public_job_returns_common_schema(
 
 
 @pytest.mark.asyncio
-async def test_search_public_job_passes_optional_params(
+async def test_search_public_job_uses_bulk_fetch_params(
     patched_session_factory, monkeypatch: pytest.MonkeyPatch
 ):
-    """ongoing_yn / recrut_pbanc_ttl 명시 시 fetch params 에 포함."""
+    """도메인 단위 bulk fetch — 사용자 input(ongoing_yn/recrut_pbanc_ttl) 은
+    API params 에 포함되지 않고, pageNo=1/numOfRows=100 wide 값으로 고정.
+
+    필터링은 추가 예정.
+    """
     await _seed_source(
         tool_name="search_public_job",
         url_template="https://example.gov/moef/public-job",
@@ -153,8 +157,12 @@ async def test_search_public_job_passes_optional_params(
         SearchPublicJobInput(ongoing_yn="Y", recrut_pbanc_ttl="데이터")
     )
 
-    assert captured["params"]["ongoingYn"] == "Y"
-    assert captured["params"]["recrutPbancTtl"] == "데이터"
+    # 사용자 input 은 API params 에 들어가지 않음
+    assert "ongoingYn" not in captured["params"]
+    assert "recrutPbancTtl" not in captured["params"]
+    # wide params 로 고정
+    assert captured["params"]["pageNo"] == 1
+    assert captured["params"]["numOfRows"] == 100
     assert captured["params"]["resultType"] == "json"
 
 
@@ -362,7 +370,10 @@ async def test_search_worknet_job_normal_response_returns_postings(
     assert result["metadata"]["api_status"] == "ok"
     assert result["structured"]["summary"]["count"] == 1
     assert result["structured"]["postings"][0]["title"] == "백엔드 개발자"
-    assert captured["params"]["keyword"] == "백엔드"
+    # #3 bulk fetch — keyword 는 API params 에 포함되지 않음 (추후 적용 예정)
+    assert "keyword" not in captured["params"]
+    assert captured["params"]["startPage"] == 1
+    assert captured["params"]["display"] == 100
 
 
 @pytest.mark.asyncio
