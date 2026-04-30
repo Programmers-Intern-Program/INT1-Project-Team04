@@ -30,4 +30,9 @@ public interface TokenManagementUseCase {
      * 토큰 사용 내역 조회
      */
     List<TokenUsageHistoryResult> getUsageHistory(Long userId, int limit);
+
+    /**
+     * 토큰 행이 없으면 balance=0으로 초기화 (웰컴 토큰 지급 실패 시 fallback)
+     */
+    void initializeTokenIfAbsent(Long userId);
 }
