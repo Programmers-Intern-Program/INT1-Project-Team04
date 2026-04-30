@@ -367,30 +367,8 @@ class SubscriptionConversationServiceTest {
         assertThat(createSubscriptionUseCase.receivedCommand).isNull();
     }
 
-    @Test
-    @DisplayName("new draft uses the MCP tool available from storage")
-    void draftUsesStoredMcpTool() {
-        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
-        McpTool storedTool = mcpTool("search_house_price_v2");
-        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
-                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
-                : Optional.empty();
-        SubscriptionConversationService service = service(
-                connectedTelegram,
-                new FakeLoadMcpToolPort(storedTool, null)
-        );
-
-        SubscriptionConversationService.Response response = service.handle(
-                1L,
-                null,
-                "강남구 아파트 매매 실거래가를 매일 아침 Telegram으로 알려줘",
-                null
-        );
-
-        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
-        assertThat(response.draft().toolName()).isEqualTo("search_house_price_v2");
-    }
+    // draftUsesStoredMcpTool 테스트 제거:
+    // withStoredMcpTool()이 Spring AI 위임으로 제거됨 → toolName은 더 이상 저장되지 않음
 
     @Test
     @DisplayName("explicit unconnected DM channel asks for connection before confirmation")
@@ -643,46 +621,8 @@ class SubscriptionConversationServiceTest {
                 .contains("SELECT_CHANNEL");
     }
 
-    @Test
-    @DisplayName("missing MCP tool is reported as server setup problem instead of generic missing input")
-    void missingMcpToolReportsServerSetupProblem() {
-        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
-        conversation.updateParsedDraft(
-                "parse-1",
-                "강남구 아파트 매매 실거래가",
-                1L,
-                "real-estate",
-                "apartment_trade_price",
-                null,
-                "{\"region\":\"강남구\",\"condition\":\"10% 이상 하락\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
-                "0 0 9 * * *",
-                null,
-                null,
-                "알림을 받을 채널을 선택해 주세요. Telegram, Discord, Email 중 무엇으로 받을까요?",
-                SubscriptionConversationStatus.COLLECTING
-        );
-        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
-                .thenReturn(Optional.of(conversation));
-        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
-        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
-                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
-                : Optional.empty();
-        SubscriptionConversationService service = service(
-                connectedTelegram,
-                new FakeLoadMcpToolPort(null, null)
-        );
-
-        SubscriptionConversationService.Response response = service.handle(
-                1L,
-                conversation.getId(),
-                null,
-                new SubscriptionConversationService.ActionRequest("SELECT_CHANNEL", "TELEGRAM_DM")
-        );
-
-        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
-        assertThat(response.assistantMessage()).contains("알림 도구 설정");
-        assertThat(response.actions()).isEmpty();
-    }
+    // missingMcpToolReportsServerSetupProblem 테스트 제거:
+    // mcpTool missing 체크가 Spring AI 위임으로 제거됨 → toolName null은 더 이상 에러 조건이 아님
 
     private SubscriptionConversationService service(LoadNotificationEndpointPort endpointPort) {
         return service(endpointPort, new FakeLoadMcpToolPort(mcpTool("search_house_price"), mcpTool("search_house_price")));
