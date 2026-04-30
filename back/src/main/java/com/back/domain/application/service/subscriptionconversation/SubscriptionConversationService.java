@@ -271,6 +271,9 @@ public class SubscriptionConversationService {
                 conversation.getDraftNotificationChannel(),
                 conversation.getDraftNotificationTargetAddress()
         ));
+        // toolName은 null로 저장됨 (withStoredMcpTool 제거로 세팅 안 됨).
+        // 실행 시 Spring AI가 domain + parametersJson(region, condition 등)을 보고 MCP tool을 직접 선택하므로 문제 없음.
+        // parametersJson이 핵심 데이터 — SubscriptionMonitorService.buildContext()에서 SubscriptionContext.params로 전달됨.
         monitoringConfigRepository.save(new SubscriptionMonitoringConfigJpaEntity(
                 result.id(),
                 conversation.getDraftToolName(),
