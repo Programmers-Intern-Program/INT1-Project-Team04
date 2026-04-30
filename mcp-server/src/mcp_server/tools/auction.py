@@ -153,15 +153,18 @@ async def search_g2b_bid(input: SearchG2bBidInput) -> dict[str, Any]:
             "PPS_G2B_BID_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
-    now = datetime.now()
-    end_dt = input.inqry_end_dt or _yyyymmddhhmm(now)
-    bgn_dt = input.inqry_bgn_dt or _yyyymmddhhmm(now - timedelta(days=_DEFAULT_LOOKBACK_DAYS))
+    # 도메인 단위 bulk fetch 
+    # 시간 윈도우는 일 단위로 안정화 (캐시 키 안정성). 분 단위 now() 를 쓰면 매 호출마다
+    # 키가 달라져 캐시 hit 가 일어나지 않는다.
+    today = datetime.now().date()
+    bgn_dt = (today - timedelta(days=_DEFAULT_LOOKBACK_DAYS)).strftime("%Y%m%d") + "0000"
+    end_dt = today.strftime("%Y%m%d") + "2359"
 
     source_id = await _resolve_source_id(_TOOL_G2B_BID)
     params: dict[str, Any] = {
         "serviceKey": settings.pps_g2b_bid_api_key,
-        "pageNo": input.page_no,
-        "numOfRows": input.num_of_rows,
+        "pageNo": 1,
+        "numOfRows": 100,
         "type": "json",
         "inqryDiv": 1,  # 1=등록일시 기준
         "inqryBgnDt": bgn_dt,
@@ -169,11 +172,32 @@ async def search_g2b_bid(input: SearchG2bBidInput) -> dict[str, Any]:
     }
     raw = await api_source_service.fetch(source_id=source_id, params=params)
     records: list[BidNotice] = normalize_g2b_bid(raw.content)
-    summary = _summarize(records)
 
-    sorted_records = sorted(records, key=lambda r: r.notice_date, reverse=True)
+    # 응답 단계 filtering — 사용자가 inqry_bgn_dt/inqry_end_dt 명시 시 notice_date 가
+    # 그 윈도우에 포함되는지로 추림. 명시 안 됐으면 bulk 윈도우 그대로 사용.
+    filtered = records
+    user_bgn = input.inqry_bgn_dt
+    user_end = input.inqry_end_dt
+    if user_bgn or user_end:
+        def _in_window(r: BidNotice) -> bool:
+            ts = r.notice_date.strftime("%Y%m%d%H%M")
+            if user_bgn and ts < user_bgn:
+                return False
+            if user_end and ts > user_end:
+                return False
+            return True
+        filtered = [r for r in filtered if _in_window(r)]
+
+    summary = _summarize(filtered)
+
+    sorted_records = sorted(filtered, key=lambda r: r.notice_date, reverse=True)
+
+    # 페이지네이션
+    start = (input.page_no - 1) * input.num_of_rows
+    end = start + input.num_of_rows
+    paginated = sorted_records[start:end]
     truncated = len(sorted_records) > _MAX_RESULTS
-    returned = sorted_records[:_MAX_RESULTS]
+    returned = paginated[:_MAX_RESULTS]
 
     url_template = raw.raw_metadata.get("url_template", "")
     source_url = f"{url_template}?{_mask_query_string(params)}" if url_template else None
