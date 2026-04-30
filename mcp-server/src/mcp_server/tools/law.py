@@ -287,7 +287,7 @@ async def search_bill_info(input: SearchBillInfoInput) -> dict[str, Any]:
             "NA_BILL_INFO_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
-    # 도메인 단위 bulk fetch — page_no/num_of_rows 입력은 #4 filtering 에서 적용.
+    # 도메인 단위 bulk fetch
     # AGE 는 도메인 분기 축이라 wide fetch 의 일부로 유지 (대수별로 캐시가 덮어씌워짐).
     source_id = await _resolve_source_id(_TOOL_BILL_INFO)
     params: dict[str, Any] = {

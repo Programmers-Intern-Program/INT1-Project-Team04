@@ -146,7 +146,6 @@ async def test_search_uses_stable_daily_window_ignoring_input_dates(
     일 단위로 안정화된 윈도우 (오늘 ~ 7일전 자정 ~ 오늘 23:59) 가 사용된다.
 
     캐시 키 안정성 확보를 위해 분 단위 now() 가 아니라 일 단위로 round 한다.
-    필터링은 #4 응답 단계 filtering 도입 시 추가 예정.
     """
     await _seed_source()
     captured: dict[str, Any] = {}

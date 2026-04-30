@@ -339,7 +339,7 @@ async def search_worknet_job(input: SearchWorknetJobInput) -> dict[str, Any]:
             "KEIS_WORKNET_JOB_API_KEY 환경변수 미설정. .env 또는 배포 환경에 키를 설정하세요."
         )
 
-    # 도메인 단위 bulk fetch — keyword/start_page/display 입력은 #4 filtering 에서 적용.
+    # 도메인 단위 bulk fetch
     source_id = await _resolve_source_id(_TOOL_WORKNET_JOB)
     params: dict[str, Any] = {
         "authKey": settings.keis_worknet_job_api_key,
