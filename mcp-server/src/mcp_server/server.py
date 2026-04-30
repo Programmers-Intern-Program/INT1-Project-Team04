@@ -40,13 +40,7 @@ mcp: FastMCP = FastMCP(
     name="monitoring-mcp",
     instructions=(
         "부동산 / 법률 / 채용 / 경매 4개 도메인의 변화를 감시하는 MCP 서버. "
-        "도구 호출 결과는 {text, structured, source_url, metadata} 공통 스키마로 반환된다.\n\n"
-        "## 데이터 조회 규약\n"
-        "도메인 데이터 조회 요청이 들어오면 반드시 아래 순서를 따른다:\n"
-        "1. check_api_cache 호출 — 캐시 상태(cache_hit, cached_at, content)와 "
-        "tool_name 에서 추론한 도메인 성격을 바탕으로 실제 fetch 필요 여부를 판단한다.\n"
-        "2. fetch 필요 시 해당 fetch tool 호출.\n"
-        "3. 데이터 분석 후 결과 송신."
+        "도구 호출 결과는 {text, structured, source_url, metadata} 공통 스키마로 반환된다."
     ),
     host=_settings.mcp_sse_host,
     port=_settings.mcp_sse_port,
