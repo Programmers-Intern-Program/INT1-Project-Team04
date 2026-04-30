@@ -16,8 +16,10 @@ public class ScheduleTrigger {
     private final RunDueSchedulesUseCase runDueSchedulesUseCase;
     private final RunSubscriptionMonitorUseCase runSubscriptionMonitorUseCase;
 
-    //TODO: 쓰지 않는거면 관려된 것 지울 것.
-    @Scheduled(fixedDelayString = "${schedule.runner.fixed-delay-ms:60000}")
+    // @Deprecated: ScheduleExecutionService(직접 MCP 호출)를 사용하던 구 흐름.
+    // SubscriptionMonitorService(Spring AI → MCP server 위임)로 교체됨.
+    // runDueSchedulesUseCase 및 ScheduleExecutionService는 교체 안정화 후 제거 예정.
+    @Deprecated
     public void run() {
         runDueSchedulesUseCase.runDueSchedules();
     }
