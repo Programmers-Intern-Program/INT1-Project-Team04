@@ -76,6 +76,20 @@ export type DeleteSubscriptionResult =
   | { ok: true }
   | { ok: false; error: SubscriptionApiError };
 
+export type SimulateSubscriptionChangeAlertResponse = {
+  subscriptionId: string;
+  triggered: boolean;
+  briefingGenerated: boolean;
+  deliveryCount: number;
+  dispatchedCount: number;
+  metricKey: string | null;
+  reason: string | null;
+};
+
+export type SimulateSubscriptionChangeAlertResult =
+  | { ok: true; data: SimulateSubscriptionChangeAlertResponse }
+  | { ok: false; error: SubscriptionApiError };
+
 export function getConversationApiBaseUrl(): string {
   return (
     process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
@@ -168,6 +182,42 @@ export async function deleteSubscriptionSummary(
   }
 }
 
+export async function simulateSubscriptionChangeAlert(
+  subscriptionId: string,
+  options: { baseUrl?: string; fetcher?: SubscriptionConversationFetch } = {},
+): Promise<SimulateSubscriptionChangeAlertResult> {
+  const baseUrl = (options.baseUrl ?? getConversationApiBaseUrl()).replace(/\/$/, "");
+  const fetcher = options.fetcher ?? fetch;
+
+  try {
+    const response = await fetcher(
+      `${baseUrl}/api/dev/subscriptions/${subscriptionId}/simulate-change-alert`,
+      {
+        method: "POST",
+        credentials: "include",
+      },
+    );
+    const body: unknown = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      return { ok: false, error: readError(body, "테스트 알림 요청에 실패했습니다.") };
+    }
+
+    return {
+      ok: true,
+      data: readSimulationResponse(body, subscriptionId),
+    };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        code: "NETWORK_ERROR",
+        message: "서버에 연결할 수 없습니다.",
+      },
+    };
+  }
+}
+
 async function postConversation(
   payload: Record<string, unknown>,
   options: { baseUrl?: string; fetcher?: SubscriptionConversationFetch },
@@ -242,6 +292,21 @@ function readSubscriptionSummaries(value: unknown): SubscriptionSummary[] {
   });
 }
 
+function readSimulationResponse(
+  value: unknown,
+  fallbackSubscriptionId: string,
+): SimulateSubscriptionChangeAlertResponse {
+  return {
+    subscriptionId: getStringField(value, "subscriptionId") ?? fallbackSubscriptionId,
+    triggered: getBooleanField(value, "triggered") ?? false,
+    briefingGenerated: getBooleanField(value, "briefingGenerated") ?? false,
+    deliveryCount: getNumberField(value, "deliveryCount") ?? 0,
+    dispatchedCount: getNumberField(value, "dispatchedCount") ?? 0,
+    metricKey: getNullableStringField(value, "metricKey"),
+    reason: getNullableStringField(value, "reason"),
+  };
+}
+
 function readError(value: unknown, fallbackMessage: string): SubscriptionApiError {
   return {
     code: getStringField(value, "code") ?? "REQUEST_FAILED",
@@ -274,6 +339,15 @@ function getBooleanField(value: unknown, field: string): boolean | null {
 
   const fieldValue = value[field as keyof typeof value];
   return typeof fieldValue === "boolean" ? fieldValue : null;
+}
+
+function getNumberField(value: unknown, field: string): number | null {
+  if (!value || typeof value !== "object" || !(field in value)) {
+    return null;
+  }
+
+  const fieldValue = value[field as keyof typeof value];
+  return typeof fieldValue === "number" && Number.isFinite(fieldValue) ? fieldValue : null;
 }
 
 function getNotificationChannelField(

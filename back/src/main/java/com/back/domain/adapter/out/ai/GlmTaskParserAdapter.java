@@ -24,19 +24,19 @@ public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
-    @Value("${ai-parser.model:glm-4.5}")
+    @Value("${ai-gateway.model:glm-4.5}")
     private String model;
 
-    @Value("${ai-parser.max-tokens:2048}")
+    @Value("${ai-gateway.max-tokens:2048}")
     private int maxTokens;
 
-    @Value("${ai-parser.temperature:0.3}")
+    @Value("${ai-gateway.temperature:0.3}")
     private double temperature;
 
     public GlmTaskParserAdapter(
             RestClient.Builder restClientBuilder,
-            @Value("${ai-parser.base-url}") String baseUrl,
-            @Value("${ai-parser.api-key}") String apiKey,
+            @Value("${ai-gateway.base-url}") String baseUrl,
+            @Value("${ai-gateway.api-key}") String apiKey,
             ObjectMapper objectMapper
     ) {
         this.restClient = restClientBuilder

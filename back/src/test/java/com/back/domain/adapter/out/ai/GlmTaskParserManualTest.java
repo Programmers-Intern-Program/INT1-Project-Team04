@@ -24,16 +24,18 @@ class GlmTaskParserManualTest {
     private final GlmTaskParserAdapter adapter = createAdapter();
 
     private static GlmTaskParserAdapter createAdapter() {
-        String baseUrl = System.getProperty("ai-parser.base-url",
-                System.getenv().getOrDefault("AI_PARSER_BASE_URL", ""));
-        String apiKey = System.getProperty("ai-parser.api-key",
-                System.getenv().getOrDefault("AI_PARSER_API_KEY", ""));
+        String baseUrl = System.getProperty("ai-gateway.base-url",
+                System.getenv().getOrDefault("AI_BASE_URL",
+                        System.getenv().getOrDefault("AI_PARSER_BASE_URL", "")));
+        String apiKey = System.getProperty("ai-gateway.api-key",
+                System.getenv().getOrDefault("AI_API_KEY",
+                        System.getenv().getOrDefault("AI_PARSER_API_KEY", "")));
 
         if (baseUrl.isEmpty() || apiKey.isEmpty()) {
             throw new IllegalStateException(
-                    "AI_PARSER_BASE_URL, AI_PARSER_API_KEY를 시스템 프로퍼티 또는 환경변수로 설정하세요.\n"
+                    "AI_BASE_URL, AI_API_KEY를 시스템 프로퍼티 또는 환경변수로 설정하세요.\n"
                     + "실행 예: ./gradlew aiTest -DAI.test.enabled=true "
-                    + "-Dai-parser.base-url=URL -Dai-parser.api-key=KEY"
+                    + "-Dai-gateway.base-url=URL -Dai-gateway.api-key=KEY"
             );
         }
 
