@@ -136,7 +136,8 @@ public class SubscriptionConversationService {
         ParsedTask task = parseResult.tasks().getFirst();
         SubscriptionDraft draft = parsedTaskNormalizer.normalize(task, userMessage, previousDraft(conversation));
         Long domainId = findDomainId(draft.domainName()).orElse(null);
-        draft = withStoredMcpTool(draft, domainId);
+        // toolName은 SubscriptionMonitorService(Spring AI)가 MCP server에 위임하므로 더 이상 여기서 세팅 불필요
+        // draft = withStoredMcpTool(draft, domainId);
         NotificationChannel channel = parseChannel(draft.notificationChannel()).orElse(null);
         String assistantMessage = assistantMessage(task, draft);
         boolean waitsForParserConfirmation = task.needsConfirmation() && !isUnsupported(draft);
@@ -211,7 +212,7 @@ public class SubscriptionConversationService {
     }
 
     private Response completeOrAsk(SubscriptionConversationJpaEntity conversation) {
-        resolveMissingMcpTool(conversation);
+        // resolveMissingMcpTool(conversation); // Spring AI 위임으로 불필요
         List<String> missing = missingPersistedFields(conversation);
         if (missing.isEmpty()) {
             conversation.updateStatus(SubscriptionConversationStatus.READY_FOR_CONFIRMATION, confirmationMessage());
@@ -225,6 +226,8 @@ public class SubscriptionConversationService {
         return needsInput(conversation, message, actionsForMissing(missing, conversation.getUserId()));
     }
 
+    // @Deprecated: MCP tool 선택이 Spring AI(MCP server)로 위임되면서 호출 제거됨. 참조용으로 보존.
+    @SuppressWarnings("unused")
     private void resolveMissingMcpTool(SubscriptionConversationJpaEntity conversation) {
         if (!isBlank(conversation.getDraftToolName()) || conversation.getDraftDomainId() == null) {
             return;
@@ -252,7 +255,7 @@ public class SubscriptionConversationService {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         }
 
-        resolveMissingMcpTool(conversation);
+        // resolveMissingMcpTool(conversation); // Spring AI 위임으로 불필요
         List<String> missing = missingPersistedFields(conversation);
         if (!missing.isEmpty()) {
             String message = questionForMissing(missing, conversation);
@@ -329,6 +332,8 @@ public class SubscriptionConversationService {
         );
     }
 
+    // @Deprecated: MCP tool 선택이 Spring AI(MCP server)로 위임되면서 호출 제거됨. 참조용으로 보존.
+    @SuppressWarnings("unused")
     private SubscriptionDraft withStoredMcpTool(SubscriptionDraft draft, Long domainId) {
         if (domainId == null || isUnsupported(draft)) {
             return draft;
@@ -363,7 +368,7 @@ public class SubscriptionConversationService {
         return domainId != null
                 && !isBlank(draft.query())
                 && !isBlank(draft.intent())
-                && !isBlank(draft.toolName())
+                // toolName 조건 제거 — MCP tool 선택은 Spring AI(MCP server)가 담당
                 && StructuredCondition.fromParameters(draft.monitoringParams()).isPresent()
                 && !isBlank(draft.cronExpr())
                 && channel != null
@@ -490,9 +495,10 @@ public class SubscriptionConversationService {
                 || isBlank(conversation.getDraftIntent())) {
             missing.add("draft");
         }
-        if (conversation.getDraftDomainId() != null && isBlank(conversation.getDraftToolName())) {
-            missing.add("mcpTool");
-        }
+        // mcpTool 누락 체크 제거 — MCP tool 선택은 Spring AI(MCP server)가 담당
+        // if (conversation.getDraftDomainId() != null && isBlank(conversation.getDraftToolName())) {
+        //     missing.add("mcpTool");
+        // }
         return missing;
     }
 
