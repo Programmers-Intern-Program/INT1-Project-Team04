@@ -17,6 +17,7 @@ import com.back.domain.application.port.out.SaveSchedulePort;
 import com.back.domain.application.port.out.SendNotificationPort;
 import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
 import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
+import com.back.domain.application.service.monitoring.MonitoringBriefingResult;
 import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
 import com.back.domain.application.service.monitoring.MonitoringQueryMatcher;
 import com.back.domain.application.result.McpExecutionResult;
@@ -455,6 +456,110 @@ class ScheduleExecutionServiceTest {
     }
 
     @Test
+    @DisplayName("Application: AI가 알림을 비추천하면 정량 변화가 감지되어도 알림을 보내지 않는다")
+    void skipsNotificationWhenAiDoesNotRecommendNotification() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeGenerateMonitoringBriefingPort generateBriefingPort =
+                new FakeGenerateMonitoringBriefingPort(new MonitoringBriefingResult(false, "표본 부족으로 알림 비추천"));
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                loadConfigPort,
+                subscriptionId -> List.of(),
+                new FakeExecuteMcpToolPort(),
+                new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(previousHub(user, tool, subscription.id(), 100000)),
+                saveNotificationPort,
+                notification -> true,
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                generateBriefingPort,
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(generateBriefingPort.requests).hasSize(1);
+        assertThat(saveNotificationPort.saved).isEmpty();
+        assertThat(saveSchedulePort.saved).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Application: AI가 알림을 추천하면 정량 임계값 미달이어도 알림을 보낸다")
+    void sendsNotificationWhenAiRecommendsNotificationEvenIfBackendThresholdIsNotReached() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeGenerateMonitoringBriefingPort generateBriefingPort =
+                new FakeGenerateMonitoringBriefingPort(new MonitoringBriefingResult(true, "AI가 유의미한 변화로 판단했습니다."));
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                loadConfigPort,
+                subscriptionId -> List.of(),
+                new FakeExecuteMcpToolPort(102000),
+                new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(previousHub(user, tool, subscription.id(), 100000)),
+                saveNotificationPort,
+                notification -> true,
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                generateBriefingPort,
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(generateBriefingPort.requests).hasSize(1);
+        assertThat(generateBriefingPort.requests.get(0).decision().triggered()).isFalse();
+        assertThat(saveNotificationPort.saved).extracting(Notification::message)
+                .containsOnly("AI가 유의미한 변화로 판단했습니다.");
+    }
+
+    @Test
     @DisplayName("Application: AI 브리핑 변화 알림은 실제 채널 발송용 Delivery를 생성한다")
     void createsNotificationDeliveryForAiBriefingChangeAlert() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
@@ -716,19 +821,23 @@ class ScheduleExecutionServiceTest {
 
     private static class FakeGenerateMonitoringBriefingPort implements GenerateMonitoringBriefingPort {
 
-        private final Optional<String> briefing;
+        private final Optional<MonitoringBriefingResult> briefing;
         private final List<MonitoringBriefingRequest> requests = new ArrayList<>();
 
         private FakeGenerateMonitoringBriefingPort() {
-            this(null);
+            this((MonitoringBriefingResult) null);
         }
 
         private FakeGenerateMonitoringBriefingPort(String briefing) {
+            this(briefing == null ? null : new MonitoringBriefingResult(true, briefing));
+        }
+
+        private FakeGenerateMonitoringBriefingPort(MonitoringBriefingResult briefing) {
             this.briefing = Optional.ofNullable(briefing);
         }
 
         @Override
-        public Optional<String> generate(MonitoringBriefingRequest request) {
+        public Optional<MonitoringBriefingResult> generate(MonitoringBriefingRequest request) {
             requests.add(request);
             return briefing;
         }

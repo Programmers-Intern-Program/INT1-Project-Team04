@@ -127,6 +127,10 @@ public class NotificationDeliveryCreationService {
     }
 
     private String formatDiscordMessage(AlertEvent alertEvent) {
+        if (isAiBriefing(alertEvent)) {
+            return alertEvent.summary().trim();
+        }
+
         StringBuilder message = new StringBuilder();
         message.append("**변화 감지**\n");
         message.append("**").append(alertEvent.title()).append("**\n");
@@ -140,6 +144,10 @@ public class NotificationDeliveryCreationService {
     }
 
     private String formatTelegramMessage(AlertEvent alertEvent) {
+        if (isAiBriefing(alertEvent)) {
+            return alertEvent.summary().trim();
+        }
+
         StringBuilder message = new StringBuilder();
         message.append("변화 감지\n");
         message.append(alertEvent.title()).append("\n");
@@ -296,5 +304,9 @@ public class NotificationDeliveryCreationService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private boolean isAiBriefing(AlertEvent alertEvent) {
+        return hasText(alertEvent.summary()) && alertEvent.summary().startsWith("[AI 변화 브리핑]");
     }
 }

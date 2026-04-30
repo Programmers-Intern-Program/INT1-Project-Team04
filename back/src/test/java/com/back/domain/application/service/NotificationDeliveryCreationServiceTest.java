@@ -76,6 +76,56 @@ class NotificationDeliveryCreationServiceTest {
     }
 
     @Test
+    @DisplayName("Application: Telegram AI 변화 브리핑은 상세 중복 섹션 없이 브리핑만 전달한다")
+    void createsCompactTelegramMessageForAiChangeBriefing() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Subscription subscription = subscription(user);
+        AlertEvent alertEvent = new AlertEvent(
+                "alert-ai",
+                subscription,
+                "강남구 아파트 평균 매매가 상승",
+                "[AI 변화 브리핑] 강남구 아파트 평균 매매가 상승\n\n평균 매매가가 10억에서 10.3억으로 3% 상승했습니다.",
+                "구독 조건에 맞는 변화가 감지되었습니다.",
+                List.of(new AlertSource(
+                        "평균 거래금액 변화",
+                        null,
+                        "이전 100000, 현재 103000, 변화 3000 (3%)"
+                )),
+                LocalDateTime.of(2026, 4, 24, 13, 40)
+        );
+        NotificationDeliveryCreationService service = new NotificationDeliveryCreationService(
+                subscriptionId -> List.of(new NotificationPreference(
+                        "pref-1",
+                        subscriptionId,
+                        NotificationChannel.TELEGRAM_DM,
+                        true
+                )),
+                (userId, channel) -> Optional.of(new NotificationEndpoint(
+                        "endpoint-1",
+                        userId,
+                        channel,
+                        "123456789",
+                        true
+                )),
+                new FakeSaveNotificationDeliveryPort()
+        );
+
+        NotificationDelivery delivery = service.createFor(alertEvent).get(0);
+
+        assertThat(delivery.message())
+                .contains("강남구 아파트 평균 매매가 상승")
+                .contains("평균 매매가가 10억에서 10.3억으로 3% 상승했습니다.")
+                .doesNotContain(
+                        "신규 1건 감지",
+                        "1. 평균 거래금액 변화",
+                        "판단 근거:",
+                        "요청:",
+                        "감지 시간:",
+                        "이전 100000"
+                );
+    }
+
+    @Test
     @DisplayName("Application: Discord DM은 Markdown 강조와 링크 자동 임베드 억제를 적용한 본문을 생성한다")
     void createsDiscordOptimizedDeliveryMessage() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);

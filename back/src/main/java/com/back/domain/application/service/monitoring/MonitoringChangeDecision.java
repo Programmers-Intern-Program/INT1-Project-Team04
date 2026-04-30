@@ -25,4 +25,15 @@ public record MonitoringChangeDecision(
     public static MonitoringChangeDecision notTriggered(String reason) {
         return new MonitoringChangeDecision(false, null, null, null, null, null, reason);
     }
+
+    public static MonitoringChangeDecision notTriggered(
+            String metricKey,
+            BigDecimal previousValue,
+            BigDecimal currentValue,
+            BigDecimal changeValue,
+            BigDecimal changeRate,
+            String reason
+    ) {
+        return new MonitoringChangeDecision(false, metricKey, previousValue, currentValue, changeValue, changeRate, reason);
+    }
 }

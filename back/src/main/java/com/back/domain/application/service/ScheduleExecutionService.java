@@ -16,6 +16,7 @@ import com.back.domain.application.result.McpExecutionResult;
 import com.back.domain.application.service.monitoring.McpSnapshotEnvelope;
 import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
 import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
+import com.back.domain.application.service.monitoring.MonitoringBriefingResult;
 import com.back.domain.application.service.monitoring.MonitoringChangeDecision;
 import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
 import com.back.domain.application.service.monitoring.MonitoringQueryMatcher;
@@ -128,9 +129,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                     snapshot.summary(),
                     stringParameters(parameters)
             );
-            if (decision.triggered()) {
-                sendAlertNotification(schedule, tool, aiDataHub, result, previous, snapshot, decision, now);
-            }
+            sendAlertNotification(schedule, tool, aiDataHub, result, previous, snapshot, decision, now);
         });
 
         advanceSchedule(schedule, now);
@@ -146,22 +145,34 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
             MonitoringChangeDecision decision,
             LocalDateTime now
     ) {
-        String fallbackMessage = monitoringAlertMessageBuilder.build(
-                schedule.subscription().query(),
-                tool.name(),
-                decision,
-                result.content()
-        );
-        String message = generateMonitoringBriefingPort.generate(new MonitoringBriefingRequest(
+        Optional<MonitoringBriefingResult> briefing = generateMonitoringBriefingPort.generate(new MonitoringBriefingRequest(
                         schedule.subscription().query(),
                         tool.name(),
                         decision,
                         previousSnapshot.summary().toString(),
                         currentSnapshot.summary().toString(),
                         result.content()
-                ))
-                .filter(briefing -> !briefing.isBlank())
-                .orElse(fallbackMessage);
+                ));
+        if (briefing.isPresent() && !briefing.get().notificationRecommended()) {
+            return;
+        }
+        if (briefing.isEmpty() && !decision.triggered()) {
+            return;
+        }
+        String message = briefing
+                .map(MonitoringBriefingResult::message)
+                .filter(generatedMessage -> !generatedMessage.isBlank())
+                .orElseGet(() -> decision.triggered()
+                        ? monitoringAlertMessageBuilder.build(
+                                schedule.subscription().query(),
+                                tool.name(),
+                                decision,
+                                result.content()
+                        )
+                        : "");
+        if (isBlank(message)) {
+            return;
+        }
         saveAndSendNotification(schedule, aiDataHub, message, now);
     }
 

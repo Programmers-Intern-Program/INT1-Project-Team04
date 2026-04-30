@@ -2,6 +2,7 @@ package com.back.domain.adapter.out.ai;
 
 import com.back.domain.application.port.out.GenerateMonitoringBriefingPort;
 import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
+import com.back.domain.application.service.monitoring.MonitoringBriefingResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -49,14 +50,17 @@ public class AiGatewayMonitoringBriefingAdapter implements GenerateMonitoringBri
     }
 
     @Override
-    public Optional<String> generate(MonitoringBriefingRequest request) {
+    public Optional<MonitoringBriefingResult> generate(MonitoringBriefingRequest request) {
         if (!configured) {
             return Optional.empty();
         }
         try {
             String content = callGateway(request);
             return MonitoringBriefingResponse.parse(objectMapper, content)
-                    .map(MonitoringBriefingResponse::toMessage);
+                    .map(response -> new MonitoringBriefingResult(
+                            response.notificationRecommended(),
+                            response.toMessage()
+                    ));
         } catch (Exception exception) {
             log.warn("[AiGatewayMonitoringBriefingAdapter] AI 브리핑 생성 실패, 기본 변화 알림으로 대체합니다.", exception);
             return Optional.empty();

@@ -9,6 +9,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
+import com.back.domain.application.service.monitoring.MonitoringBriefingResult;
 import com.back.domain.application.service.monitoring.MonitoringChangeDecision;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
@@ -52,7 +53,7 @@ class AiGatewayMonitoringBriefingAdapterTest {
                 }
                 """, MediaType.APPLICATION_JSON));
 
-        Optional<String> result = adapter.generate(new MonitoringBriefingRequest(
+        Optional<MonitoringBriefingResult> result = adapter.generate(new MonitoringBriefingRequest(
                 "강남구 아파트 매매",
                 "search_house_price",
                 MonitoringChangeDecision.triggered(
@@ -68,10 +69,10 @@ class AiGatewayMonitoringBriefingAdapterTest {
         ));
 
         assertThat(result)
-                .hasValueSatisfying(message -> assertThat(message)
+                .hasValueSatisfying(briefing -> assertThat(briefing.message())
                         .contains("[AI 변화 브리핑] 강남구 아파트 매매 상승")
                         .contains("평균 매매가가 3% 상승했습니다.")
-                        .contains("핵심 변화:\n- 100000에서 103000으로 상승"));
+                        .contains("핵심 변화:\n- 10억에서 10.3억으로 상승"));
         server.verify();
     }
 
@@ -88,7 +89,7 @@ class AiGatewayMonitoringBriefingAdapterTest {
                 new ObjectMapper()
         );
 
-        Optional<String> result = adapter.generate(new MonitoringBriefingRequest(
+        Optional<MonitoringBriefingResult> result = adapter.generate(new MonitoringBriefingRequest(
                 "강남구 아파트 매매",
                 "search_house_price",
                 MonitoringChangeDecision.triggered(

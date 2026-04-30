@@ -15,6 +15,7 @@ import com.back.domain.application.service.NotificationDeliveryCreationService;
 import com.back.domain.application.service.NotificationDispatcherService;
 import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
 import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
+import com.back.domain.application.service.monitoring.MonitoringBriefingResult;
 import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.notification.NotificationChannel;
@@ -263,15 +264,15 @@ class DevSubscriptionChangeSimulationServiceTest {
     }
 
     private static class FakeGenerateMonitoringBriefingPort implements GenerateMonitoringBriefingPort {
-        private final String response;
+        private final MonitoringBriefingResult response;
         private final List<MonitoringBriefingRequest> requests = new ArrayList<>();
 
         private FakeGenerateMonitoringBriefingPort(String response) {
-            this.response = response;
+            this.response = response == null ? null : new MonitoringBriefingResult(true, response);
         }
 
         @Override
-        public Optional<String> generate(MonitoringBriefingRequest request) {
+        public Optional<MonitoringBriefingResult> generate(MonitoringBriefingRequest request) {
             requests.add(request);
             return Optional.ofNullable(response);
         }

@@ -7,6 +7,7 @@ import com.back.domain.application.service.NotificationDeliveryCreationService;
 import com.back.domain.application.service.NotificationDispatcherService;
 import com.back.domain.application.service.monitoring.MonitoringAlertMessageBuilder;
 import com.back.domain.application.service.monitoring.MonitoringBriefingRequest;
+import com.back.domain.application.service.monitoring.MonitoringBriefingResult;
 import com.back.domain.application.service.monitoring.MonitoringChangeDecision;
 import com.back.domain.application.service.monitoring.MonitoringChangeDetector;
 import com.back.domain.application.service.subscriptionconversation.StructuredCondition;
@@ -90,15 +91,29 @@ public class DevSubscriptionChangeSimulationService {
                 null
         );
         String mcpContent = fakeMcpContent(subscription, summaries);
-        Optional<String> generatedBriefing = generateMonitoringBriefingPort.generate(new MonitoringBriefingRequest(
+        Optional<MonitoringBriefingResult> generatedBriefing = generateMonitoringBriefingPort.generate(new MonitoringBriefingRequest(
                 subscription.query(),
                 config.toolName(),
                 decision,
                 summaries.previous().toString(),
                 summaries.current().toString(),
                 mcpContent
-        )).filter(briefing -> !briefing.isBlank());
-        String message = generatedBriefing.orElse(fallbackMessage);
+        ));
+        if (generatedBriefing.isPresent() && !generatedBriefing.get().notificationRecommended()) {
+            return new DevSubscriptionChangeSimulationResult(
+                    subscriptionId,
+                    false,
+                    true,
+                    0,
+                    0,
+                    decision.metricKey(),
+                    "ai notification not recommended"
+            );
+        }
+        String message = generatedBriefing
+                .map(MonitoringBriefingResult::message)
+                .filter(briefing -> !briefing.isBlank())
+                .orElse(fallbackMessage);
 
         List<NotificationDelivery> deliveries = deliveryCreationService.createFor(alertEvent(
                 subscription,

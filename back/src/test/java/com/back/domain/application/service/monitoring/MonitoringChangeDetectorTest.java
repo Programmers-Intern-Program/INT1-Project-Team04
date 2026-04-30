@@ -51,5 +51,9 @@ class MonitoringChangeDetectorTest {
         ));
 
         assertThat(decision.triggered()).isFalse();
+        assertThat(decision.metricKey()).isEqualTo("avg_deal_amount");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("100000"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("95000"));
+        assertThat(decision.changeRate()).isEqualByComparingTo(new BigDecimal("-5"));
     }
 }

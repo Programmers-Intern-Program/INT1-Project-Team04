@@ -45,18 +45,18 @@ public class MonitoringChangeDetector {
         }
 
         BigDecimal change = current.subtract(previous);
-        if (!matchesDirection(change, condition.direction())) {
-            return MonitoringChangeDecision.notTriggered("direction mismatch");
-        }
-
         BigDecimal rate = change
                 .multiply(BigDecimal.valueOf(100))
                 .divide(previous.abs(), 6, RoundingMode.HALF_UP)
                 .stripTrailingZeros();
+        if (!matchesDirection(change, condition.direction())) {
+            return MonitoringChangeDecision.notTriggered(metricKey, previous, current, change, rate, "direction mismatch");
+        }
+
         BigDecimal comparable = comparableValue(condition, change, rate);
         BigDecimal threshold = threshold(condition);
         if (!matchesOperator(comparable, threshold, condition.operator())) {
-            return MonitoringChangeDecision.notTriggered("threshold not reached");
+            return MonitoringChangeDecision.notTriggered(metricKey, previous, current, change, rate, "threshold not reached");
         }
         return MonitoringChangeDecision.triggered(metricKey, previous, current, change, rate);
     }
