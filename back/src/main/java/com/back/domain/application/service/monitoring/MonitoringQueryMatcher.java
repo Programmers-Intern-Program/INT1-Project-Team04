@@ -9,7 +9,12 @@ public class MonitoringQueryMatcher {
     public boolean sameTarget(JsonNode previousQuery, JsonNode currentQuery) {
         String previousLawdCd = text(previousQuery, "lawd_cd");
         String currentLawdCd = text(currentQuery, "lawd_cd");
-        return !isBlank(previousLawdCd) && previousLawdCd.equals(currentLawdCd);
+        String previousDealYmd = text(previousQuery, "deal_ymd");
+        String currentDealYmd = text(currentQuery, "deal_ymd");
+        return !isBlank(previousLawdCd)
+                && previousLawdCd.equals(currentLawdCd)
+                && !isBlank(previousDealYmd)
+                && previousDealYmd.equals(currentDealYmd);
     }
 
     private String text(JsonNode node, String key) {

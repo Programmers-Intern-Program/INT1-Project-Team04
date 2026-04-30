@@ -46,7 +46,7 @@ class AiGatewayMonitoringBriefingAdapterTest {
                   "choices": [
                     {
                       "message": {
-                        "content": "{\\"title\\":\\"강남구 아파트 매매 상승\\",\\"summary\\":\\"평균 매매가가 3% 상승했습니다.\\",\\"keyChanges\\":[\\"100000에서 103000으로 상승\\"],\\"watchPoints\\":[\\"다음 거래량 확인\\"]}"
+                        "content": "{\\"notificationRecommended\\":true,\\"title\\":\\"강남구 아파트 매매 상승\\",\\"summary\\":\\"평균 매매가가 3% 상승했습니다.\\",\\"keyChanges\\":[\\"100000에서 103000으로 상승\\"],\\"watchPoints\\":[\\"다음 거래량 확인\\"]}"
                       }
                     }
                   ]

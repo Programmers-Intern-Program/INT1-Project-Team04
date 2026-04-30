@@ -1,8 +1,10 @@
 package com.back.domain.adapter.out.ai;
 
+import com.back.domain.application.service.monitoring.MonitoringChangeDecision;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -19,7 +21,7 @@ record MonitoringBriefingResponse(
         List<String> watchPoints
 ) {
 
-    private static final Pattern MONEY_AMOUNT = Pattern.compile("(?<![0-9.])([0-9]{4,})(?![0-9.%])");
+    private static final Pattern MONEY_AMOUNT = Pattern.compile("(?<![0-9.])([0-9]{4,})(?![0-9.%원만억])");
     private static final Set<String> FIELDS = Set.of(
             "notificationRecommended",
             "title",
@@ -45,11 +47,16 @@ record MonitoringBriefingResponse(
             Optional<String> summary = requiredText(root, "summary");
             Optional<List<String>> keyChanges = requiredTextArray(root, "keyChanges");
             Optional<List<String>> watchPoints = requiredTextArray(root, "watchPoints");
-            if (title.isEmpty() || summary.isEmpty() || keyChanges.isEmpty() || watchPoints.isEmpty()) {
+            Optional<Boolean> notificationRecommended = optionalBoolean(root, "notificationRecommended");
+            if (notificationRecommended.isEmpty()
+                    || title.isEmpty()
+                    || summary.isEmpty()
+                    || keyChanges.isEmpty()
+                    || watchPoints.isEmpty()) {
                 return Optional.empty();
             }
             return Optional.of(new MonitoringBriefingResponse(
-                    optionalBoolean(root, "notificationRecommended").orElse(true),
+                    notificationRecommended.get(),
                     title.get(),
                     summary.get(),
                     keyChanges.get(),
@@ -61,10 +68,14 @@ record MonitoringBriefingResponse(
     }
 
     String toMessage() {
+        return toMessage(null);
+    }
+
+    String toMessage(MonitoringChangeDecision decision) {
         StringBuilder message = new StringBuilder("[AI 변화 브리핑] ").append(title);
-        message.append("\n\n").append(formatMoneyAmounts(summary));
-        appendSection(message, "핵심 변화", keyChanges);
-        appendSection(message, "확인할 점", watchPoints);
+        message.append("\n\n").append(formatMoneyAmounts(summary, decision));
+        appendSection(message, "핵심 변화", keyChanges, decision);
+        appendSection(message, "확인할 점", watchPoints, decision);
         return message.toString();
     }
 
@@ -112,12 +123,22 @@ record MonitoringBriefingResponse(
         return Optional.of(values);
     }
 
-    private static void appendSection(StringBuilder message, String title, List<String> values) {
+    private static void appendSection(
+            StringBuilder message,
+            String title,
+            List<String> values,
+            MonitoringChangeDecision decision
+    ) {
         if (values.isEmpty()) {
             return;
         }
         message.append("\n\n").append(title).append(':');
-        values.forEach(value -> message.append("\n- ").append(formatMoneyAmounts(value)));
+        values.forEach(value -> message.append("\n- ").append(formatMoneyAmounts(value, decision)));
+    }
+
+    private static String formatMoneyAmounts(String value, MonitoringChangeDecision decision) {
+        String formatted = replaceDecisionAmounts(value, decision);
+        return formatMoneyAmounts(formatted);
     }
 
     private static String formatMoneyAmounts(String value) {
@@ -134,6 +155,92 @@ record MonitoringBriefingResponse(
         return formatted.toString();
     }
 
+    private static String replaceDecisionAmounts(String value, MonitoringChangeDecision decision) {
+        if (value == null || value.isBlank() || decision == null) {
+            return value;
+        }
+        String formatted = value;
+        formatted = replaceDecisionAmount(formatted, decision.previousValue());
+        formatted = replaceDecisionAmount(formatted, decision.currentValue());
+        formatted = replaceDecisionAmount(formatted, decision.changeValue());
+        return formatted;
+    }
+
+    private static String replaceDecisionAmount(String value, BigDecimal amount) {
+        if (value == null || amount == null) {
+            return value;
+        }
+        long absolute = amount.abs().longValue();
+        String formatted = formatManwon(absolute);
+        String plain = Long.toString(absolute);
+        String comma = formatComma(absolute);
+        String wrongManwon = wrongManwonText(absolute);
+        String longEok = longEokText(absolute);
+
+        String replaced = value
+                .replace(comma + "원", formatted)
+                .replace(plain + "원", formatted);
+        replaced = replaceStandaloneAmount(replaced, comma, formatted);
+        replaced = replaceStandaloneAmount(replaced, plain, formatted);
+        if (wrongManwon != null) {
+            replaced = replaced
+                    .replace(wrongManwon, formatted)
+                    .replace(wrongManwon.replace(" ", ""), formatted);
+        }
+        if (longEok != null) {
+            replaced = replaced.replace(longEok, formatted);
+        }
+        return replaced;
+    }
+
+    private static String replaceStandaloneAmount(String value, String target, String replacement) {
+        return Pattern.compile("(?<![0-9.])" + Pattern.quote(target) + "(?![0-9.%원만억])")
+                .matcher(value)
+                .replaceAll(Matcher.quoteReplacement(replacement));
+    }
+
+    private static String formatComma(long value) {
+        String digits = Long.toString(value);
+        StringBuilder formatted = new StringBuilder();
+        int firstGroup = digits.length() % 3;
+        if (firstGroup == 0) {
+            firstGroup = 3;
+        }
+        formatted.append(digits, 0, firstGroup);
+        for (int index = firstGroup; index < digits.length(); index += 3) {
+            formatted.append(',').append(digits, index, index + 3);
+        }
+        return formatted.toString();
+    }
+
+    private static String wrongManwonText(long amount) {
+        if (amount < 10_000) {
+            return null;
+        }
+        long scaled = amount / 10_000;
+        long remainder = amount % 10_000;
+        if (remainder == 0) {
+            return scaled + "만 원";
+        }
+        long decimal = Math.round(remainder / 1000.0);
+        if (decimal == 10) {
+            return (scaled + 1) + "만 원";
+        }
+        return scaled + "." + decimal + "만 원";
+    }
+
+    private static String longEokText(long amount) {
+        if (amount < 10_000) {
+            return null;
+        }
+        long eok = amount / 10_000;
+        long remainder = amount % 10_000;
+        if (remainder == 0 || remainder % 1000 == 0) {
+            return null;
+        }
+        return eok + "." + String.format("%04d", remainder) + "억";
+    }
+
     private static String formatManwon(long amount) {
         if (amount >= 10_000) {
             long eok = amount / 10_000;
@@ -141,11 +248,10 @@ record MonitoringBriefingResponse(
             if (remainder == 0) {
                 return eok + "억";
             }
-            String decimal = String.valueOf(Math.round(remainder / 1000.0));
-            if ("10".equals(decimal)) {
-                return (eok + 1) + "억";
+            if (remainder % 1000 == 0) {
+                return eok + "." + (remainder / 1000) + "억";
             }
-            return eok + "." + decimal + "억";
+            return eok + "억 " + remainder + "만원";
         }
         return amount + "만원";
     }

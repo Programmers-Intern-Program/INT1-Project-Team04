@@ -59,7 +59,7 @@ public class AiGatewayMonitoringBriefingAdapter implements GenerateMonitoringBri
             return MonitoringBriefingResponse.parse(objectMapper, content)
                     .map(response -> new MonitoringBriefingResult(
                             response.notificationRecommended(),
-                            response.toMessage()
+                            response.toMessage(request.decision())
                     ));
         } catch (Exception exception) {
             log.warn("[AiGatewayMonitoringBriefingAdapter] AI 브리핑 생성 실패, 기본 변화 알림으로 대체합니다.", exception);

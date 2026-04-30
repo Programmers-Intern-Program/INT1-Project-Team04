@@ -14,8 +14,7 @@ public class MonitoringChangeDetector {
     private static final List<String> AVG_PRICE_KEYS = List.of(
             "avg_deal_amount",
             "avg_deposit",
-            "avg_monthly_rent",
-            "count"
+            "avg_monthly_rent"
     );
 
     public MonitoringChangeDecision detect(

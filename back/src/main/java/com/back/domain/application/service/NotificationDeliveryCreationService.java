@@ -80,6 +80,10 @@ public class NotificationDeliveryCreationService {
     }
 
     private String formatEmailMessage(AlertEvent alertEvent) {
+        if (isAiBriefing(alertEvent)) {
+            return formatAiBriefingEmailMessage(alertEvent);
+        }
+
         return """
                 <!doctype html>
                 <html lang="ko">
@@ -123,6 +127,26 @@ public class NotificationDeliveryCreationService {
                 formatEmailReason(alertEvent.reason()),
                 escapeHtml(alertEvent.subscription().query()),
                 escapeHtml(formatCreatedAt(alertEvent))
+        ).trim();
+    }
+
+    private String formatAiBriefingEmailMessage(AlertEvent alertEvent) {
+        return """
+                <!doctype html>
+                <html lang="ko">
+                <body style="margin:0;background:#f7f2e8;color:#1c1917;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+                  <div style="max-width:520px;margin:0 auto;padding:20px 14px;">
+                    <div style="background:#fffdf7;border:1px solid #e6d9c3;border-radius:20px;padding:22px;box-shadow:0 12px 32px rgba(61,46,26,0.08);">
+                      <span style="display:inline-block;background:#0f7a4f;color:#ffffff;border-radius:999px;padding:7px 12px;font-size:12px;line-height:1;font-weight:800;">AI 변화 브리핑</span>
+                      <h1 style="margin:14px 0 14px;font-size:22px;line-height:1.35;color:#211a12;font-weight:900;">%s</h1>
+                      <p style="margin:0;color:#4d4033;font-size:14px;line-height:1.65;font-weight:700;">%s</p>
+                    </div>
+                  </div>
+                </body>
+                </html>
+                """.formatted(
+                escapeHtml(alertEvent.title()),
+                formatEmailMultilineText(stripAiBriefingHeader(alertEvent.summary()))
         ).trim();
     }
 
@@ -284,6 +308,30 @@ public class NotificationDeliveryCreationService {
 
     private String formatCreatedAt(AlertEvent alertEvent) {
         return alertEvent.createdAt().format(MESSAGE_TIME_FORMATTER);
+    }
+
+    private String stripAiBriefingHeader(String value) {
+        if (!hasText(value)) {
+            return "";
+        }
+        String[] lines = value.strip().split("\\R", -1);
+        StringBuilder body = new StringBuilder();
+        boolean skippedHeader = false;
+        for (String line : lines) {
+            if (!skippedHeader && line.strip().startsWith("[AI 변화 브리핑]")) {
+                skippedHeader = true;
+                continue;
+            }
+            if (!body.isEmpty()) {
+                body.append('\n');
+            }
+            body.append(line);
+        }
+        return body.toString().strip();
+    }
+
+    private String formatEmailMultilineText(String value) {
+        return escapeHtml(value).replace("\n", "<br>");
     }
 
     private String escapeDiscordInlineCode(String value) {

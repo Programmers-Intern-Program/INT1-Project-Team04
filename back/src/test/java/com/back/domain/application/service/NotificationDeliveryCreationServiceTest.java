@@ -126,6 +126,59 @@ class NotificationDeliveryCreationServiceTest {
     }
 
     @Test
+    @DisplayName("Application: Email AI 변화 브리핑은 감지 항목과 판단 근거 없이 브리핑 HTML만 전달한다")
+    void createsCompactEmailMessageForAiChangeBriefing() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Subscription subscription = subscription(user);
+        AlertEvent alertEvent = new AlertEvent(
+                "alert-ai",
+                subscription,
+                "강동구 아파트 평균 매매가 하락",
+                "[AI 변화 브리핑] 강동구 아파트 평균 매매가 하락\n\n평균 매매가가 10억에서 9억으로 10% 하락했습니다.\n\n핵심 변화:\n- 평균 매매가 1억 하락",
+                "구독 조건에 맞는 변화가 감지되었습니다.",
+                List.of(new AlertSource(
+                        "평균 거래금액 변화",
+                        null,
+                        "이전 100000, 현재 90000, 변화 -10000 (-10%)"
+                )),
+                LocalDateTime.of(2026, 4, 24, 13, 40)
+        );
+        NotificationDeliveryCreationService service = new NotificationDeliveryCreationService(
+                subscriptionId -> List.of(new NotificationPreference(
+                        "pref-1",
+                        subscriptionId,
+                        NotificationChannel.EMAIL,
+                        true
+                )),
+                (userId, channel) -> Optional.of(new NotificationEndpoint(
+                        "endpoint-1",
+                        userId,
+                        channel,
+                        "user@example.com",
+                        true
+                )),
+                new FakeSaveNotificationDeliveryPort()
+        );
+
+        NotificationDelivery delivery = service.createFor(alertEvent).get(0);
+
+        assertThat(delivery.message())
+                .startsWith("<!doctype html>")
+                .contains("강동구 아파트 평균 매매가 하락")
+                .contains("평균 매매가가 10억에서 9억으로 10% 하락했습니다.")
+                .contains("핵심 변화:")
+                .doesNotContain(
+                        "감지 항목",
+                        "평균 거래금액 변화",
+                        "이전 100000",
+                        "[AI 변화 브리핑]",
+                        "판단 근거",
+                        "요청",
+                        "감지 시간"
+                );
+    }
+
+    @Test
     @DisplayName("Application: Discord DM은 Markdown 강조와 링크 자동 임베드 억제를 적용한 본문을 생성한다")
     void createsDiscordOptimizedDeliveryMessage() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);

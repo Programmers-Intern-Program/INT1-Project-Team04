@@ -17,10 +17,19 @@ import org.springframework.stereotype.Component;
 public class ParsedTaskNormalizer {
 
     private static final Pattern REGION = Pattern.compile(
-            "([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구|읍|면|동)|서울|부산|대구|인천|광주|대전|울산|세종|제주)"
+            "([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구))"
     );
-    private static final List<String> REGION_ALIASES = List.of(
-            "강남", "서초", "송파", "마포", "성남", "안산"
+    private static final List<String> SIDO_ONLY_REGIONS = List.of(
+            "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시",
+            "제주특별자치도"
+    );
+    private static final Map<String, String> REGION_ALIASES = Map.of(
+            "강남", "강남구",
+            "서초", "서초구",
+            "송파", "송파구",
+            "마포", "마포구",
+            "성남", "성남시",
+            "안산", "안산시"
     );
 
     private final DomainCapabilityRegistry registry;
@@ -156,23 +165,36 @@ public class ParsedTaskNormalizer {
     }
 
     private String extractRegion(String query, String target) {
-        Matcher queryMatcher = REGION.matcher(query == null ? "" : query);
-        if (queryMatcher.find()) {
-            return queryMatcher.group(1);
+        return extractSupportedRegion(query)
+                .or(() -> extractSupportedRegion(target))
+                .orElseGet(() -> extractAliasRegion(query, target));
+    }
+
+    private Optional<String> extractSupportedRegion(String text) {
+        Matcher matcher = REGION.matcher(text == null ? "" : text);
+        while (matcher.find()) {
+            String region = supportedRegion(matcher.group(1));
+            if (region != null) {
+                return Optional.of(region);
+            }
         }
-        Matcher targetMatcher = REGION.matcher(target == null ? "" : target);
-        if (targetMatcher.find()) {
-            return targetMatcher.group(1);
-        }
-        return extractAliasRegion(query, target);
+        return Optional.empty();
     }
 
     private String extractAliasRegion(String query, String target) {
         String text = (query == null ? "" : query) + " " + (target == null ? "" : target);
-        return REGION_ALIASES.stream()
-                .filter(text::contains)
+        return REGION_ALIASES.entrySet().stream()
+                .filter(entry -> text.contains(entry.getKey()))
+                .map(Map.Entry::getValue)
                 .findFirst()
                 .orElse(null);
+    }
+
+    private String supportedRegion(String region) {
+        if (SIDO_ONLY_REGIONS.contains(region)) {
+            return null;
+        }
+        return region;
     }
 
     private String assistantQuestion(List<String> missing) {

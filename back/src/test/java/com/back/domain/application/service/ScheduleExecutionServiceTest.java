@@ -1,7 +1,6 @@
 package com.back.domain.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.back.domain.application.port.out.ExecuteMcpToolPort;
 import com.back.domain.application.port.out.GenerateMonitoringBriefingPort;
@@ -210,12 +209,13 @@ class ScheduleExecutionServiceTest {
     }
 
     @Test
-    @DisplayName("Application: 도메인에 연결된 MCP 도구가 없으면 예외를 발생시킨다")
-    void throwsWhenMcpToolDoesNotExist() {
+    @DisplayName("Application: 도메인에 연결된 MCP 도구가 없으면 해당 스케줄만 건너뛰고 다음 실행 시각을 갱신한다")
+    void skipsScheduleWhenMcpToolDoesNotExistAndAdvancesSchedule() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
         Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
                 new FakeLoadMcpToolPort(),
@@ -226,7 +226,7 @@ class ScheduleExecutionServiceTest {
                 new FakeLoadRecentAiDataHubPort(),
                 new FakeSaveNotificationPort(),
                 notification -> true,
-                new FakeSaveSchedulePort(),
+                saveSchedulePort,
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
@@ -234,10 +234,11 @@ class ScheduleExecutionServiceTest {
                 noOpDeliveryCreationService()
         );
 
-        assertThatThrownBy(service::runDueSchedules)
-                .isInstanceOf(ApiException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.MCP_TOOL_NOT_FOUND);
+        service.runDueSchedules();
+
+        assertThat(saveSchedulePort.saved).hasSize(1);
+        assertThat(saveSchedulePort.saved.get(0).id()).isEqualTo("schedule-1");
+        assertThat(saveSchedulePort.saved.get(0).lastRun()).isNotNull();
     }
 
     @Test
@@ -291,8 +292,8 @@ class ScheduleExecutionServiceTest {
     }
 
     @Test
-    @DisplayName("Application: MCP 실행이 실패하면 후속 저장을 수행하지 않고 예외를 전파한다")
-    void stopsWhenMcpExecutionFails() {
+    @DisplayName("Application: MCP 실행이 실패하면 해당 스케줄만 건너뛰고 다음 실행 시각을 갱신한다")
+    void isolatesFailedScheduleAndAdvancesIt() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
@@ -328,13 +329,73 @@ class ScheduleExecutionServiceTest {
                 noOpDeliveryCreationService()
         );
 
-        assertThatThrownBy(service::runDueSchedules)
-                .isInstanceOf(ApiException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.MCP_REQUEST_FAILED);
+        service.runDueSchedules();
+
         assertThat(saveAiDataHubPort.saved).isEmpty();
         assertThat(saveNotificationPort.saved).isEmpty();
-        assertThat(saveSchedulePort.saved).isEmpty();
+        assertThat(saveSchedulePort.saved).hasSize(1);
+        assertThat(saveSchedulePort.saved.get(0).id()).isEqualTo("schedule-1");
+        assertThat(saveSchedulePort.saved.get(0).lastRun()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Application: 한 스케줄이 실패해도 다음 예정 스케줄은 계속 실행한다")
+    void continuesExecutingRemainingSchedulesWhenOneFails() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription firstSubscription = new Subscription("sub-fail", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Subscription secondSubscription = new Subscription("sub-ok", user, domain, "서초구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule firstSchedule = new Schedule("schedule-fail", firstSubscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        Schedule secondSchedule = new Schedule("schedule-ok", secondSubscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        int[] calls = {0};
+        FakeSaveAiDataHubPort saveAiDataHubPort = new FakeSaveAiDataHubPort();
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(firstSchedule, secondSchedule),
+                new FakeLoadMcpToolPort(tool),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        subscriptionId.equals("sub-fail")
+                                ? "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                                : "{\"region\":\"서초구\",\"condition\":\"5% 이상 상승\"}"
+                )),
+                subscriptionId -> List.of(),
+                (mcpTool, arguments) -> {
+                    calls[0]++;
+                    if (calls[0] == 1) {
+                        throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+                    }
+                    return new McpExecutionResult("REAL_ESTATE", "result content", snapshotMetadata(null, 106000));
+                },
+                saveAiDataHubPort,
+                new FakeLoadRecentAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(calls[0]).isEqualTo(2);
+        assertThat(saveAiDataHubPort.saved).hasSize(1);
+        assertThat(saveAiDataHubPort.saved.get(0).metadata()).contains("\"subscription_id\":\"sub-ok\"");
+        assertThat(saveSchedulePort.saved).extracting(Schedule::id)
+                .containsExactly("schedule-fail", "schedule-ok");
     }
 
     @Test
@@ -508,8 +569,8 @@ class ScheduleExecutionServiceTest {
     }
 
     @Test
-    @DisplayName("Application: AI가 알림을 추천하면 정량 임계값 미달이어도 알림을 보낸다")
-    void sendsNotificationWhenAiRecommendsNotificationEvenIfBackendThresholdIsNotReached() {
+    @DisplayName("Application: 정량 임계값 미달이면 AI가 알림을 추천해도 알림을 보내지 않는다")
+    void skipsNotificationWhenBackendThresholdIsNotReachedEvenIfAiRecommendsNotification() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
@@ -525,6 +586,7 @@ class ScheduleExecutionServiceTest {
         FakeGenerateMonitoringBriefingPort generateBriefingPort =
                 new FakeGenerateMonitoringBriefingPort(new MonitoringBriefingResult(true, "AI가 유의미한 변화로 판단했습니다."));
         FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
         LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
                 new SubscriptionMonitoringConfig(
                         subscriptionId,
@@ -543,6 +605,62 @@ class ScheduleExecutionServiceTest {
                 new FakeLoadRecentAiDataHubPort(previousHub(user, tool, subscription.id(), 100000)),
                 saveNotificationPort,
                 notification -> true,
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                generateBriefingPort,
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(generateBriefingPort.requests).isEmpty();
+        assertThat(saveNotificationPort.saved).isEmpty();
+        assertThat(saveSchedulePort.saved).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("Application: 이전 스냅샷은 최근 20개 제한 전에 구독 기준으로 좁혀 조회한다")
+    void loadsPreviousSnapshotBySubscriptionBeforeRecentLimit() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-target", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        List<AiDataHub> recentHubs = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            recentHubs.add(previousHub(user, tool, "other-sub-" + i, 100000));
+        }
+        recentHubs.add(previousHub(user, tool, subscription.id(), 100000));
+        FakeGenerateMonitoringBriefingPort generateBriefingPort =
+                new FakeGenerateMonitoringBriefingPort("AI 브리핑 알림");
+        FakeSaveNotificationPort saveNotificationPort = new FakeSaveNotificationPort();
+        LoadSubscriptionMonitoringConfigPort loadConfigPort = subscriptionId -> Optional.of(
+                new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )
+        );
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(tool),
+                loadConfigPort,
+                subscriptionId -> List.of(),
+                new FakeExecuteMcpToolPort(),
+                new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(recentHubs),
+                saveNotificationPort,
+                notification -> true,
                 new FakeSaveSchedulePort(),
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
@@ -554,9 +672,8 @@ class ScheduleExecutionServiceTest {
         service.runDueSchedules();
 
         assertThat(generateBriefingPort.requests).hasSize(1);
-        assertThat(generateBriefingPort.requests.get(0).decision().triggered()).isFalse();
         assertThat(saveNotificationPort.saved).extracting(Notification::message)
-                .containsOnly("AI가 유의미한 변화로 판단했습니다.");
+                .containsOnly("AI 브리핑 알림");
     }
 
     @Test
@@ -624,7 +741,7 @@ class ScheduleExecutionServiceTest {
 
     @Test
     @DisplayName("Application: MCP input validation rejects malformed configured deal_ymd before calling MCP")
-    void rejectsMalformedConfiguredDealYmdBeforeCallingMcp() {
+    void rejectsMalformedConfiguredDealYmdBeforeCallingMcpAndAdvancesSchedule() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
         Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
@@ -646,6 +763,7 @@ class ScheduleExecutionServiceTest {
                         "{\"region\":\"강남구\",\"deal_ymd\":\"2024-03\"}"
                 )
         );
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
                 new FakeLoadMcpToolPort(tool),
@@ -656,7 +774,7 @@ class ScheduleExecutionServiceTest {
                 new FakeLoadRecentAiDataHubPort(),
                 new FakeSaveNotificationPort(),
                 notification -> true,
-                new FakeSaveSchedulePort(),
+                saveSchedulePort,
                 new MonitoringQueryMatcher(),
                 new MonitoringChangeDetector(),
                 new MonitoringAlertMessageBuilder(),
@@ -664,18 +782,77 @@ class ScheduleExecutionServiceTest {
                 noOpDeliveryCreationService()
         );
 
-        assertThatThrownBy(service::runDueSchedules)
-                .isInstanceOf(ApiException.class)
-                .extracting("errorCode")
-                .isEqualTo(ErrorCode.MCP_REQUEST_FAILED);
+        service.runDueSchedules();
+
         assertThat(executeMcpToolPort.executedToolName).isNull();
+        assertThat(saveSchedulePort.saved).hasSize(1);
+        assertThat(saveSchedulePort.saved.get(0).id()).isEqualTo("schedule-1");
     }
 
-    private record FakeLoadDueSchedulesPort(Schedule schedule) implements LoadDueSchedulesPort {
+    @Test
+    @DisplayName("Application: 같은 실행 배치의 동일 MCP 요청은 한 번만 호출하고 결과를 재사용한다")
+    void reusesSameMcpResultWithinOneDueScheduleBatch() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription firstSubscription = new Subscription("sub-1", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Subscription secondSubscription = new Subscription("sub-2", user, domain, "강남구 아파트 실거래가", "create", true, LocalDateTime.now());
+        Schedule firstSchedule = new Schedule("schedule-1", firstSubscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        Schedule secondSchedule = new Schedule("schedule-2", secondSubscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool tool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "부동산 실거래가 조회",
+                "{}"
+        );
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort();
+        FakeSaveAiDataHubPort saveAiDataHubPort = new FakeSaveAiDataHubPort();
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(firstSchedule, secondSchedule),
+                new FakeLoadMcpToolPort(tool),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "apartment_trade_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )),
+                subscriptionId -> List.of(),
+                executeMcpToolPort,
+                saveAiDataHubPort,
+                new FakeLoadRecentAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(executeMcpToolPort.executionCount).isEqualTo(1);
+        assertThat(saveAiDataHubPort.saved).hasSize(2);
+        assertThat(saveAiDataHubPort.saved).extracting(AiDataHub::metadata)
+                .allSatisfy(metadata -> assertThat(metadata).contains("\"execution\""));
+        assertThat(saveAiDataHubPort.saved).extracting(AiDataHub::metadata)
+                .anySatisfy(metadata -> assertThat(metadata).contains("\"subscription_id\":\"sub-1\""))
+                .anySatisfy(metadata -> assertThat(metadata).contains("\"subscription_id\":\"sub-2\""));
+        assertThat(saveSchedulePort.saved).hasSize(2);
+    }
+
+    private record FakeLoadDueSchedulesPort(List<Schedule> schedules) implements LoadDueSchedulesPort {
+
+        private FakeLoadDueSchedulesPort(Schedule... schedules) {
+            this(Arrays.asList(schedules));
+        }
 
         @Override
         public List<Schedule> loadDueSchedules(LocalDateTime now) {
-            return List.of(schedule);
+            return schedules;
         }
     }
 
@@ -705,6 +882,7 @@ class ScheduleExecutionServiceTest {
 
         private String executedToolName;
         private Map<String, Object> executedArguments;
+        private int executionCount;
         private final String content;
         private final String metadata;
         private final int avgDealAmount;
@@ -729,6 +907,7 @@ class ScheduleExecutionServiceTest {
 
         @Override
         public McpExecutionResult execute(McpTool tool, Map<String, Object> arguments) {
+            executionCount++;
             this.executedToolName = tool.name();
             this.executedArguments = arguments;
             return new McpExecutionResult("REAL_ESTATE", content, metadata == null ? snapshotMetadata(null, avgDealAmount) : metadata);
@@ -805,6 +984,20 @@ class ScheduleExecutionServiceTest {
         @Override
         public List<AiDataHub> loadRecentByUserIdAndToolId(Long userId, Long toolId, int limit) {
             return hubs.stream().limit(limit).toList();
+        }
+
+        @Override
+        public List<AiDataHub> loadRecentByUserIdAndToolIdAndSubscriptionId(
+                Long userId,
+                Long toolId,
+                String subscriptionId,
+                int limit
+        ) {
+            String marker = "\"subscription_id\":\"%s\"".formatted(subscriptionId);
+            return hubs.stream()
+                    .filter(hub -> hub.metadata() != null && hub.metadata().contains(marker))
+                    .limit(limit)
+                    .toList();
         }
     }
 

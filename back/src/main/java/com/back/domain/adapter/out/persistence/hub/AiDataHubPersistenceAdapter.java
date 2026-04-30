@@ -36,4 +36,22 @@ public class AiDataHubPersistenceAdapter implements SaveAiDataHubPort, LoadRecen
                 .map(AiDataHubJpaEntity::toDomain)
                 .toList();
     }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AiDataHub> loadRecentByUserIdAndToolIdAndSubscriptionId(
+            Long userId,
+            Long toolId,
+            String subscriptionId,
+            int limit
+    ) {
+        if (userId == null || toolId == null || subscriptionId == null || subscriptionId.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        return aiDataHubJpaRepository
+                .findRecentByUserIdAndMcpToolIdAndSubscriptionId(userId, toolId, subscriptionId, limit)
+                .stream()
+                .map(AiDataHubJpaEntity::toDomain)
+                .toList();
+    }
 }

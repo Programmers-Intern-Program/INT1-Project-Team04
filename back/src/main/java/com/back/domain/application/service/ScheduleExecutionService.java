@@ -38,6 +38,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +47,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -54,6 +56,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ScheduleExecutionService implements RunDueSchedulesUseCase {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -82,12 +85,26 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
     @Override
     public void runDueSchedules() {
         LocalDateTime now = LocalDateTime.now();
+        Map<McpExecutionCacheKey, McpExecutionResult> executionCache = new HashMap<>();
         for (Schedule schedule : loadDueSchedulesPort.loadDueSchedules(now)) {
-            executeSchedule(schedule, now);
+            try {
+                executeSchedule(schedule, now, executionCache);
+            } catch (RuntimeException exception) {
+                log.warn("Scheduled monitoring failed. scheduleId={}, subscriptionId={}",
+                        schedule.id(),
+                        schedule.subscription().id(),
+                        exception
+                );
+                advanceFailedSchedule(schedule, now);
+            }
         }
     }
 
-    private void executeSchedule(Schedule schedule, LocalDateTime now) {
+    private void executeSchedule(
+            Schedule schedule,
+            LocalDateTime now,
+            Map<McpExecutionCacheKey, McpExecutionResult> executionCache
+    ) {
         Optional<SubscriptionMonitoringConfig> monitoringConfig =
                 loadSubscriptionMonitoringConfigPort.loadBySubscriptionId(schedule.subscription().id());
         McpTool tool = loadConfiguredTool(schedule, monitoringConfig)
@@ -97,10 +114,8 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
                 .map(this::parameters)
                 .orElseGet(() -> fallbackParameters(schedule.subscription().query()));
 
-        McpExecutionResult result = executeMcpToolPort.execute(
-                tool,
-                executionArguments(tool, parameters, now)
-        );
+        Map<String, Object> arguments = executionArguments(tool, parameters, now);
+        McpExecutionResult result = executeMcpTool(tool, arguments, executionCache);
 
         Optional<McpSnapshotEnvelope> currentSnapshot = McpSnapshotEnvelope.parseIfSummaryPresent(OBJECT_MAPPER, result.metadata());
         Optional<McpSnapshotEnvelope> previousSnapshot = currentSnapshot.flatMap(snapshot -> previousSnapshot(schedule, tool, snapshot));
@@ -135,6 +150,15 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         advanceSchedule(schedule, now);
     }
 
+    private McpExecutionResult executeMcpTool(
+            McpTool tool,
+            Map<String, Object> arguments,
+            Map<McpExecutionCacheKey, McpExecutionResult> executionCache
+    ) {
+        McpExecutionCacheKey key = new McpExecutionCacheKey(tool.id(), tool.name(), toJson(arguments));
+        return executionCache.computeIfAbsent(key, ignored -> executeMcpToolPort.execute(tool, arguments));
+    }
+
     private void sendAlertNotification(
             Schedule schedule,
             McpTool tool,
@@ -145,6 +169,9 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
             MonitoringChangeDecision decision,
             LocalDateTime now
     ) {
+        if (!decision.triggered()) {
+            return;
+        }
         Optional<MonitoringBriefingResult> briefing = generateMonitoringBriefingPort.generate(new MonitoringBriefingRequest(
                         schedule.subscription().query(),
                         tool.name(),
@@ -156,20 +183,15 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         if (briefing.isPresent() && !briefing.get().notificationRecommended()) {
             return;
         }
-        if (briefing.isEmpty() && !decision.triggered()) {
-            return;
-        }
         String message = briefing
                 .map(MonitoringBriefingResult::message)
                 .filter(generatedMessage -> !generatedMessage.isBlank())
-                .orElseGet(() -> decision.triggered()
-                        ? monitoringAlertMessageBuilder.build(
-                                schedule.subscription().query(),
-                                tool.name(),
-                                decision,
-                                result.content()
-                        )
-                        : "");
+                .orElseGet(() -> monitoringAlertMessageBuilder.build(
+                        schedule.subscription().query(),
+                        tool.name(),
+                        decision,
+                        result.content()
+                ));
         if (isBlank(message)) {
             return;
         }
@@ -254,6 +276,18 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         ));
     }
 
+    private void advanceFailedSchedule(Schedule schedule, LocalDateTime now) {
+        try {
+            advanceSchedule(schedule, now);
+        } catch (RuntimeException exception) {
+            log.warn("Failed to advance skipped schedule. scheduleId={}, subscriptionId={}",
+                    schedule.id(),
+                    schedule.subscription().id(),
+                    exception
+            );
+        }
+    }
+
     private Optional<McpSnapshotEnvelope> previousSnapshot(
             Schedule schedule,
             McpTool tool,
@@ -261,14 +295,17 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
     ) {
         Long userId = schedule.subscription().user() == null ? null : schedule.subscription().user().id();
         Long toolId = tool.id();
-        if (userId == null || toolId == null) {
+        String subscriptionId = schedule.subscription().id();
+        if (userId == null || toolId == null || isBlank(subscriptionId)) {
             return Optional.empty();
         }
-        return loadRecentAiDataHubPort.loadRecentByUserIdAndToolId(userId, toolId, RECENT_SNAPSHOT_LIMIT).stream()
+        return loadRecentAiDataHubPort
+                .loadRecentByUserIdAndToolIdAndSubscriptionId(userId, toolId, subscriptionId, RECENT_SNAPSHOT_LIMIT)
+                .stream()
                 .map(AiDataHub::metadata)
                 .map(this::parseCandidateSnapshot)
                 .flatMap(Optional::stream)
-                .filter(snapshot -> Objects.equals(schedule.subscription().id(), snapshot.subscriptionIdOrNull()))
+                .filter(snapshot -> Objects.equals(subscriptionId, snapshot.subscriptionIdOrNull()))
                 .filter(snapshot -> monitoringQueryMatcher.sameTarget(snapshot.query(), currentSnapshot.query()))
                 .findFirst();
     }
@@ -349,6 +386,14 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         return values;
     }
 
+    private String toJson(Map<String, Object> arguments) {
+        try {
+            return OBJECT_MAPPER.writeValueAsString(arguments);
+        } catch (JsonProcessingException exception) {
+            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+        }
+    }
+
     private String extractRegion(String query) {
         Matcher matcher = REGION.matcher(query == null ? "" : query);
         return matcher.find() ? matcher.group(1) : null;
@@ -365,5 +410,8 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private record McpExecutionCacheKey(Long toolId, String toolName, String argumentsJson) {
     }
 }

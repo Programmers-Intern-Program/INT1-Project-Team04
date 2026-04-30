@@ -102,7 +102,55 @@ class AiDataHubPersistenceAdapterTest extends IntegrationTestBase {
                 .containsExactly("33333333-3333-3333-3333-333333333333", "22222222-2222-2222-2222-222222222222");
     }
 
+    @Test
+    @DisplayName("Persistence: 구독 ID 기준 최근 스냅샷은 조회 제한 전에 필터링한다")
+    void loadsRecentAiDataHubByUserToolAndSubscriptionIdBeforeLimit() {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("subscription-snapshot-user@example.com", "token"));
+        DomainJpaEntity domain = domainJpaRepository.save(new DomainJpaEntity("real-estate"));
+        McpServerJpaEntity server = mcpServerJpaRepository.save(new McpServerJpaEntity("default-mcp", "server", "http://localhost:8090/tools/execute"));
+        McpToolJpaEntity tool = mcpToolJpaRepository.save(new McpToolJpaEntity(server, domain, "search_house_price", "부동산 실거래가 조회", "{}"));
+
+        aiDataHubPersistenceAdapter.save(aiDataHub(
+                "11111111-1111-1111-1111-111111111111",
+                user,
+                tool,
+                "sub-target"
+        ));
+        aiDataHubJpaRepository.flush();
+        aiDataHubPersistenceAdapter.save(aiDataHub(
+                "22222222-2222-2222-2222-222222222222",
+                user,
+                tool,
+                "sub-other"
+        ));
+        aiDataHubPersistenceAdapter.save(aiDataHub(
+                "33333333-3333-3333-3333-333333333333",
+                user,
+                tool,
+                "sub-other"
+        ));
+
+        List<AiDataHub> recent = aiDataHubPersistenceAdapter.loadRecentByUserIdAndToolIdAndSubscriptionId(
+                user.getId(),
+                tool.getId(),
+                "sub-target",
+                1
+        );
+
+        assertThat(recent).extracting(AiDataHub::id)
+                .containsExactly("11111111-1111-1111-1111-111111111111");
+    }
+
     private AiDataHub aiDataHub(String id, UserJpaEntity user, McpToolJpaEntity tool) {
+        return aiDataHub(id, user, tool, null);
+    }
+
+    private AiDataHub aiDataHub(String id, UserJpaEntity user, McpToolJpaEntity tool, String subscriptionId) {
+        String execution = subscriptionId == null
+                ? ""
+                : """
+                  ,"execution":{"subscription_id":"%s"}
+                  """.formatted(subscriptionId);
         return new AiDataHub(
                 id,
                 new User(user.getId(), user.getEmail(), user.getNickname(), user.getCreatedAt(), user.getDeletedAt()),
@@ -117,7 +165,8 @@ class AiDataHubPersistenceAdapterTest extends IntegrationTestBase {
                 "REAL_ESTATE",
                 "content",
                 null,
-                "{\"structured\":{\"summary\":{\"avg_deal_amount\":100000},\"query\":{\"lawd_cd\":\"11680\"}},\"metadata\":{}}",
+                "{\"structured\":{\"summary\":{\"avg_deal_amount\":100000},\"query\":{\"lawd_cd\":\"11680\"}},\"metadata\":{}%s}"
+                        .formatted(execution),
                 null
         );
     }

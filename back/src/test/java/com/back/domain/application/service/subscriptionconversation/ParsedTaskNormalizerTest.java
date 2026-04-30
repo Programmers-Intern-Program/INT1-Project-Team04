@@ -120,7 +120,7 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
-    @DisplayName("extracts common city and metropolitan region names from natural language")
+    @DisplayName("extracts supported city and district region names from natural language")
     void extractsCityAndMetropolitanRegions() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());
 
@@ -128,10 +128,39 @@ class ParsedTaskNormalizerTest {
                 .isEqualTo("안산시");
         assertThat(normalizeRegion(normalizer, "성남시 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
                 .isEqualTo("성남시");
-        assertThat(normalizeRegion(normalizer, "서울 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
-                .isEqualTo("서울");
         assertThat(normalizeRegion(normalizer, "마포 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
-                .isEqualTo("마포");
+                .isEqualTo("마포구");
+        assertThat(normalizeRegion(normalizer, "서울특별시 강남구 아파트 매매 실거래가를 매일 아침 텔레그램으로 알려줘"))
+                .isEqualTo("강남구");
+    }
+
+    @Test
+    @DisplayName("requires a sigungu region when user only provides a sido")
+    void rejectsSidoOnlyRegion() {
+        ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());
+        ParsedTask task = new ParsedTask(
+                "create",
+                "부동산",
+                "서울 아파트 매매 실거래가",
+                "5% 이상 상승",
+                "0 9 * * *",
+                "telegram",
+                "api",
+                "서울 아파트 매매 실거래가 변동",
+                List.of(),
+                0.9,
+                false,
+                ""
+        );
+
+        SubscriptionDraft draft = normalizer.normalize(
+                task,
+                "서울 아파트 매매 실거래가를 텔레그램으로 매일 아침 알려줘"
+        );
+
+        assertThat(draft.monitoringParams()).doesNotContainKey("region");
+        assertThat(draft.missingFields()).contains("region");
+        assertThat(draft.assistantMessage()).contains("어느 지역");
     }
 
     @Test

@@ -37,6 +37,25 @@ class MonitoringChangeDetectorTest {
     }
 
     @Test
+    @DisplayName("Application: 가격 필드가 없으면 거래 건수 변화만으로 가격 조건을 트리거하지 않는다")
+    void ignoresCountChangeForAveragePriceCondition() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"count\":10}");
+        JsonNode current = objectMapper.readTree("{\"count\":12}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "AVG_PRICE",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "5",
+                "conditionUnit", "PERCENT"
+        ));
+
+        assertThat(decision.triggered()).isFalse();
+        assertThat(decision.metricKey()).isNull();
+        assertThat(decision.reason()).isEqualTo("metric missing");
+    }
+
+    @Test
     @DisplayName("Application: 방향이 조건과 다르면 변화가 있어도 알림 대상으로 판단하지 않는다")
     void ignoresChangeWhenDirectionDoesNotMatch() throws Exception {
         JsonNode previous = objectMapper.readTree("{\"avg_deal_amount\":100000,\"count\":10}");
