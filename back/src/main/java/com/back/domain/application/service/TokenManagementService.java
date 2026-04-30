@@ -142,6 +142,20 @@ public class TokenManagementService implements TokenManagementUseCase {
         return TokenUsageHistoryResult.fromList(histories);
     }
 
+    @Override
+    public void initializeTokenIfAbsent(Long userId) {
+        if (loadUserTokenPort.loadByUserId(userId).isPresent()) {
+            return;
+        }
+        log.info("토큰 행 초기화 (balance=0) - userId: {}", userId);
+        var user = loadUserPort.loadById(userId)
+                .orElseThrow(() -> new ApiException(ErrorCode.USER_NOT_FOUND));
+        saveUserTokenPort.save(new UserToken(
+                null, user, 0, 0, 0,
+                LocalDateTime.now(), LocalDateTime.now()
+        ));
+    }
+
     private UserToken createInitialToken(Long userId) {
         log.info("초기 토큰 생성 - userId: {}", userId);
         
