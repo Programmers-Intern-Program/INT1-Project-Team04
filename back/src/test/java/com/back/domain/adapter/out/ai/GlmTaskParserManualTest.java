@@ -11,6 +11,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.web.client.RestClient;
 
+// TODO: GlmTaskParserAdapter는 @Profile("glm")으로 비활성화됨.
+//       VertexAiTaskParserAdapter로 전환 후 이 수동 테스트도 재작성 필요.
+//       새 테스트는 @SpringBootTest(profiles = "dev") + 실제 Vertex AI 자격증명으로 실행.
+//       GOOGLE_CLOUD_PROJECT_ID, VERTEX_AI_LOCATION 환경변수 필요.
 @Tag("ai-manual")
 @DisplayName("AI: GLM Task Parser 수동 테스트")
 @EnabledIf("isAiTestEnabled")
