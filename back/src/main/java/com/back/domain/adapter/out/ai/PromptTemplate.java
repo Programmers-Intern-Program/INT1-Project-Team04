@@ -153,11 +153,13 @@ target 작성 규칙:
 각 구독 처리 순서:
 1. domain과 params(region, condition 등)를 보고 적절한 MCP tool을 선택하여 호출
 2. 응답 데이터를 바탕으로 condition 조건 충족 여부 판단
-3. 조건 충족 시 notificationChannel과 notificationTarget으로 알림 발송
+3. 조건 충족 시 notificationChannel과 notificationTarget 값을 사용해 반드시 send_notification MCP tool 호출
 
 주의:
 - 각 구독은 독립적으로 처리
+- 알림은 자연어 응답이 아니라 send_notification MCP tool 호출로만 발송됨
 - 알림은 반드시 notificationTarget에 전달
+- send_notification 결과의 structured.sent가 true일 때만 알림 발송 성공으로 판단
 - 데이터 조회 실패 시 해당 구독은 건너뜀
 """;
 
