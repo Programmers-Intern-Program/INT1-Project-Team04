@@ -19,6 +19,7 @@ import com.back.domain.application.port.in.ParseTaskUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
+import com.back.domain.application.port.out.NormalizeSubscriptionDraftPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
@@ -30,7 +31,9 @@ import com.back.domain.model.notification.NotificationEndpoint;
 import com.back.domain.model.subscription.SubscriptionConversationStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -50,7 +53,7 @@ class SubscriptionConversationServiceTest {
             (userId, channel) -> Optional.empty();
 
     @Test
-    @DisplayName("new message parses with authenticated user id and asks missing cadence first")
+    @DisplayName("new message parses with authenticated user id and asks missing channel")
     void newMessageParsesWithAuthenticatedUserId() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
@@ -69,7 +72,7 @@ class SubscriptionConversationServiceTest {
         assertThat(parseTaskUseCase.receivedUserId).isEqualTo(1L);
         assertThat(response.status()).isEqualTo("NEEDS_INPUT");
         assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
-                .containsOnly("SELECT_CADENCE");
+                .containsOnly("SELECT_CHANNEL");
     }
 
     @Test
@@ -124,7 +127,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("follow-up parser result keeps previously selected cadence and channel")
+    @DisplayName("follow-up parser result keeps previously selected channel and internal check schedule")
     void followUpKeepsPreviousCadenceAndChannel() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
@@ -171,7 +174,7 @@ class SubscriptionConversationServiceTest {
         assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
         assertThat(savedConversation.getDraftQuery()).isEqualTo("강남구 아파트 매매 실거래가");
         assertThat(savedConversation.getDraftDomainName()).isEqualTo("real-estate");
-        assertThat(savedConversation.getDraftCronExpr()).isEqualTo("0 0 9 * * *");
+        assertThat(savedConversation.getDraftCronExpr()).isEqualTo("0 0 * * * *");
         assertThat(savedConversation.getDraftNotificationChannel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
         assertThat(savedConversation.getDraftMonitoringParams())
                 .contains("\"conditionThreshold\":\"5\"")
@@ -180,8 +183,8 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("percent condition answer completes parser question without continuing parse use case")
-    void percentConditionAnswerCompletesParserQuestionLocally() {
+    @DisplayName("percent condition answer keeps deal type confirmation before channel")
+    void percentConditionAnswerKeepsDealTypeBeforeChannel() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
                 "parse-1",
@@ -211,9 +214,9 @@ class SubscriptionConversationServiceTest {
 
         assertThat(parseTaskUseCase.continueCallCount).isZero();
         assertThat(response.status()).isEqualTo("NEEDS_INPUT");
-        assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
-        assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
-                .containsOnly("SELECT_CADENCE");
+        assertThat(response.assistantMessage()).contains("매매");
+        assertThat(response.actions()).isEmpty();
+        assertThat(savedConversation.getDraftCronExpr()).isEqualTo("0 0 * * * *");
         assertThat(savedConversation.getDraftMonitoringParams())
                 .contains("\"conditionThreshold\":\"13\"")
                 .contains("\"conditionDirection\":\"ANY\"")
@@ -221,8 +224,8 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("percent condition answer completes missing condition even when question has no percent sign")
-    void percentConditionAnswerCompletesMissingConditionWithoutPercentQuestion() {
+    @DisplayName("percent condition answer keeps ambiguous apartment deal type unresolved")
+    void percentConditionAnswerKeepsAmbiguousApartmentDealTypeUnresolved() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
                 "parse-1",
@@ -253,7 +256,9 @@ class SubscriptionConversationServiceTest {
 
         assertThat(parseTaskUseCase.continueCallCount).isZero();
         assertThat(response.status()).isEqualTo("NEEDS_INPUT");
-        assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
+        assertThat(response.assistantMessage()).contains("매매");
+        assertThat(response.actions()).isEmpty();
+        assertThat(savedConversation.getDraftCronExpr()).isEqualTo("0 0 * * * *");
         assertThat(savedConversation.getDraftMonitoringParams())
                 .contains("\"conditionThreshold\":\"3\"")
                 .contains("\"conditionDirection\":\"UP\"")
@@ -261,8 +266,8 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("percent condition answer keeps the current conversation even when MCP tool is not resolved yet")
-    void percentConditionAnswerKeepsConversationWithoutResolvedTool() {
+    @DisplayName("percent condition answer keeps the current ambiguous conversation even when MCP tool is not resolved yet")
+    void percentConditionAnswerKeepsAmbiguousConversationWithoutResolvedTool() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
                 "parse-1",
@@ -310,7 +315,9 @@ class SubscriptionConversationServiceTest {
         assertThat(parseTaskUseCase.parseCallCount).isZero();
         assertThat(parseTaskUseCase.continueCallCount).isZero();
         assertThat(response.status()).isEqualTo("NEEDS_INPUT");
-        assertThat(response.assistantMessage()).isEqualTo("얼마나 자주 확인할까요?");
+        assertThat(response.assistantMessage()).contains("매매");
+        assertThat(response.actions()).isEmpty();
+        assertThat(savedConversation.getDraftCronExpr()).isEqualTo("0 0 * * * *");
         assertThat(savedConversation.getDraftMonitoringParams())
                 .contains("\"conditionThreshold\":\"5\"")
                 .contains("\"conditionDirection\":\"UP\"")
@@ -424,6 +431,88 @@ class SubscriptionConversationServiceTest {
         assertThat(response.assistantMessage()).contains("매매");
         assertThat(createSubscriptionUseCase.receivedCommand).isNull();
         verify(monitoringConfigRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("generic apartment price request asks for deal type before condition")
+    void genericApartmentPriceRequestAsksForDealTypeBeforeCondition() {
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(new ParsedTask(
+                "create",
+                "부동산",
+                "강남구 아파트 가격",
+                "",
+                "",
+                "",
+                "api",
+                "강남구 아파트 가격",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                null,
+                "강남구 아파트 가격",
+                null
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("매매");
+        assertThat(createSubscriptionUseCase.receivedCommand).isNull();
+        verify(monitoringConfigRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("pending deal type confirmation accepts short trade answer without AI continuation")
+    void pendingDealTypeConfirmationAcceptsShortTradeAnswer() {
+        SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
+        savedConversation.updateParsedDraft(
+                "parse-1",
+                "강남구 집값",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                null,
+                "{" +
+                        "\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"," +
+                        "\"region\":\"강남구\"," +
+                        "\"pendingDealTypeConfirmation\":\"true\"," +
+                        "\"conditionMetric\":\"AVG_PRICE\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"5\"," +
+                        "\"conditionUnit\":\"PERCENT\"" +
+                        "}",
+                "0 0 9 * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "현재는 아파트 매매 실거래가 알림만 만들 수 있어요. 매매 실거래가 알림으로 만들까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
+                .thenReturn(Optional.of(savedConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                savedConversation.getId(),
+                "매매로 해줘",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().query()).isEqualTo("강남구 아파트 매매 실거래가");
+        assertThat(response.draft().monitoringParams()).doesNotContainKey("pendingDealTypeConfirmation");
     }
 
     @Test
@@ -670,7 +759,7 @@ class SubscriptionConversationServiceTest {
     ) {
         return new SubscriptionConversationService(
                 parseTaskUseCase,
-                new ParsedTaskNormalizer(new DomainCapabilityRegistry()),
+                new ParsedTaskNormalizer(new FakeNormalizeSubscriptionDraftPort()),
                 createSubscriptionUseCase,
                 loadDomainPort,
                 loadMcpToolPort,
@@ -708,6 +797,165 @@ class SubscriptionConversationServiceTest {
                 needsConfirmation,
                 needsConfirmation ? "몇 % 이상 변동 시 알려드릴까요?" : ""
         );
+    }
+
+    private static class FakeNormalizeSubscriptionDraftPort implements NormalizeSubscriptionDraftPort {
+        @Override
+        public Optional<DomainNormalizedSubscriptionDraft> normalize(
+                ParsedTask task,
+                String userMessage,
+                SubscriptionDraft previousDraft
+        ) {
+            String domainName = canonicalDomainName(task.domainName());
+            if (isBlank(domainName) && previousDraft != null) {
+                domainName = previousDraft.domainName();
+            }
+            boolean canReusePrevious = previousDraft != null && domainName.equals(previousDraft.domainName());
+            String query = !isBlank(task.query()) ? task.query() : canReusePrevious ? previousDraft.query() : task.query();
+            String parseIntent = !isBlank(task.intent()) ? task.intent() : canReusePrevious ? "create" : "";
+
+            if (isBlank(domainName) || "reject".equals(parseIntent)) {
+                return Optional.of(new DomainNormalizedSubscriptionDraft(
+                        query,
+                        domainName,
+                        parseIntent,
+                        null,
+                        Map.of(),
+                        List.of("unsupportedDomain"),
+                        "지원하지 않는 요청이에요.",
+                        task.confidence()
+                ));
+            }
+            if (!"create".equals(parseIntent)) {
+                return Optional.of(new DomainNormalizedSubscriptionDraft(
+                        query,
+                        domainName,
+                        parseIntent,
+                        null,
+                        Map.of(),
+                        List.of("unsupportedIntent"),
+                        "알림 수정과 삭제는 아직 채팅 생성 플로우에서 처리하지 않아요.",
+                        task.confidence()
+                ));
+            }
+            if (!"real-estate".equals(domainName)) {
+                return Optional.of(new DomainNormalizedSubscriptionDraft(
+                        query,
+                        domainName,
+                        null,
+                        null,
+                        Map.of(),
+                        List.of("unsupportedCapability"),
+                        "채용 알림은 준비 중이에요. 현재는 부동산 아파트 매매 실거래가 알림만 만들 수 있어요.",
+                        task.confidence()
+                ));
+            }
+
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("dealYmdPolicy", "LATEST_AVAILABLE_MONTH");
+            if (canReusePrevious) {
+                params.putAll(previousDraft.monitoringParams());
+            }
+            if (containsAny(query, "강남구", "강남")) {
+                params.put("region", "강남구");
+            }
+            if (containsAny(query, "안산시", "안산")) {
+                params.put("region", "안산시");
+            }
+            params.putAll(conditionParams(task.condition()));
+
+            List<String> missing = new java.util.ArrayList<>();
+            if (!params.containsKey("region")) {
+                missing.add("region");
+            }
+            if (StructuredCondition.fromParameters(params).isEmpty()) {
+                missing.add("condition");
+            }
+            if (requiresExplicitApartmentDealType(userMessage, query, task.target())) {
+                missing.add("dealType");
+                params.put("pendingDealTypeConfirmation", "true");
+            }
+
+            return Optional.of(new DomainNormalizedSubscriptionDraft(
+                    query,
+                    "real-estate",
+                    "apartment_trade_price",
+                    "search_house_price",
+                    params,
+                    missing,
+                    questionForMissing(missing),
+                    task.confidence()
+            ));
+        }
+
+        private static Map<String, String> conditionParams(String condition) {
+            if (isBlank(condition)) {
+                return Map.of();
+            }
+            String threshold = condition.replaceAll("[^0-9.]", "");
+            if (threshold.isBlank()) {
+                return Map.of();
+            }
+            return Map.of(
+                    "conditionMetric", "AVG_PRICE",
+                    "conditionDirection", condition.contains("상승") || condition.contains("오르") ? "UP" : "ANY",
+                    "conditionOperator", condition.contains("초과") ? "GT" : "GTE",
+                    "conditionThreshold", threshold,
+                    "conditionUnit", condition.contains("만원") ? "MANWON" : "PERCENT"
+            );
+        }
+
+        private static String canonicalDomainName(String value) {
+            return switch (value == null ? "" : value.trim()) {
+                case "부동산", "real-estate" -> "real-estate";
+                case "법률", "법률/규제", "law-regulation" -> "law-regulation";
+                case "채용", "recruitment" -> "recruitment";
+                case "경매", "경매/희소매물", "auction" -> "auction";
+                default -> value == null ? "" : value.trim();
+            };
+        }
+
+        private static boolean requiresExplicitApartmentDealType(String userMessage, String query, String target) {
+            String source = !isBlank(userMessage) ? userMessage : query;
+            String text = (source == null ? "" : source).toLowerCase();
+            if (text.contains("전월세") || text.contains("전세") || text.contains("월세") || text.contains("매매")) {
+                return false;
+            }
+            return text.contains("아파트")
+                    || text.contains("가격")
+                    || text.contains("시세")
+                    || text.contains("집값")
+                    || text.contains("실거래가")
+                    || text.contains("변경")
+                    || text.contains("변동");
+        }
+
+        private static String questionForMissing(List<String> missing) {
+            if (missing.contains("region")) {
+                return "어느 지역의 아파트 매매 실거래가를 확인할까요?";
+            }
+            if (missing.contains("dealType")) {
+                return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요.";
+            }
+            if (missing.contains("condition")) {
+                return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
+            }
+            return "";
+        }
+
+        private static boolean containsAny(String value, String... candidates) {
+            String text = value == null ? "" : value;
+            for (String candidate : candidates) {
+                if (text.contains(candidate)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static boolean isBlank(String value) {
+            return value == null || value.isBlank();
+        }
     }
 
     private static class FakeParseTaskUseCase implements ParseTaskUseCase {

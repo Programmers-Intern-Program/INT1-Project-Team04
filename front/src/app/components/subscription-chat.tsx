@@ -447,7 +447,7 @@ export function SubscriptionChat({
               <p className="font-black">{draft.query}</p>
               <dl className="mt-3 grid gap-2 font-bold">
                 <SummaryRow label="영역" value={draft.domainLabel} />
-                <SummaryRow label="주기" value={draft.cadenceLabel} />
+                <SummaryRow label="알림 방식" value={draft.cadenceLabel} />
                 <SummaryRow label="채널" value={draft.channelLabel} />
                 <SummaryRow label="수신" value={draft.recipientLabel} />
               </dl>
@@ -477,7 +477,7 @@ export function SubscriptionChat({
             <input
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="강남구 아파트 매매 실거래가를 매일 아침 Telegram으로 알려줘"
+              placeholder="강남구 아파트 매매 실거래가를 Telegram으로 알려줘"
               className="h-13 min-w-0 flex-1 rounded-full border border-stone-200 bg-[#fbfaf7] px-5 text-base font-bold outline-none transition focus:border-emerald-700 focus:bg-white focus:ring-4 focus:ring-emerald-100"
             />
             <button
@@ -554,13 +554,8 @@ export function SubscriptionChat({
                 </div>
                 <dl className="mt-3 grid gap-2 text-sm">
                   <SummaryRow label="영역" value={subscription.domainLabel} dark />
-                  <SummaryRow label="주기" value={subscription.cadenceLabel} dark />
+                  <SummaryRow label="알림 방식" value={subscription.cadenceLabel} dark />
                   <SummaryRow label="채널" value={subscription.channelLabel || "-"} dark />
-                  <SummaryRow
-                    label="다음 확인"
-                    value={formatDateTime(subscription.nextRun)}
-                    dark
-                  />
                 </dl>
               </article>
             ))

@@ -197,7 +197,7 @@ class SubscriptionControllerTest extends IntegrationTestBase {
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(response.body()).contains("\"query\":\"강남구 아파트 실거래가\"");
         assertThat(response.body()).contains("\"domainLabel\":\"부동산\"");
-        assertThat(response.body()).contains("\"cadenceLabel\":\"매일 오전 9시\"");
+        assertThat(response.body()).contains("\"cadenceLabel\":\"변화 감지 시\"");
         assertThat(response.body()).contains("\"notificationChannel\":\"TELEGRAM_DM\"");
         assertThat(response.body()).contains("\"channelLabel\":\"Telegram\"");
         assertThat(response.body()).contains("\"active\":true");
@@ -293,7 +293,7 @@ class SubscriptionControllerTest extends IntegrationTestBase {
                             "알림 설정 취소",
                             "요청: 강남구 아파트 실거래가",
                             "감시 영역: 부동산",
-                            "확인 주기: 평일 오전 9시",
+                            "알림 방식: 변화 감지 시",
                             "이제부터 이 조건으로는 알림을 보내지 않을게요."
                     );
                     assertThat(delivery.getMessage()).doesNotContain("기존 확인 주기");
@@ -334,8 +334,8 @@ class SubscriptionControllerTest extends IntegrationTestBase {
                             "`강남구 아파트 실거래가`",
                             "**감시 영역**",
                             "부동산",
-                            "**확인 주기**",
-                            "매시간 정각",
+                            "**알림 방식**",
+                            "변화 감지 시",
                             "필요하면 언제든 다시 설정할 수 있어요."
                     );
                     assertThat(delivery.getMessage()).doesNotContain("기존 확인 주기", "0 0 * * * *");
@@ -376,8 +376,8 @@ class SubscriptionControllerTest extends IntegrationTestBase {
                             "알림 설정이 취소됐어요",
                             "강남구 아파트 실거래가",
                             "부동산",
-                            "확인 주기</p>",
-                            "매시간 정각",
+                            "알림 방식</p>",
+                            "변화 감지 시",
                             "이제부터 이 조건으로는 알림을 보내지 않을게요."
                     );
                     assertThat(delivery.getMessage()).doesNotContain("기존 확인 주기", "0 0 * * * *");

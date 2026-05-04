@@ -4,6 +4,10 @@ from mcp_server.subscriptions.change_models import (
     SubscriptionChangeInput,
     SubscriptionChangeResult,
 )
+from mcp_server.subscriptions.draft_models import (
+    ParsedTaskDraft,
+    SubscriptionDraftNormalizationInput,
+)
 from mcp_server.tools import subscriptions
 
 
@@ -47,4 +51,34 @@ async def test_compare_subscription_change_returns_common_schema(monkeypatch) ->
         "tool_name": "compare_subscription_change",
         "subscription_id": "42",
         "params_hash": "hash-42",
+    }
+
+
+async def test_normalize_subscription_draft_returns_common_schema() -> None:
+    response = await subscriptions.normalize_subscription_draft(
+        SubscriptionDraftNormalizationInput(
+            userMessage="강남구 아파트 변경 텔레그램으로 매일 오전 9시에 알려줘",
+            task=ParsedTaskDraft(
+                intent="create",
+                domainName="부동산",
+                query="강남구 아파트 변경",
+                condition="5% 이상 상승",
+                cronExpr="0 9 * * *",
+                channel="telegram",
+                target="강남구 아파트 변경",
+                confidence=0.9,
+            ),
+        )
+    )
+
+    assert response["text"] == "구독 초안 구조화에 추가 정보가 필요합니다."
+    assert response["structured"]["domainName"] == "real-estate"
+    assert response["structured"]["intent"] == "apartment_trade_price"
+    assert response["structured"]["toolName"] is None
+    assert response["structured"]["parameters"]["region"] == "강남구"
+    assert response["structured"]["missingFields"] == ["dealType"]
+    assert response["source_url"] is None
+    assert response["metadata"] == {
+        "tool_name": "normalize_subscription_draft",
+        "missing_fields": ["dealType"],
     }
