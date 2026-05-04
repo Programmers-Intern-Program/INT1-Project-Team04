@@ -391,6 +391,42 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("ambiguous apartment change request asks for a deal type instead of becoming ready")
+    void ambiguousApartmentChangeRequestAsksForDealType() {
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(new ParsedTask(
+                "create",
+                "부동산",
+                "강남구 아파트 변경",
+                "5% 이상 상승",
+                "0 9 * * *",
+                "telegram",
+                "api",
+                "강남구 아파트 변경",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                null,
+                "강남구 아파트 변경 텔레그램으로 매일 오전 9시에 알려줘",
+                null
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("매매");
+        assertThat(createSubscriptionUseCase.receivedCommand).isNull();
+        verify(monitoringConfigRepository, never()).save(any());
+    }
+
+    @Test
     @DisplayName("unsupported draft starts a new parse for the next free text message")
     void unsupportedDraftStartsNewParseForNextMessage() {
         SubscriptionConversationJpaEntity unsupportedConversation = new SubscriptionConversationJpaEntity(1L);

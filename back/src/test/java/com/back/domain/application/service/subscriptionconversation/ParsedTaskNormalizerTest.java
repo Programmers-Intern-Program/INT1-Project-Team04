@@ -70,6 +70,37 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
+    @DisplayName("requires an explicit apartment deal type before accepting generated trade conditions")
+    void requiresExplicitApartmentDealType() {
+        ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());
+        ParsedTask task = new ParsedTask(
+                "create",
+                "부동산",
+                "강남구 아파트 변경",
+                "5% 이상 상승",
+                "0 9 * * *",
+                "telegram",
+                "api",
+                "강남구 아파트 변경",
+                List.of(),
+                0.9,
+                false,
+                ""
+        );
+
+        SubscriptionDraft draft = normalizer.normalize(
+                task,
+                "강남구 아파트 변경 텔레그램으로 매일 오전 9시에 알려줘"
+        );
+
+        assertThat(draft.intent()).isEqualTo("apartment_trade_price");
+        assertThat(draft.monitoringParams()).containsEntry("region", "강남구");
+        assertThat(draft.monitoringParams()).containsEntry("conditionThreshold", "5");
+        assertThat(draft.missingFields()).contains("dealType");
+        assertThat(draft.assistantMessage()).contains("매매");
+    }
+
+    @Test
     @DisplayName("does not accept parser default channel unless user explicitly mentioned it")
     void ignoresImplicitDefaultChannel() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(new DomainCapabilityRegistry());

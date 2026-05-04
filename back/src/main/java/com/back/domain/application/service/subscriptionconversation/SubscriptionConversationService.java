@@ -452,6 +452,13 @@ public class SubscriptionConversationService {
             String message
     ) {
         List<String> missing = missingPersistedFields(conversation);
+        if (missing.contains("dealType")) {
+            Optional<String> dealType = parseDealTypeAnswer(message);
+            if (dealType.isPresent()) {
+                return selectDealType(conversation, dealType.get());
+            }
+        }
+
         if (missing.contains("notificationChannel")) {
             Optional<NotificationChannel> channel = parseChannelAnswer(message);
             if (channel.isPresent()) {
@@ -489,6 +496,9 @@ public class SubscriptionConversationService {
                         conversation.getDraftNotificationChannel()
                 ).isEmpty()) {
             missing.add("notificationEndpoint");
+        }
+        if (requiresApartmentDealType(conversation)) {
+            missing.add("dealType");
         }
         if (StructuredCondition.fromParameters(monitoringParams(conversation.getDraftMonitoringParams())).isEmpty()) {
             missing.add("condition");
@@ -644,6 +654,9 @@ public class SubscriptionConversationService {
     }
 
     private String questionForMissing(List<String> missing, SubscriptionConversationJpaEntity conversation) {
+        if (missing.contains("dealType")) {
+            return "아파트 매매 실거래가 알림인지 알려주세요. 예: 강남구 아파트 매매 실거래가";
+        }
         if (missing.contains("condition")) {
             return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
         }
@@ -709,6 +722,74 @@ public class SubscriptionConversationService {
 
     private boolean isEmail(String value) {
         return !isBlank(value) && EMAIL.matcher(value.trim()).matches();
+    }
+
+    private Optional<String> parseDealTypeAnswer(String value) {
+        String text = lower(value);
+        if (text.contains("전월세") || text.contains("전세") || text.contains("월세")) {
+            return Optional.of("UNSUPPORTED_RENT");
+        }
+        if (text.contains("매매") || text.contains("실거래가")) {
+            return Optional.of("TRADE");
+        }
+        return Optional.empty();
+    }
+
+    private Response selectDealType(SubscriptionConversationJpaEntity conversation, String value) {
+        if (!"TRADE".equals(value)) {
+            String message = "현재는 아파트 매매 실거래가 알림만 만들 수 있어요. 매매 실거래가 알림으로 만들까요?";
+            conversation.updateStatus(SubscriptionConversationStatus.COLLECTING, message);
+            conversationRepository.save(conversation);
+            return needsInput(conversation, message, List.of());
+        }
+
+        conversation.updateParsedDraft(
+                conversation.getParseSessionId(),
+                apartmentTradeQuery(conversation),
+                conversation.getDraftDomainId(),
+                conversation.getDraftDomainName(),
+                "apartment_trade_price",
+                conversation.getDraftToolName(),
+                conversation.getDraftMonitoringParams(),
+                conversation.getDraftCronExpr(),
+                conversation.getDraftNotificationChannel(),
+                conversation.getDraftNotificationTargetAddress(),
+                conversation.getLastAssistantMessage(),
+                conversation.getStatus()
+        );
+        return completeOrAsk(conversation);
+    }
+
+    private String apartmentTradeQuery(SubscriptionConversationJpaEntity conversation) {
+        if (!requiresExplicitApartmentDealType(conversation.getDraftQuery())) {
+            return conversation.getDraftQuery();
+        }
+        String region = monitoringParams(conversation.getDraftMonitoringParams()).get("region");
+        if (!isBlank(region)) {
+            return region + " 아파트 매매 실거래가";
+        }
+        return "아파트 매매 실거래가";
+    }
+
+    private boolean requiresApartmentDealType(SubscriptionConversationJpaEntity conversation) {
+        return "real-estate".equals(conversation.getDraftDomainName())
+                && "apartment_trade_price".equals(conversation.getDraftIntent())
+                && requiresExplicitApartmentDealType(conversation.getDraftQuery());
+    }
+
+    private boolean requiresExplicitApartmentDealType(String value) {
+        String text = lower(value);
+        if (!text.contains("변경") && !text.contains("변동")) {
+            return false;
+        }
+        return !(text.contains("매매")
+                || text.contains("실거래가")
+                || text.contains("전월세")
+                || text.contains("전세")
+                || text.contains("월세")
+                || text.contains("가격")
+                || text.contains("시세")
+                || text.contains("집값"));
     }
 
     private String lower(String value) {

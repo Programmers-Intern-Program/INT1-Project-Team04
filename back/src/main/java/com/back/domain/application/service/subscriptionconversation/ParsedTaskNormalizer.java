@@ -74,6 +74,10 @@ public class ParsedTaskNormalizer {
         DomainCapabilityRegistry.IntentCapability capability = registry.requireIntent(domainName, intent);
         params.putAll(capability.defaults());
 
+        if (requiresExplicitApartmentDealType(userMessage, query, task.target())) {
+            missing.add("dealType");
+        }
+
         String region = extractRegion(query, task.target());
         if (region == null && canReusePrevious) {
             region = previousDraft.monitoringParams().get("region");
@@ -201,6 +205,9 @@ public class ParsedTaskNormalizer {
         if (missing.contains("region")) {
             return "어느 지역의 아파트 매매 실거래가를 확인할까요?";
         }
+        if (missing.contains("dealType")) {
+            return "아파트 매매 실거래가 알림인지 알려주세요. 예: 강남구 아파트 매매 실거래가";
+        }
         if (missing.contains("condition")) {
             return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
         }
@@ -215,6 +222,25 @@ public class ParsedTaskNormalizer {
 
     private String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean requiresExplicitApartmentDealType(String userMessage, String query, String target) {
+        String text = lower((userMessage == null ? "" : userMessage)
+                + " "
+                + (query == null ? "" : query)
+                + " "
+                + (target == null ? "" : target));
+        if (!text.contains("변경") && !text.contains("변동")) {
+            return false;
+        }
+        return !(text.contains("매매")
+                || text.contains("실거래가")
+                || text.contains("전월세")
+                || text.contains("전세")
+                || text.contains("월세")
+                || text.contains("가격")
+                || text.contains("시세")
+                || text.contains("집값"));
     }
 
     private boolean canReusePreviousDraft(SubscriptionDraft previousDraft, String domainName) {
