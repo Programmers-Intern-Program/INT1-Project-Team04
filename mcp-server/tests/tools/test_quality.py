@@ -125,14 +125,17 @@ async def test_detect_anomalies_normal_data():
 @pytest.mark.asyncio
 async def test_detect_anomalies_with_outliers():
     """이상치가 있는 데이터 테스트."""
-    # Given
+    # Given - 더 많은 정상 데이터와 명확한 이상치
     data_records = [
         {"price": 50000},
         {"price": 51000},
         {"price": 49000},
         {"price": 50500},
-        {"price": 100000},  # 이상치 (너무 높음)
-        {"price": 10000},   # 이상치 (너무 낮음)
+        {"price": 49500},
+        {"price": 50200},
+        {"price": 50800},
+        {"price": 49800},
+        {"price": 200000},  # 명확한 이상치 (평균의 4배)
     ]
     
     input_data = DetectAnomaliesInput(
@@ -153,7 +156,7 @@ async def test_detect_anomalies_with_outliers():
     stats = result["structured"]["statistics"]
     assert "mean" in stats
     assert "std_dev" in stats
-    assert stats["count"] == 6
+    assert stats["count"] == 9
 
 
 @pytest.mark.asyncio
@@ -378,12 +381,17 @@ async def test_clean_data_remove_nulls():
 @pytest.mark.asyncio
 async def test_clean_data_remove_anomalies():
     """이상치 제거 테스트."""
-    # Given
+    # Given - 더 많은 정상 데이터로 통계적 유의성 확보
     data_records = [
         {"price": 50000},
         {"price": 51000},
         {"price": 49000},
-        {"price": 100000},  # 이상치
+        {"price": 50500},
+        {"price": 49500},
+        {"price": 50200},
+        {"price": 50800},
+        {"price": 49800},
+        {"price": 200000},  # 명확한 이상치
     ]
     
     input_data = CleanDataInput(
@@ -401,6 +409,8 @@ async def test_clean_data_remove_anomalies():
 
     # Then
     assert result["structured"]["removal_summary"]["anomalies"] > 0
+    # 이상치가 제거되었으므로 cleaned_count는 original_count보다 작아야 함
+    assert result["structured"]["cleaned_count"] < result["structured"]["original_count"]
 
 
 @pytest.mark.asyncio
