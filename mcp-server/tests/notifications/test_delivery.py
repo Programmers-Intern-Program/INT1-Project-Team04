@@ -21,9 +21,32 @@ def _settings(**overrides: Any) -> Settings:
     values = {
         "pg_url": "postgresql+asyncpg://test:test@localhost:5432/test",
         "langfuse_enabled": False,
+        "notification_telegram_enabled": False,
+        "notification_telegram_bot_token": None,
+        "notification_discord_enabled": False,
+        "notification_discord_bot_token": None,
+        "notification_email_enabled": False,
+        "notification_email_from": None,
+        "notification_email_host": None,
+        "notification_email_username": None,
+        "notification_email_password": None,
     }
     values.update(overrides)
-    return Settings(**values)
+    return Settings(_env_file=None, **values)
+
+
+def test_test_settings_do_not_read_local_notification_env() -> None:
+    settings = _settings()
+
+    assert settings.notification_telegram_enabled is False
+    assert settings.notification_telegram_bot_token is None
+    assert settings.notification_discord_enabled is False
+    assert settings.notification_discord_bot_token is None
+    assert settings.notification_email_enabled is False
+    assert settings.notification_email_from is None
+    assert settings.notification_email_host is None
+    assert settings.notification_email_username is None
+    assert settings.notification_email_password is None
 
 
 async def test_telegram_send_message_success() -> None:
