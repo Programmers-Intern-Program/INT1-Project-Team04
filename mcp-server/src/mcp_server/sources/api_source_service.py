@@ -120,6 +120,14 @@ _CACHEABLE_TOOLS: frozenset[str] = frozenset({
 })
 
 
+async def peek_cached_at(tool_name: str) -> datetime | None:
+    """check_api_cache 전용. cached_at만 반환."""
+    if tool_name not in _CACHEABLE_TOOLS:
+        return None
+    cached = await _load_cache_by_tool(tool_name)
+    return cached.cached_at if cached is not None else None
+
+
 async def peek_cached_content(tool_name: str) -> tuple[str, datetime] | None:
     """캐시 팀의 check_api_cache 도구가 사용할 read 헬퍼.
 
@@ -226,4 +234,4 @@ async def _call_external_api(
     return response.text
 
 
-__all__ = ["fetch", "peek_cached_content", "resolve_source_id_by_tool_name"]
+__all__ = ["fetch", "peek_cached_at", "peek_cached_content", "resolve_source_id_by_tool_name"]
