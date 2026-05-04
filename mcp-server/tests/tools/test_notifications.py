@@ -23,6 +23,17 @@ def test_notification_request_accepts_backend_field_names() -> None:
     assert request.subscription_id == 42
 
 
+def test_notification_request_accepts_string_subscription_id() -> None:
+    request = NotificationRequest.model_validate({
+        "notificationChannel": "TELEGRAM_DM",
+        "notificationTarget": "123456",
+        "subscriptionId": "sub-1",
+        "message": "조건이 충족되었습니다.",
+    })
+
+    assert request.subscription_id == "sub-1"
+
+
 def test_notification_request_accepts_tool_alias_field_names() -> None:
     request = NotificationRequest.model_validate({
         "channel": "EMAIL",
