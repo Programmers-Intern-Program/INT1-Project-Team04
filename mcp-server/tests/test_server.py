@@ -29,6 +29,7 @@ async def test_registered_tools_include_search_house_price() -> None:
     names = {t.name for t in tools}
     assert "search_house_price" in names
     assert "send_notification" in names
+    assert "compare_subscription_change" in names
 
 
 async def test_lifespan_calls_shutdown_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
