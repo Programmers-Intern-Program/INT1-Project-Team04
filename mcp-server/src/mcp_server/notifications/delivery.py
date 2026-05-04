@@ -12,8 +12,11 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import smtplib
 from email.message import EmailMessage
+from html import unescape
+from html.parser import HTMLParser
 from typing import Any
 
 import httpx
@@ -193,7 +196,7 @@ class NotificationDeliveryService:
         message["From"] = self._settings.notification_email_from or ""
         message["To"] = request.target
         message["Subject"] = request.title or "구독 조건이 충족되었습니다"
-        message.set_content(request.message)
+        _set_email_body(message, request.message)
 
         with smtplib.SMTP(
             self._settings.notification_email_host or "",
@@ -270,6 +273,51 @@ def _notification_text(request: NotificationRequest) -> str:
     if request.title:
         return f"{request.title}\n{request.message}"
     return request.message
+
+
+def _set_email_body(message: EmailMessage, body: str) -> None:
+    """HTML 알림은 text/html 파트를 포함해 메일 클라이언트가 렌더링할 수 있게 만든다."""
+    if _is_html_body(body):
+        message.set_content(_html_to_plain_text(body))
+        message.add_alternative(body, subtype="html")
+        return
+    message.set_content(body)
+
+
+def _is_html_body(value: str) -> bool:
+    text = value.lstrip().lower()
+    return text.startswith("<!doctype html") or text.startswith("<html")
+
+
+def _html_to_plain_text(value: str) -> str:
+    parser = _HtmlPlainTextParser()
+    parser.feed(value)
+    text = unescape("".join(parser.parts))
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    text = re.sub(r"\n\s*\n+", "\n\n", text)
+    return text.strip() or "HTML 알림 본문입니다."
+
+
+class _HtmlPlainTextParser(HTMLParser):
+    """HTML 메일을 지원하지 않는 클라이언트를 위한 최소 plain text 대체 본문 생성기."""
+
+    _BLOCK_TAGS = {"br", "div", "p", "h1", "h2", "h3", "li"}
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "br":
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._BLOCK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if data.strip():
+            self.parts.append(data)
 
 
 def _response_json(response: httpx.Response) -> dict[str, Any]:
