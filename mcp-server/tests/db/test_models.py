@@ -10,11 +10,17 @@ from mcp_server.db.models import ApiCache, ApiSource, CrawlCache, CrawlSource
 
 
 @pytest.mark.asyncio
-async def test_metadata_creates_four_tables(in_memory_engine):
-    """metadata.create_all 로 4개 테이블이 생성된다."""
+async def test_metadata_creates_mcp_tables(in_memory_engine):
+    """metadata.create_all 로 MCP 테이블이 생성된다."""
     async with in_memory_engine.connect() as conn:
         names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
-    assert set(names) == {"api_source", "crawl_source", "api_cache", "crawl_cache"}
+    assert set(names) == {
+        "api_source",
+        "crawl_source",
+        "api_cache",
+        "crawl_cache",
+        "subscription_snapshot_state",
+    }
 
 
 @pytest.mark.asyncio
@@ -125,3 +131,43 @@ async def test_crawl_cache_uuid_pk_and_fk_naming(patched_session_factory):
         await session.refresh(row)
         assert len(row.id) == 36
         assert row.crawl_source_id == crawl_source.id
+
+
+@pytest.mark.asyncio
+async def test_subscription_snapshot_state_insert_and_select(in_memory_engine):
+    """subscription_snapshot_state 저장 및 조회를 검증한다."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from mcp_server.db.models import SubscriptionSnapshotState
+
+    factory = async_sessionmaker(bind=in_memory_engine, expire_on_commit=False)
+    captured_at = datetime(2026, 5, 3, 12, 0, tzinfo=UTC)
+    async with factory() as session:
+        snapshot = SubscriptionSnapshotState(
+            subscription_id="42",
+            domain="real-estate",
+            query="강남구 아파트 매매",
+            params_hash="hash-42",
+            baseline_summary={"avg_deal_amount": 100000},
+            baseline_content="baseline text",
+            baseline_captured_at=captured_at,
+            latest_summary={"avg_deal_amount": 106000},
+            latest_content="latest text",
+            latest_captured_at=captured_at,
+        )
+        session.add(snapshot)
+        await session.commit()
+
+    async with factory() as session:
+        row = (
+            await session.execute(
+                select(SubscriptionSnapshotState).where(
+                    SubscriptionSnapshotState.subscription_id == "42",
+                )
+            )
+        ).scalar_one()
+
+    assert row.domain == "real-estate"
+    assert row.params_hash == "hash-42"
+    assert row.baseline_summary == {"avg_deal_amount": 100000}
+    assert row.latest_summary == {"avg_deal_amount": 106000}
