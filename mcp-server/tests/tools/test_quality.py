@@ -1,13 +1,17 @@
-"""데이터 품질 검증 도구 테스트."""
+"""데이터 품질 검증 및 정제 도구 테스트."""
 
 import pytest
 
 from mcp_server.tools.quality import (
     CheckDataCompletenessInput,
+    CleanDataInput,
     DetectAnomaliesInput,
+    FixDataIssuesInput,
     ValidateDataQualityInput,
     check_data_completeness,
+    clean_data,
     detect_anomalies,
+    fix_data_issues,
     validate_data_quality,
 )
 
@@ -313,3 +317,201 @@ async def test_check_data_completeness_common_schema():
     assert "source_url" in result
     assert "metadata" in result
     assert result["metadata"]["tool_name"] == "check_data_completeness"
+
+
+# ─────────────────────────────────────────────
+# 데이터 정제 도구 테스트
+# ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_clean_data_remove_duplicates():
+    """중복 제거 테스트."""
+    # Given
+    data_records = [
+        {"name": "A", "value": 100},
+        {"name": "B", "value": 200},
+        {"name": "A", "value": 100},  # 중복
+        {"name": "C", "value": 300},
+    ]
+    
+    input_data = CleanDataInput(
+        domain="부동산",
+        data_records=data_records,
+        remove_duplicates=True,
+    )
+
+    # When
+    result = await clean_data(input_data)
+
+    # Then
+    assert result["structured"]["original_count"] == 4
+    assert result["structured"]["cleaned_count"] == 3
+    assert result["structured"]["removal_summary"]["duplicates"] == 1
+
+
+@pytest.mark.asyncio
+async def test_clean_data_remove_nulls():
+    """NULL 제거 테스트."""
+    # Given
+    data_records = [
+        {"name": "A", "value": 100},
+        {"name": "B", "value": None},  # NULL
+        {"name": None, "value": 300},  # NULL
+    ]
+    
+    input_data = CleanDataInput(
+        domain="법률",
+        data_records=data_records,
+        remove_duplicates=False,
+        remove_nulls=True,
+    )
+
+    # When
+    result = await clean_data(input_data)
+
+    # Then
+    assert result["structured"]["cleaned_count"] == 1
+    assert result["structured"]["removal_summary"]["nulls"] == 2
+
+
+@pytest.mark.asyncio
+async def test_clean_data_remove_anomalies():
+    """이상치 제거 테스트."""
+    # Given
+    data_records = [
+        {"price": 50000},
+        {"price": 51000},
+        {"price": 49000},
+        {"price": 100000},  # 이상치
+    ]
+    
+    input_data = CleanDataInput(
+        domain="부동산",
+        data_records=data_records,
+        remove_duplicates=False,
+        remove_nulls=False,
+        remove_anomalies=True,
+        anomaly_field="price",
+        anomaly_threshold=2.0,
+    )
+
+    # When
+    result = await clean_data(input_data)
+
+    # Then
+    assert result["structured"]["removal_summary"]["anomalies"] > 0
+
+
+@pytest.mark.asyncio
+async def test_fix_data_issues_fill_missing():
+    """누락 필드 채우기 테스트."""
+    # Given
+    data_records = [
+        {"name": "A"},  # value 누락
+        {"name": "B", "value": 200},
+    ]
+    
+    input_data = FixDataIssuesInput(
+        domain="부동산",
+        data_records=data_records,
+        fill_missing_with_default=True,
+        default_values={"value": 0},
+    )
+
+    # When
+    result = await fix_data_issues(input_data)
+
+    # Then
+    fixed_records = result["structured"]["fixed_records"]
+    assert "value" in fixed_records[0]
+    assert fixed_records[0]["value"] == 0
+
+
+@pytest.mark.asyncio
+async def test_fix_data_issues_convert_types():
+    """타입 변환 테스트."""
+    # Given
+    data_records = [
+        {"name": "A", "value": "123"},  # 문자열 → 숫자
+        {"name": "B", "value": "45.67"},  # 문자열 → float
+    ]
+    
+    input_data = FixDataIssuesInput(
+        domain="채용",
+        data_records=data_records,
+        convert_types=True,
+    )
+
+    # When
+    result = await fix_data_issues(input_data)
+
+    # Then
+    fixed_records = result["structured"]["fixed_records"]
+    assert isinstance(fixed_records[0]["value"], int)
+    assert fixed_records[0]["value"] == 123
+    assert isinstance(fixed_records[1]["value"], float)
+
+
+@pytest.mark.asyncio
+async def test_fix_data_issues_trim_strings():
+    """문자열 공백 제거 테스트."""
+    # Given
+    data_records = [
+        {"name": "  A  ", "value": 100},
+        {"name": "B\t", "value": 200},
+    ]
+    
+    input_data = FixDataIssuesInput(
+        domain="법률",
+        data_records=data_records,
+        trim_strings=True,
+    )
+
+    # When
+    result = await fix_data_issues(input_data)
+
+    # Then
+    fixed_records = result["structured"]["fixed_records"]
+    assert fixed_records[0]["name"] == "A"
+    assert fixed_records[1]["name"] == "B"
+
+
+@pytest.mark.asyncio
+async def test_clean_data_common_schema():
+    """clean_data 공통 스키마 테스트."""
+    # Given
+    input_data = CleanDataInput(
+        domain="경매",
+        data_records=[{"bid_title": "테스트"}],
+    )
+
+    # When
+    result = await clean_data(input_data)
+
+    # Then
+    assert "text" in result
+    assert "structured" in result
+    assert "source_url" in result
+    assert "metadata" in result
+    assert result["metadata"]["tool_name"] == "clean_data"
+
+
+@pytest.mark.asyncio
+async def test_fix_data_issues_common_schema():
+    """fix_data_issues 공통 스키마 테스트."""
+    # Given
+    input_data = FixDataIssuesInput(
+        domain="채용",
+        data_records=[{"job_title": "개발자"}],
+    )
+
+    # When
+    result = await fix_data_issues(input_data)
+
+    # Then
+    assert "text" in result
+    assert "structured" in result
+    assert "source_url" in result
+    assert "metadata" in result
+    assert result["metadata"]["tool_name"] == "fix_data_issues"
