@@ -9,6 +9,39 @@ import org.junit.jupiter.api.Test;
 class PromptTemplateTest {
 
     @Test
+    @DisplayName("파서 프롬프트는 채용 새 공고 조건을 1건 이상 증가 조건으로 해석하게 한다")
+    void parserPromptNormalizesRecruitmentNewPostingCondition() {
+        assertThat(PromptTemplate.SYSTEM_PROMPT)
+                .contains("채용 도메인")
+                .contains("새 공고")
+                .contains("1건 이상 증가")
+                .contains("needs_confirmation을 false")
+                .contains("진행중 공고")
+                .contains("진행중 공고 1건 이상 증가");
+    }
+
+    @Test
+    @DisplayName("파서 프롬프트는 채용 query와 target에 시간/채널 문구를 섞지 않게 한다")
+    void parserPromptKeepsRecruitmentQueryFocusedOnSearchTarget() {
+        assertThat(PromptTemplate.SYSTEM_PROMPT)
+                .contains("채용 query")
+                .contains("검색 키워드")
+                .contains("시간")
+                .contains("채널")
+                .contains("섞지 마");
+    }
+
+    @Test
+    @DisplayName("후속 파서 프롬프트는 채용 조건 답변도 1건 이상 증가 조건으로 보정한다")
+    void continuePromptNormalizesRecruitmentConditionAnswers() {
+        assertThat(PromptTemplate.CONTINUE_SYSTEM_PROMPT)
+                .contains("채용")
+                .contains("새 공고")
+                .contains("1건 이상 증가")
+                .contains("needs_confirmation을 false");
+    }
+
+    @Test
     @DisplayName("구독 실행 프롬프트는 MCP 알림 발송 도구 호출 계약을 포함한다")
     void subscriptionExecutionPromptRequiresSendNotificationTool() {
         assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)

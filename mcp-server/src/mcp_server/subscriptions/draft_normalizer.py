@@ -10,7 +10,8 @@
 안전장치:
 - "강남구 아파트 변경"처럼 자료유형이 빠진 요청은 매매로 추정하지 않고 dealType 을 요구한다.
 - 전세/월세 요청은 search_house_price 로 변환하지 않고 unsupportedCapability 로 돌려준다.
-- 채용/법률/경매는 도메인 분류는 유지하되 planned capability 로 응답해 UX 와 실행 범위를 맞춘다.
+- 채용은 공고 수 변화 감시 계약으로 구조화한다.
+- 법률/경매는 도메인 분류는 유지하되 planned capability 로 응답해 UX 와 실행 범위를 맞춘다.
 """
 
 from __future__ import annotations
@@ -20,14 +21,20 @@ from decimal import Decimal
 
 from mcp_server.subscriptions.draft_models import (
     NormalizedSubscriptionDraft,
+    ParsedTaskDraft,
+    PreviousSubscriptionDraft,
     SubscriptionDraftNormalizationInput,
 )
 
 _TOOL_APT_TRADE = "search_house_price"
+_TOOL_PUBLIC_JOB = "search_public_job"
+_TOOL_WORKNET_JOB = "search_worknet_job"
+_INTENT_JOB_POSTING_CHANGE = "job_posting_change"
 _PENDING_DEAL_TYPE_CONFIRMATION = "pendingDealTypeConfirmation"
 
 _REGION = re.compile(r"([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구))")
 _THRESHOLD = re.compile(r"(\d+(?:\.\d+)?)\s*(%|퍼센트|프로|만원|억)?")
+_COUNT_THRESHOLD = re.compile(r"(\d+(?:\.\d+)?)\s*(?:건|개)")
 
 _SIDO_ONLY_REGIONS = {
     "서울특별시",
@@ -51,9 +58,25 @@ _REGION_ALIASES = {
 
 _PLANNED_DOMAINS = {
     "law-regulation": "법률/규제",
-    "recruitment": "채용",
     "auction": "경매/희소매물",
 }
+
+_RECRUITMENT_DEFAULT_PAGE_NO = "1"
+_RECRUITMENT_DEFAULT_PAGE_SIZE = "20"
+_RECRUITMENT_KEYWORD_PATTERNS = (
+    re.compile(r"(.+?)\s*채용(?:\s*(?:공고|알림|정보|새 공고|신규 공고|진행중 공고))?$"),
+    re.compile(r"채용\s+(.+?)(?:\s*(?:공고|알림|정보|새 공고|신규 공고|진행중 공고))?$"),
+    re.compile(r"(.+?)\s*(?:구인|일자리)(?:\s*(?:공고|알림|정보))?$"),
+)
+_RECRUITMENT_SOURCE_PREFIXES = ("공공기관", "공기업", "공공", "기관", "워크넷")
+_RECRUITMENT_KEYWORD_SUFFIXES = (
+    "새 공고",
+    "신규 공고",
+    "진행중 공고",
+    "공고",
+    "알림",
+    "정보",
+)
 
 
 # ─────────────────────────────────────────────
@@ -114,6 +137,14 @@ def normalize_subscription_draft(
             missing_fields=["unsupportedIntent"],
             question="알림 수정과 삭제는 아직 채팅 생성 플로우에서 처리하지 않아요.",
             confidence=task.confidence,
+        )
+
+    if domain_name == "recruitment":
+        return _normalize_recruitment_draft(
+            input_model=input_model,
+            query=query,
+            task=task,
+            previous=previous if can_reuse_previous else None,
         )
 
     # planned 도메인은 사용자의 의도를 보존하되 실제 MCP 조회 도구로는 연결하지 않는다.
@@ -204,6 +235,182 @@ def normalize_subscription_draft(
         question=_question_for_missing(missing),
         confidence=task.confidence,
     )
+
+
+# ─────────────────────────────────────────────
+# 채용 정규화
+# ─────────────────────────────────────────────
+
+def _normalize_recruitment_draft(
+    *,
+    input_model: SubscriptionDraftNormalizationInput,
+    query: str | None,
+    task: ParsedTaskDraft,
+    previous: PreviousSubscriptionDraft | None,
+) -> NormalizedSubscriptionDraft:
+    """채용 구독 요청을 공고 수 변화 감시 계약으로 변환한다."""
+    text = _joined_text(input_model.user_message, query, task.condition, task.target)
+    previous_params = previous.monitoring_params if previous is not None else {}
+    tool_name = _recruitment_tool_name(text, previous)
+    keyword = (
+        _extract_recruitment_keyword(query, task.target)
+        or previous_params.get("keyword")
+    )
+    condition = (
+        _parse_recruitment_condition(task.condition, text)
+        or _condition_from_parameters(previous_params)
+    )
+
+    params: dict[str, str] = {
+        "dataToolName": tool_name,
+    }
+    missing: list[str] = []
+
+    if keyword:
+        params["keyword"] = keyword
+    else:
+        missing.append("keyword")
+
+    if tool_name == _TOOL_PUBLIC_JOB:
+        params["page_no"] = _RECRUITMENT_DEFAULT_PAGE_NO
+        params["num_of_rows"] = _RECRUITMENT_DEFAULT_PAGE_SIZE
+        if keyword:
+            params["recrut_pbanc_ttl"] = keyword
+        # 채용 구독은 사용자가 "마감 포함"을 명시하지 않는 한 현재 지원 가능한 공고만 감시한다.
+        params["ongoing_yn"] = "Y"
+    else:
+        params["start_page"] = _RECRUITMENT_DEFAULT_PAGE_NO
+        params["display"] = _RECRUITMENT_DEFAULT_PAGE_SIZE
+
+    if condition is None:
+        missing.append("condition")
+    else:
+        params.update(condition)
+
+    return _draft(
+        query=_recruitment_query(query, keyword) if not missing else query,
+        domain_name="recruitment",
+        intent=_INTENT_JOB_POSTING_CHANGE,
+        tool_name=tool_name,
+        parameters=params,
+        missing_fields=missing,
+        question=_recruitment_question_for_missing(missing),
+        confidence=task.confidence,
+    )
+
+
+def _recruitment_tool_name(
+    text: str,
+    previous: PreviousSubscriptionDraft | None,
+) -> str:
+    previous_tool = None
+    if previous is not None:
+        previous_tool = previous.monitoring_params.get("dataToolName") or previous.tool_name
+    if previous_tool in {_TOOL_PUBLIC_JOB, _TOOL_WORKNET_JOB}:
+        return previous_tool
+
+    # 워크넷을 명시한 요청만 Worknet 으로 보낸다. 기본은 권한 이슈가 없는 공공 채용 캐시다.
+    if "워크넷" in text:
+        return _TOOL_WORKNET_JOB
+    return _TOOL_PUBLIC_JOB
+
+
+def _extract_recruitment_keyword(query: str | None, target: str | None) -> str | None:
+    """파서가 구조화한 query/target 에서 채용 검색어를 추출한다."""
+    return _extract_recruitment_keyword_from_text(query) or _extract_recruitment_keyword_from_text(target)
+
+
+def _extract_recruitment_keyword_from_text(text: str | None) -> str | None:
+    if not text:
+        return None
+    normalized = _normalize_recruitment_text(text)
+    for pattern in _RECRUITMENT_KEYWORD_PATTERNS:
+        match = pattern.fullmatch(normalized)
+        if match is None:
+            continue
+        keyword = _clean_recruitment_keyword(match.group(1))
+        if keyword:
+            return keyword
+    return None
+
+
+def _normalize_recruitment_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip(" .,!?~"))
+
+
+def _clean_recruitment_keyword(value: str) -> str | None:
+    keyword = _normalize_recruitment_text(value)
+    # 공공기관/워크넷 같은 출처 단서는 tool 선택용이고, API 검색어에는 넣지 않는다.
+    for prefix in _RECRUITMENT_SOURCE_PREFIXES:
+        if keyword == prefix:
+            return None
+        if keyword.startswith(f"{prefix} "):
+            keyword = keyword.removeprefix(prefix).strip()
+            break
+    for suffix in _RECRUITMENT_KEYWORD_SUFFIXES:
+        if keyword.endswith(f" {suffix}"):
+            keyword = keyword.removesuffix(suffix).strip()
+            break
+    return keyword or None
+
+
+def _parse_recruitment_condition(raw_condition: str | None, text: str) -> dict[str, str] | None:
+    """채용의 자연어 이벤트 조건을 공고 수 delta 조건으로 바꾼다."""
+    merged = _joined_text(raw_condition, text)
+    if not _has_recruitment_change_condition(merged):
+        return None
+
+    # 채용 조건은 "3건" 같은 수량만 threshold 로 본다. 시간/연도 숫자는 공고 수가 아니다.
+    match = _COUNT_THRESHOLD.search(merged)
+    threshold = Decimal(match.group(1)).normalize() if match else Decimal("1")
+    return {
+        "conditionMetric": "ONGOING_COUNT" if "진행중" in merged else "COUNT",
+        "conditionDirection": _recruitment_condition_direction(merged),
+        "conditionOperator": _condition_operator(merged),
+        "conditionThreshold": format(threshold, "f"),
+        "conditionUnit": "COUNT",
+    }
+
+
+def _has_recruitment_change_condition(text: str) -> bool:
+    return any(
+        word in text
+        for word in [
+            "새 공고",
+            "신규",
+            "새로",
+            "뜨면",
+            "올라오면",
+            "등록",
+            "변화",
+            "변동",
+            "늘면",
+            "증가",
+            "이상",
+        ]
+    )
+
+
+def _recruitment_condition_direction(text: str) -> str:
+    if any(word in text for word in ["감소", "줄면", "줄어", "마감"]):
+        return "DOWN"
+    return "UP"
+
+
+def _recruitment_query(query: str | None, keyword: str | None) -> str | None:
+    if query:
+        return query
+    if keyword:
+        return f"{keyword} 채용 공고"
+    return query
+
+
+def _recruitment_question_for_missing(missing: list[str]) -> str:
+    if "keyword" in missing:
+        return "어떤 채용 공고를 확인할까요? 예: 백엔드, 데이터, 공공기관 인턴 등"
+    if "condition" in missing:
+        return "어떤 변화가 있을 때 알림을 받을까요? 예: 새 공고가 1건 이상 올라오면"
+    return ""
 
 
 # ─────────────────────────────────────────────
