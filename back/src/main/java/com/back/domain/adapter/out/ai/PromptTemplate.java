@@ -80,11 +80,19 @@ condition 규칙 (중요):
 - condition은 백엔드에서 비교 연산에 사용되므로 반드시 수치 기반이어야 해
 - 사용자가 명시한 수치(예: "5%", "50만원 이하")가 있으면 그대로 사용: "5% 이상 상승", "50만원 이하"
 - "반토막", "두 배" 같은 비유 표현은 수치로 변환: "반토막" → "50% 하락", "두 배" → "100% 상승"
+- 채용 도메인에서 "새 공고 뜨면", "새로 올라오면", "공고가 등록되면"은 수치 조건으로 해석 가능해. condition을 "1건 이상 증가"로 설정하고, 대상 검색어가 있으면 needs_confirmation을 false로 설정
+- 채용 도메인에서 "진행중 공고가 늘면"은 condition을 "진행중 공고 1건 이상 증가"로 설정
+- 채용 도메인에서 "3건 이상 늘면"처럼 건수가 명시되면 condition을 "{명시 건수}건 이상 증가"로 설정
 - "좀 많이", "살짝", "많이", "바뀌면", "오르면" 같은 모호한 표현은 절대 임의로 수치를 추정하지 마
 - 모호한 표현인 경우 condition을 빈 문자열("")로 두고 needs_confirmation을 true로 설정
 - confirmation_question에 구체적으로 어떤 수치 기준을 원하는지 질문. 예: "몇 % 이상 변동 시 알려드릴까요?"
 - delete 요청은 condition을 "삭제 요청"으로 설정
 - reject 요청은 condition을 "지원하지 않는 도메인"으로 설정
+
+채용 query 규칙:
+- 채용 query에는 검색 키워드와 채용 표현만 남겨. 시간, 주기, 알림 채널, 전달 방식 문구는 query나 target에 섞지 마
+- 예: "백엔드 채용 새 공고 뜨면 매일 오전 9시에 텔레그램으로 알려줘" → query: "백엔드 채용 새 공고", target: "백엔드 채용 공고"
+- 예: "공공기관 데이터 채용 진행중 공고가 늘면 알려줘" → query: "공공기관 데이터 채용", target: "공공기관 데이터 채용 진행중 공고"
 
 urls 규칙:
 - metadata.urls는 실제 존재할 것 같은 URL을 추천해서 넣어
@@ -137,6 +145,8 @@ target 작성 규칙:
 1. 이전 JSON 결과를 기반으로 사용자의 추가 입력을 반영해 전체 JSON을 업데이트해.
 2. 사용자가 명시하지 않은 필드는 이전 값을 그대로 유지해.
 3. condition 필드에 사용자가 제공한 수치를 반영해.
+   - 채용 조건 답변이 "새 공고", "새로 올라오면", "공고가 등록되면"이면 condition을 "1건 이상 증가"로 설정하고 needs_confirmation을 false로 설정해.
+   - 채용 조건 답변이 "진행중 공고가 늘면"이면 condition을 "진행중 공고 1건 이상 증가"로 설정하고 needs_confirmation을 false로 설정해.
 4. 모든 모호성이 해결되면 needs_confirmation을 false로 설정하고 confirmation_question을 빈 문자열("")로 해.
 5. 여전히 모호한 부분이 있으면 needs_confirmation을 true로 유지하고 새로운 confirmation_question을 작성해.
 6. 동일한 JSON 스키마를 사용해: [{intent, domain_name, query, condition, cron_expr, channel, api_type, metadata: {target, urls, confidence, needs_confirmation, confirmation_question}}]

@@ -108,6 +108,108 @@ def test_apartment_trade_request_returns_search_house_price_contract() -> None:
     assert result.missing_fields == []
 
 
+def test_recruitment_new_job_request_returns_job_posting_change_contract() -> None:
+    result = normalize_subscription_draft(
+        SubscriptionDraftNormalizationInput(
+            userMessage="백엔드 채용 새 공고 뜨면 텔레그램으로 알려줘",
+            task=ParsedTaskDraft(
+                intent="create",
+                domainName="채용",
+                query="백엔드 채용 새 공고",
+                condition="새 공고 등록",
+                cronExpr="0 9 * * *",
+                channel="telegram",
+                target="백엔드 채용 공고",
+                confidence=0.9,
+            ),
+        )
+    )
+
+    assert result.domain_name == "recruitment"
+    assert result.intent == "job_posting_change"
+    assert result.tool_name in {"search_public_job", "search_worknet_job"}
+    assert result.parameters["dataToolName"] == result.tool_name
+    assert result.parameters["keyword"] == "백엔드"
+    assert result.parameters["conditionMetric"] == "COUNT"
+    assert result.parameters["conditionDirection"] == "UP"
+    assert result.parameters["conditionOperator"] == "GTE"
+    assert result.parameters["conditionThreshold"] == "1"
+    assert result.parameters["conditionUnit"] == "COUNT"
+    assert result.missing_fields == []
+
+
+def test_recruitment_time_number_does_not_override_default_count_threshold() -> None:
+    result = normalize_subscription_draft(
+        SubscriptionDraftNormalizationInput(
+            userMessage="백엔드 채용 새 공고 뜨면 매일 오전 9시에 알려줘",
+            task=ParsedTaskDraft(
+                intent="create",
+                domainName="채용",
+                query="백엔드 채용 새 공고",
+                condition="새 공고 등록",
+                cronExpr="0 9 * * *",
+                channel="telegram",
+                target="백엔드 채용 공고",
+                confidence=0.9,
+            ),
+        )
+    )
+
+    assert result.parameters["keyword"] == "백엔드"
+    assert result.parameters["conditionMetric"] == "COUNT"
+    assert result.parameters["conditionThreshold"] == "1"
+
+
+def test_public_recruitment_ongoing_request_uses_public_job_and_ongoing_count() -> None:
+    result = normalize_subscription_draft(
+        SubscriptionDraftNormalizationInput(
+            userMessage="공공기관 데이터 채용 진행중 공고가 늘면 알려줘",
+            task=ParsedTaskDraft(
+                intent="create",
+                domainName="채용",
+                query="공공기관 데이터 채용",
+                condition="진행중 공고 증가",
+                target="공공기관 데이터 채용 진행중 공고",
+                confidence=0.9,
+            ),
+        )
+    )
+
+    assert result.domain_name == "recruitment"
+    assert result.intent == "job_posting_change"
+    assert result.tool_name == "search_public_job"
+    assert result.parameters["dataToolName"] == "search_public_job"
+    assert result.parameters["keyword"] == "데이터"
+    assert result.parameters["recrut_pbanc_ttl"] == "데이터"
+    assert result.parameters["ongoing_yn"] == "Y"
+    assert result.parameters["conditionMetric"] == "ONGOING_COUNT"
+    assert result.parameters["conditionThreshold"] == "1"
+    assert result.parameters["conditionUnit"] == "COUNT"
+    assert result.missing_fields == []
+
+
+def test_recruitment_request_without_target_or_condition_asks_for_more_details() -> None:
+    result = normalize_subscription_draft(
+        SubscriptionDraftNormalizationInput(
+            userMessage="채용 알려줘",
+            task=ParsedTaskDraft(
+                intent="create",
+                domainName="채용",
+                query="채용",
+                condition="",
+                target="채용",
+                confidence=0.7,
+                needsConfirmation=True,
+            ),
+        )
+    )
+
+    assert result.domain_name == "recruitment"
+    assert result.intent == "job_posting_change"
+    assert result.missing_fields == ["keyword", "condition"]
+    assert "어떤 채용" in result.question
+
+
 def test_apartment_rent_request_is_not_normalized_as_trade() -> None:
     result = normalize_subscription_draft(
         SubscriptionDraftNormalizationInput(
