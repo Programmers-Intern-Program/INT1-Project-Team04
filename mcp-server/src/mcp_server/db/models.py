@@ -28,6 +28,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -120,4 +121,50 @@ class CrawlCache(Base):
     expired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-__all__ = ["ApiSource", "CrawlSource", "ApiCache", "CrawlCache"]
+class SubscriptionSnapshotState(Base):
+    """구독별 기준/최신 스냅샷 상태.
+
+    메인 DB 구독 테이블을 직접 참조하지 않고 subscription_id 문자열만 저장한다.
+    같은 구독이라도 params 가 바뀌면 다른 감시 대상으로 보고 params_hash 로 분리한다.
+    """
+
+    __tablename__ = "subscription_snapshot_state"
+    __table_args__ = (
+        UniqueConstraint(
+            "subscription_id",
+            "params_hash",
+            name="uq_subscription_snapshot_state_subscription_params",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    subscription_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    domain: Mapped[str] = mapped_column(String(100), nullable=False)
+    query: Mapped[str | None] = mapped_column(Text, nullable=True)
+    params_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    baseline_summary: Mapped[dict[str, Any]] = mapped_column(JsonColumn, nullable=False)
+    baseline_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    baseline_captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    latest_summary: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
+    latest_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latest_captured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.current_timestamp(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.current_timestamp(),
+        onupdate=func.current_timestamp(),
+    )
+
+
+__all__ = [
+    "ApiSource",
+    "CrawlSource",
+    "ApiCache",
+    "CrawlCache",
+    "SubscriptionSnapshotState",
+]

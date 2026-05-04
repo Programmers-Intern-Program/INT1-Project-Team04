@@ -116,7 +116,7 @@ class CreateSubscriptionServiceTest {
         assertThat(saveDeliveryPort.saved.message()).contains(
                 "알림 설정 완료",
                 "요청: 강남구 아파트 실거래가",
-                "확인 주기: 매시간 정각",
+                "알림 방식: 변화 감지 시",
                 "변화가 감지되면 이 채널로 핵심만 먼저 알려드릴게요."
         );
         assertThat(saveDeliveryPort.saved.message()).doesNotContain(
@@ -165,8 +165,8 @@ class CreateSubscriptionServiceTest {
                 "`강남구 아파트 실거래가`",
                 "**감시 영역**",
                 "부동산",
-                "**확인 주기**",
-                "매시간 정각"
+                "**알림 방식**",
+                "변화 감지 시"
         );
         assertThat(saveDeliveryPort.saved.message()).doesNotContain("real-estate", "0 0 * * * *", "<html");
     }
@@ -210,7 +210,7 @@ class CreateSubscriptionServiceTest {
                 "알림 설정이 완료됐어요",
                 "강남구 아파트 실거래가",
                 "부동산",
-                "매시간 정각",
+                "변화 감지 시",
                 "변화가 감지되면 정리해서 보내드릴게요."
         );
         assertThat(saveDeliveryPort.saved.message()).doesNotContain(

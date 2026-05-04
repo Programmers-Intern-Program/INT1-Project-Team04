@@ -42,11 +42,11 @@ class NotificationRequest(BaseModel):
     )
     title: str | None = Field(default=None, description="짧은 알림 제목.")
     message: str = Field(min_length=1, description="조건 충족 근거를 포함한 알림 본문.")
-    subscription_id: int | None = Field(
+    subscription_id: str | int | None = Field(
         default=None,
         validation_alias=AliasChoices("subscriptionId", "subscription_id"),
         serialization_alias="subscriptionId",
-        description="구독 ID. 호출 컨텍스트에 있으면 전달한다.",
+        description="구독 ID. 백엔드 구독 ID는 문자열이며, 과거 숫자 입력도 허용한다.",
     )
     idempotency_key: str | None = Field(
         default=None,

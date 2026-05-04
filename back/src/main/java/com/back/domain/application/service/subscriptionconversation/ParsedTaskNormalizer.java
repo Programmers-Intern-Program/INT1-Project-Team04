@@ -1,153 +1,102 @@
 package com.back.domain.application.service.subscriptionconversation;
 
+import com.back.domain.application.port.out.NormalizeSubscriptionDraftPort;
 import com.back.domain.application.result.ParsedTask;
+import com.back.global.error.ApiException;
+import com.back.global.error.ErrorCode;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Optional;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+/**
+ * [Application Helper] AI 파서 결과를 구독 생성 초안으로 정규화하는 컴포넌트
+ * * 도메인별 실행 계약(region, condition, toolName, missingFields 등)은 MCP 서버 정규화 결과만 사용한다.
+ * * notificationChannel 처럼 사용자 계정/전달 설정에 가까운 필드는 백엔드에서 계속 보강한다.
+ * * cronExpr 는 사용자 알림 빈도가 아니라 API 벌크 데이터 갱신 확인용 내부 스케줄로 기본값을 사용한다.
+ * * MCP 정규화가 실패하면 백엔드 로컬 파싱으로 우회하지 않고 MCP_REQUEST_FAILED 로 드러낸다.
+ */
 @Component
-@RequiredArgsConstructor
 public class ParsedTaskNormalizer {
 
-    private static final Pattern REGION = Pattern.compile(
-            "([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구))"
-    );
-    private static final List<String> SIDO_ONLY_REGIONS = List.of(
-            "서울특별시", "부산광역시", "대구광역시", "인천광역시", "광주광역시", "대전광역시", "울산광역시",
-            "제주특별자치도"
-    );
-    private static final Map<String, String> REGION_ALIASES = Map.of(
-            "강남", "강남구",
-            "서초", "서초구",
-            "송파", "송파구",
-            "마포", "마포구",
-            "성남", "성남시",
-            "안산", "안산시"
-    );
+    private static final String DEFAULT_INTERNAL_CHECK_CRON = "0 0 * * * *";
 
-    private final DomainCapabilityRegistry registry;
+    private final NormalizeSubscriptionDraftPort normalizeSubscriptionDraftPort;
+
+    public ParsedTaskNormalizer(NormalizeSubscriptionDraftPort normalizeSubscriptionDraftPort) {
+        this.normalizeSubscriptionDraftPort = normalizeSubscriptionDraftPort;
+    }
 
     public SubscriptionDraft normalize(ParsedTask task, String userMessage) {
         return normalize(task, userMessage, null);
     }
 
     public SubscriptionDraft normalize(ParsedTask task, String userMessage, SubscriptionDraft previousDraft) {
-        String domainName = canonicalDomainName(task.domainName());
-        if (isBlank(domainName) && previousDraft != null) {
-            domainName = previousDraft.domainName();
+        return mergeConversationFields(normalizeDomain(task, userMessage, previousDraft), task, userMessage, previousDraft);
+    }
+
+    private DomainNormalizedSubscriptionDraft normalizeDomain(
+            ParsedTask task,
+            String userMessage,
+            SubscriptionDraft previousDraft
+    ) {
+        if (normalizeSubscriptionDraftPort == null) {
+            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
         }
+        return normalizeSubscriptionDraftPort.normalize(task, userMessage, previousDraft)
+                .orElseThrow(() -> new ApiException(ErrorCode.MCP_REQUEST_FAILED));
+    }
+
+    // MCP는 도메인 구조화만 담당한다.
+    // 백엔드는 parser 기본값을 그대로 믿지 않고, 사용자 원문에 명시된 주기/채널만 확정값으로 합성한다.
+    private SubscriptionDraft mergeConversationFields(
+            DomainNormalizedSubscriptionDraft domainDraft,
+            ParsedTask task,
+            String userMessage,
+            SubscriptionDraft previousDraft
+    ) {
+        String domainName = domainDraft.domainName();
+
         boolean canReusePrevious = canReusePreviousDraft(previousDraft, domainName);
-        String query = !isBlank(task.query()) ? task.query() : canReusePrevious ? previousDraft.query() : task.query();
-        String parseIntent = !isBlank(task.intent()) ? task.intent() : canReusePrevious ? "create" : "";
-        DomainCapabilityRegistry.DomainCapability domain = registry.findDomain(domainName).orElse(null);
-        List<String> missing = new ArrayList<>();
-        Map<String, String> params = new HashMap<>();
+        List<String> missing = new ArrayList<>(domainDraft.missingFields());
+        boolean unsupported = containsUnsupported(missing);
 
-        if (domain == null || "reject".equals(parseIntent)) {
-            missing.add("unsupportedDomain");
-            return new SubscriptionDraft(query, domainName, parseIntent, null, params, null, null, null,
-                    missing, "지원하지 않는 요청이에요.", task.confidence());
+        // unsupported 계열은 도메인 자체가 실행 불가하므로 channel 추가 질문을 붙이지 않는다.
+        // 사용자는 먼저 지원 가능한 도메인/자료유형으로 요청을 바꿔야 한다.
+        String cronExpr = null;
+        String channel = null;
+        String targetAddress = null;
+        if (!unsupported) {
+            cronExpr = DEFAULT_INTERNAL_CHECK_CRON;
+
+            channel = explicitChannel(userMessage);
+            if (channel == null && canReusePrevious) {
+                channel = previousDraft.notificationChannel();
+            }
+            if (channel == null) {
+                addMissing(missing, "notificationChannel");
+            }
+
+            targetAddress = canReusePrevious ? previousDraft.notificationTargetAddress() : null;
         }
 
-        if (!"create".equals(parseIntent)) {
-            missing.add("unsupportedIntent");
-            return new SubscriptionDraft(query, domainName, parseIntent, null, params, null, null, null,
-                    missing, "알림 수정과 삭제는 아직 채팅 생성 플로우에서 처리하지 않아요.", task.confidence());
-        }
+        String query = !isBlank(domainDraft.query()) ? domainDraft.query() : task.query();
+        String intent = !isBlank(domainDraft.intent()) ? domainDraft.intent() : task.intent();
+        double confidence = domainDraft.confidence() > 0 ? domainDraft.confidence() : task.confidence();
 
-        if (domain.status() != DomainCapabilityRegistry.SupportStatus.ENABLED) {
-            missing.add("unsupportedCapability");
-            return new SubscriptionDraft(query, domainName, null, null, params,
-                    explicitCron(task.cronExpr(), userMessage), explicitChannel(userMessage), null, missing,
-                    domain.label() + " 알림은 준비 중이에요. 현재는 부동산 아파트 매매 실거래가 알림만 만들 수 있어요.",
-                    task.confidence());
-        }
-
-        String intent = "apartment_trade_price";
-        DomainCapabilityRegistry.IntentCapability capability = registry.requireIntent(domainName, intent);
-        params.putAll(capability.defaults());
-
-        String region = extractRegion(query, task.target());
-        if (region == null && canReusePrevious) {
-            region = previousDraft.monitoringParams().get("region");
-        }
-        if (region == null) {
-            missing.add("region");
-        } else {
-            params.put("region", region);
-        }
-
-        Optional<StructuredCondition> condition = StructuredCondition.parse(task.condition());
-        if (condition.isEmpty() && canReusePrevious) {
-            condition = StructuredCondition.fromParameters(previousDraft.monitoringParams());
-        }
-        condition.ifPresent(structuredCondition -> params.putAll(structuredCondition.toParameterMap()));
-        if (condition.isEmpty()) {
-            missing.add("condition");
-        }
-
-        String cronExpr = explicitCron(task.cronExpr(), userMessage);
-        if (cronExpr == null && canReusePrevious) {
-            cronExpr = previousDraft.cronExpr();
-        }
-        if (cronExpr == null) {
-            missing.add("cadence");
-        }
-
-        String channel = explicitChannel(userMessage);
-        if (channel == null && canReusePrevious) {
-            channel = previousDraft.notificationChannel();
-        }
-        if (channel == null) {
-            missing.add("notificationChannel");
-        }
-
-        String targetAddress = canReusePrevious ? previousDraft.notificationTargetAddress() : null;
-        return new SubscriptionDraft(query, domainName, intent, capability.toolName(), params,
-                cronExpr, channel, targetAddress, missing, assistantQuestion(missing), task.confidence());
-    }
-
-    private String canonicalDomainName(String value) {
-        return switch (value == null ? "" : value.trim()) {
-            case "부동산", "real-estate" -> "real-estate";
-            case "법률", "법률/규제", "law-regulation" -> "law-regulation";
-            case "채용", "recruitment" -> "recruitment";
-            case "경매", "경매/희소매물", "auction" -> "auction";
-            default -> value == null ? "" : value.trim();
-        };
-    }
-
-    private String normalizeCron(String value) {
-        return switch (value == null ? "" : value.trim()) {
-            case "0 * * * *" -> "0 0 * * * *";
-            case "0 9 * * *" -> "0 0 9 * * *";
-            case "0 9 * * 1" -> "0 0 9 * * MON";
-            case "0 9 * * 1-5" -> "0 0 9 * * MON-FRI";
-            default -> value == null || value.isBlank() ? null : value.trim();
-        };
-    }
-
-    private String explicitCron(String cronExpr, String userMessage) {
-        String text = lower(userMessage);
-        boolean explicit = text.contains("매시간")
-                || text.contains("매일")
-                || text.contains("매주")
-                || text.contains("평일")
-                || text.contains("오전")
-                || text.contains("오후")
-                || text.contains("아침")
-                || text.contains("저녁")
-                || text.contains("밤")
-                || text.contains("마다")
-                || text.contains("체크");
-        return explicit ? normalizeCron(cronExpr) : null;
+        return new SubscriptionDraft(
+                query,
+                domainName,
+                intent,
+                domainDraft.toolName(),
+                domainDraft.monitoringParams(),
+                cronExpr,
+                channel,
+                targetAddress,
+                missing,
+                assistantQuestion(missing, domainDraft.assistantMessage()),
+                confidence
+        );
     }
 
     private String explicitChannel(String userMessage) {
@@ -164,48 +113,15 @@ public class ParsedTaskNormalizer {
         return null;
     }
 
-    private String extractRegion(String query, String target) {
-        return extractSupportedRegion(query)
-                .or(() -> extractSupportedRegion(target))
-                .orElseGet(() -> extractAliasRegion(query, target));
-    }
-
-    private Optional<String> extractSupportedRegion(String text) {
-        Matcher matcher = REGION.matcher(text == null ? "" : text);
-        while (matcher.find()) {
-            String region = supportedRegion(matcher.group(1));
-            if (region != null) {
-                return Optional.of(region);
-            }
-        }
-        return Optional.empty();
-    }
-
-    private String extractAliasRegion(String query, String target) {
-        String text = (query == null ? "" : query) + " " + (target == null ? "" : target);
-        return REGION_ALIASES.entrySet().stream()
-                .filter(entry -> text.contains(entry.getKey()))
-                .map(Map.Entry::getValue)
-                .findFirst()
-                .orElse(null);
-    }
-
-    private String supportedRegion(String region) {
-        if (SIDO_ONLY_REGIONS.contains(region)) {
-            return null;
-        }
-        return region;
-    }
-
     private String assistantQuestion(List<String> missing) {
         if (missing.contains("region")) {
             return "어느 지역의 아파트 매매 실거래가를 확인할까요?";
         }
+        if (missing.contains("dealType")) {
+            return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요.";
+        }
         if (missing.contains("condition")) {
             return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
-        }
-        if (missing.contains("cadence")) {
-            return "얼마나 자주 확인할까요?";
         }
         if (missing.contains("notificationChannel")) {
             return "알림을 받을 채널을 선택해 주세요. Telegram, Discord, Email 중 무엇으로 받을까요?";
@@ -213,12 +129,31 @@ public class ParsedTaskNormalizer {
         return "";
     }
 
+    private String assistantQuestion(List<String> missing, String mcpQuestion) {
+        if (!isBlank(mcpQuestion)) {
+            return mcpQuestion;
+        }
+        return assistantQuestion(missing);
+    }
+
+    private boolean containsUnsupported(List<String> missing) {
+        return missing.contains("unsupportedDomain")
+                || missing.contains("unsupportedIntent")
+                || missing.contains("unsupportedCapability");
+    }
+
+    private void addMissing(List<String> missing, String field) {
+        if (!missing.contains(field)) {
+            missing.add(field);
+        }
+    }
+
     private String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
     }
 
     private boolean canReusePreviousDraft(SubscriptionDraft previousDraft, String domainName) {
-        return previousDraft != null && domainName.equals(previousDraft.domainName());
+        return previousDraft != null && !isBlank(domainName) && domainName.equals(previousDraft.domainName());
     }
 
     private boolean isBlank(String value) {

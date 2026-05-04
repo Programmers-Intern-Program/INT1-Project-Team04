@@ -42,6 +42,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class SubscriptionConversationService {
 
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
+    private static final String PENDING_DEAL_TYPE_CONFIRMATION = "pendingDealTypeConfirmation";
+    private static final String DEFAULT_INTERNAL_CHECK_CRON = "0 0 * * * *";
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
 
@@ -175,17 +177,11 @@ public class SubscriptionConversationService {
     private Response handleAction(Long userId, String conversationId, ActionRequest action) {
         SubscriptionConversationJpaEntity conversation = loadConversation(userId, conversationId);
         return switch (action.type()) {
-            case "SELECT_CADENCE" -> selectCadence(conversation, action.value());
             case "SELECT_CHANNEL" -> selectChannel(conversation, action.value());
             case "CONFIRM_SUBSCRIPTION" -> confirm(userId, conversation);
             case "CANCEL_CONVERSATION" -> cancel(conversation);
             default -> throw new ApiException(ErrorCode.INVALID_REQUEST);
         };
-    }
-
-    private Response selectCadence(SubscriptionConversationJpaEntity conversation, String value) {
-        conversation.updateCadence(cadenceCron(value));
-        return completeOrAsk(conversation);
     }
 
     private Response selectChannel(SubscriptionConversationJpaEntity conversation, String value) {
@@ -213,6 +209,7 @@ public class SubscriptionConversationService {
 
     private Response completeOrAsk(SubscriptionConversationJpaEntity conversation) {
         // resolveMissingMcpTool(conversation); // Spring AI 위임으로 불필요
+        ensureInternalCheckCron(conversation);
         List<String> missing = missingPersistedFields(conversation);
         if (missing.isEmpty()) {
             conversation.updateStatus(SubscriptionConversationStatus.READY_FOR_CONFIRMATION, confirmationMessage());
@@ -256,6 +253,7 @@ public class SubscriptionConversationService {
         }
 
         // resolveMissingMcpTool(conversation); // Spring AI 위임으로 불필요
+        ensureInternalCheckCron(conversation);
         List<String> missing = missingPersistedFields(conversation);
         if (!missing.isEmpty()) {
             String message = questionForMissing(missing, conversation);
@@ -398,8 +396,8 @@ public class SubscriptionConversationService {
         if (missing.contains("condition")) {
             return List.of();
         }
-        if (missing.contains("cadence")) {
-            return cadenceActions();
+        if (missing.contains("dealType")) {
+            return List.of();
         }
         if (missing.contains("notificationChannel")) {
             return channelActions(userId);
@@ -452,17 +450,17 @@ public class SubscriptionConversationService {
             String message
     ) {
         List<String> missing = missingPersistedFields(conversation);
+        if (missing.contains("dealType")) {
+            Optional<String> dealType = parseDealTypeAnswer(message);
+            if (dealType.isPresent()) {
+                return selectDealType(conversation, dealType.get());
+            }
+        }
+
         if (missing.contains("notificationChannel")) {
             Optional<NotificationChannel> channel = parseChannelAnswer(message);
             if (channel.isPresent()) {
                 return selectChannel(conversation, channel.get().name());
-            }
-        }
-
-        if (missing.contains("cadence")) {
-            Optional<String> cadence = parseCadenceAnswer(message);
-            if (cadence.isPresent()) {
-                return selectCadence(conversation, cadence.get());
             }
         }
 
@@ -471,9 +469,6 @@ public class SubscriptionConversationService {
 
     private List<String> missingPersistedFields(SubscriptionConversationJpaEntity conversation) {
         List<String> missing = new ArrayList<>();
-        if (isBlank(conversation.getDraftCronExpr())) {
-            missing.add("cadence");
-        }
         if (conversation.getDraftNotificationChannel() == null) {
             missing.add("notificationChannel");
         }
@@ -490,6 +485,9 @@ public class SubscriptionConversationService {
                 ).isEmpty()) {
             missing.add("notificationEndpoint");
         }
+        if (requiresApartmentDealType(conversation)) {
+            missing.add("dealType");
+        }
         if (StructuredCondition.fromParameters(monitoringParams(conversation.getDraftMonitoringParams())).isEmpty()) {
             missing.add("condition");
         }
@@ -505,12 +503,10 @@ public class SubscriptionConversationService {
         return missing;
     }
 
-    private List<ActionOption> cadenceActions() {
-        return List.of(
-                new ActionOption("SELECT_CADENCE", "매시간", "HOURLY", true, false),
-                new ActionOption("SELECT_CADENCE", "매일 오전 9시", "DAILY_9AM", true, false),
-                new ActionOption("SELECT_CADENCE", "평일 오전 9시", "WEEKDAY_9AM", true, false)
-        );
+    private void ensureInternalCheckCron(SubscriptionConversationJpaEntity conversation) {
+        if (isBlank(conversation.getDraftCronExpr())) {
+            conversation.updateCadence(DEFAULT_INTERNAL_CHECK_CRON);
+        }
     }
 
     private List<ActionOption> channelActions(Long userId) {
@@ -620,35 +616,12 @@ public class SubscriptionConversationService {
         return Optional.empty();
     }
 
-    private Optional<String> parseCadenceAnswer(String value) {
-        String text = lower(value);
-        if (text.contains("매시간") || text.contains("한 시간") || text.contains("1시간")) {
-            return Optional.of("HOURLY");
-        }
-        if (text.contains("평일")) {
-            return Optional.of("WEEKDAY_9AM");
-        }
-        if (text.contains("매일") || text.contains("아침") || text.contains("오전 9")) {
-            return Optional.of("DAILY_9AM");
-        }
-        return Optional.empty();
-    }
-
-    private String cadenceCron(String value) {
-        return switch (value) {
-            case "HOURLY", "0 0 * * * *" -> "0 0 * * * *";
-            case "DAILY_9AM", "0 0 9 * * *" -> "0 0 9 * * *";
-            case "WEEKDAY_9AM", "0 0 9 * * MON-FRI" -> "0 0 9 * * MON-FRI";
-            default -> throw new ApiException(ErrorCode.INVALID_REQUEST);
-        };
-    }
-
     private String questionForMissing(List<String> missing, SubscriptionConversationJpaEntity conversation) {
+        if (missing.contains("dealType")) {
+            return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요.";
+        }
         if (missing.contains("condition")) {
             return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
-        }
-        if (missing.contains("cadence")) {
-            return "얼마나 자주 확인할까요?";
         }
         if (missing.contains("notificationChannel")) {
             return "알림을 받을 채널을 선택해 주세요. Telegram, Discord, Email 중 무엇으로 받을까요?";
@@ -687,12 +660,7 @@ public class SubscriptionConversationService {
     }
 
     private String cadenceLabel(String cronExpr) {
-        return switch (cronExpr == null ? "" : cronExpr) {
-            case "0 0 * * * *" -> "매시간";
-            case "0 0 9 * * *" -> "매일 오전 9시";
-            case "0 0 9 * * MON-FRI" -> "평일 오전 9시";
-            default -> cronExpr;
-        };
+        return "변화 감지 시";
     }
 
     private String recipientLabel(SubscriptionConversationJpaEntity conversation) {
@@ -709,6 +677,86 @@ public class SubscriptionConversationService {
 
     private boolean isEmail(String value) {
         return !isBlank(value) && EMAIL.matcher(value.trim()).matches();
+    }
+
+    private Optional<String> parseDealTypeAnswer(String value) {
+        String text = lower(value);
+        if (text.contains("전월세") || text.contains("전세") || text.contains("월세")) {
+            return Optional.of("UNSUPPORTED_RENT");
+        }
+        if (text.contains("매매") || text.contains("실거래가")) {
+            return Optional.of("TRADE");
+        }
+        return Optional.empty();
+    }
+
+    private Response selectDealType(SubscriptionConversationJpaEntity conversation, String value) {
+        if (!"TRADE".equals(value)) {
+            String message = "현재는 아파트 매매 실거래가 알림만 만들 수 있어요. 매매 실거래가 알림으로 만들까요?";
+            conversation.updateStatus(SubscriptionConversationStatus.COLLECTING, message);
+            conversationRepository.save(conversation);
+            return needsInput(conversation, message, List.of());
+        }
+
+        conversation.updateParsedDraft(
+                conversation.getParseSessionId(),
+                apartmentTradeQuery(conversation),
+                conversation.getDraftDomainId(),
+                conversation.getDraftDomainName(),
+                "apartment_trade_price",
+                conversation.getDraftToolName(),
+                clearPendingDealTypeConfirmation(conversation.getDraftMonitoringParams()),
+                conversation.getDraftCronExpr(),
+                conversation.getDraftNotificationChannel(),
+                conversation.getDraftNotificationTargetAddress(),
+                conversation.getLastAssistantMessage(),
+                conversation.getStatus()
+        );
+        return completeOrAsk(conversation);
+    }
+
+    private String apartmentTradeQuery(SubscriptionConversationJpaEntity conversation) {
+        if (!hasPendingDealTypeConfirmation(conversation)
+                && !requiresExplicitApartmentDealType(conversation.getDraftQuery())) {
+            return conversation.getDraftQuery();
+        }
+        String region = monitoringParams(conversation.getDraftMonitoringParams()).get("region");
+        if (!isBlank(region)) {
+            return region + " 아파트 매매 실거래가";
+        }
+        return "아파트 매매 실거래가";
+    }
+
+    private boolean requiresApartmentDealType(SubscriptionConversationJpaEntity conversation) {
+        return "real-estate".equals(conversation.getDraftDomainName())
+                && "apartment_trade_price".equals(conversation.getDraftIntent())
+                && (hasPendingDealTypeConfirmation(conversation)
+                        || requiresExplicitApartmentDealType(conversation.getDraftQuery()));
+    }
+
+    private boolean hasPendingDealTypeConfirmation(SubscriptionConversationJpaEntity conversation) {
+        return "true".equalsIgnoreCase(monitoringParams(conversation.getDraftMonitoringParams())
+                .get(PENDING_DEAL_TYPE_CONFIRMATION));
+    }
+
+    private String clearPendingDealTypeConfirmation(String paramsJson) {
+        Map<String, String> params = new HashMap<>(monitoringParams(paramsJson));
+        params.remove(PENDING_DEAL_TYPE_CONFIRMATION);
+        return toJson(params);
+    }
+
+    private boolean requiresExplicitApartmentDealType(String value) {
+        String text = lower(value);
+        if (text.contains("전월세") || text.contains("전세") || text.contains("월세") || text.contains("매매")) {
+            return false;
+        }
+        return text.contains("아파트")
+                || text.contains("가격")
+                || text.contains("시세")
+                || text.contains("집값")
+                || text.contains("실거래가")
+                || text.contains("변경")
+                || text.contains("변동");
     }
 
     private String lower(String value) {

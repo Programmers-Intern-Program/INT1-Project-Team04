@@ -121,7 +121,7 @@ public class DevSubscriptionChangeSimulationService {
                 decision,
                 now
         ));
-        int dispatchedCount = dispatcherService.dispatchPending(now);
+        int dispatchedCount = dispatcherService.dispatch(deliveries, now);
 
         return new DevSubscriptionChangeSimulationResult(
                 subscriptionId,

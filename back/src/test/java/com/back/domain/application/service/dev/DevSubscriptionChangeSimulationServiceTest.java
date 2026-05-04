@@ -122,6 +122,66 @@ class DevSubscriptionChangeSimulationServiceTest {
     }
 
     @Test
+    @DisplayName("Application: 테스트 발송은 기존 PENDING 디버그 알림을 같이 발송하지 않는다")
+    void dispatchesOnlyNewAiBriefingWhenPendingDebugDeliveryExists() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Subscription subscription = new Subscription(
+                "sub-1",
+                user,
+                new Domain(10L, "real-estate"),
+                "강남구 아파트 평균 시세 3% 상승",
+                "create",
+                true,
+                LocalDateTime.now()
+        );
+        DeliveryStore deliveryStore = new DeliveryStore();
+        deliveryStore.save(debugPendingDelivery());
+        DevSubscriptionChangeSimulationService service = newService(
+                (subscriptionId, userId) -> Optional.of(subscription),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_house_price",
+                        "create",
+                        """
+                                {
+                                  "region": "강남구",
+                                  "conditionMetric": "AVG_PRICE",
+                                  "conditionDirection": "UP",
+                                  "conditionOperator": "GTE",
+                                  "conditionThreshold": "3",
+                                  "conditionUnit": "PERCENT"
+                                }
+                                """
+                )),
+                new FakeGenerateMonitoringBriefingPort("[AI 변화 브리핑] 실제 AI 브리핑입니다."),
+                deliveryStore
+        );
+
+        DevSubscriptionChangeSimulationResult result = service.simulate(
+                "sub-1",
+                1L,
+                LocalDateTime.of(2026, 4, 29, 18, 0)
+        );
+
+        assertThat(result.deliveryCount()).isEqualTo(1);
+        assertThat(result.dispatchedCount()).isEqualTo(1);
+        assertThat(deliveryStore.saved).hasSize(2);
+        assertThat(findDelivery(deliveryStore, "debug-delivery"))
+                .satisfies(delivery -> {
+                    assertThat(delivery.status()).isEqualTo(NotificationDeliveryStatus.PENDING);
+                    assertThat(delivery.title()).isEqualTo("debug-title");
+                    assertThat(delivery.message()).isEqualTo("debug-message");
+                });
+        assertThat(deliveryStore.saved.stream()
+                .filter(delivery -> !delivery.id().equals("debug-delivery"))
+                .findFirst())
+                .hasValueSatisfying(delivery -> {
+                    assertThat(delivery.status()).isEqualTo(NotificationDeliveryStatus.SENT);
+                    assertThat(delivery.message()).contains("실제 AI 브리핑입니다.");
+                });
+    }
+
+    @Test
     @DisplayName("Application: AI 브리핑이 비어 있으면 사용자용 fallback을 보내고 dev JSON을 노출하지 않는다")
     void sendsUserFacingFallbackWithoutDevJsonWhenBriefingIsEmpty() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
@@ -261,6 +321,33 @@ class DevSubscriptionChangeSimulationServiceTest {
                 return NotificationSendResult.success("dev-provider-message-id");
             }
         };
+    }
+
+    private NotificationDelivery debugPendingDelivery() {
+        return new NotificationDelivery(
+                "debug-delivery",
+                "debug-alert",
+                "debug-subscription",
+                1L,
+                NotificationChannel.TELEGRAM_DM,
+                "123456789",
+                "debug-title",
+                "debug-message",
+                NotificationDeliveryStatus.PENDING,
+                0,
+                null,
+                null,
+                null,
+                null,
+                LocalDateTime.of(2026, 4, 29, 17, 50)
+        );
+    }
+
+    private NotificationDelivery findDelivery(DeliveryStore deliveryStore, String deliveryId) {
+        return deliveryStore.saved.stream()
+                .filter(delivery -> delivery.id().equals(deliveryId))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static class FakeGenerateMonitoringBriefingPort implements GenerateMonitoringBriefingPort {

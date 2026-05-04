@@ -177,7 +177,21 @@ jobs:
 
             # ── .env 복원 ──────────────────────────────────────
             mkdir -p ~/app/infra/docker/prod
-            echo "$DOT_ENV_B64" | base64 --decode > ~/app/infra/docker/prod/.env
+            PROD_ENV_FILE=~/app/infra/docker/prod/.env
+            echo "$DOT_ENV_B64" | base64 --decode > "$PROD_ENV_FILE"
+
+            # ── Telegram webhook 자동 등록 설정 ────────────────
+            env_value() {
+              grep -E "^$1=" "$PROD_ENV_FILE" \
+                | tail -n 1 \
+                | cut -d= -f2- \
+                | sed 's/[[:space:]]*#.*$//' \
+                | tr -d '[:space:]'
+            }
+            TELEGRAM_WEBHOOK_ENABLED=$(env_value MCP_NOTIFICATION_TELEGRAM_ENABLED)
+            TELEGRAM_BOT_TOKEN=$(env_value MCP_NOTIFICATION_TELEGRAM_BOT_TOKEN)
+            TELEGRAM_API_BASE_URL=$(env_value MCP_NOTIFICATION_TELEGRAM_API_BASE_URL)
+            TELEGRAM_API_BASE_URL=${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
 
             # ── Google Vertex AI 인증 파일 복원 (GitHub Secret에서 직접 주입)
             if [ -n "$GOOGLE_CREDENTIALS_B64" ]; then
@@ -276,6 +290,27 @@ jobs:
             curl -sf -o /dev/null -X PUT \
               -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
               -d "$NEW_BE_CFG" "http://localhost:81/api/nginx/proxy-hosts/$BE_ID"
+
+            # ── Telegram webhook 등록 ──────────────────────────
+            if [ "$(echo "${TELEGRAM_WEBHOOK_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+              if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+                echo "MCP_NOTIFICATION_TELEGRAM_ENABLED=true but MCP_NOTIFICATION_TELEGRAM_BOT_TOKEN is empty"
+                exit 1
+              fi
+
+              TELEGRAM_WEBHOOK_URL="https://${BE_DOMAIN}/api/notification-endpoints/telegram/webhook"
+              TELEGRAM_WEBHOOK_RESPONSE=$(curl -fsS -X POST \
+                "${TELEGRAM_API_BASE_URL%/}/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+                --data-urlencode "url=${TELEGRAM_WEBHOOK_URL}")
+              if ! echo "$TELEGRAM_WEBHOOK_RESPONSE" | jq -e '.ok == true' >/dev/null; then
+                echo "Telegram webhook registration failed"
+                echo "$TELEGRAM_WEBHOOK_RESPONSE" | jq -c '{ok,error_code,description}'
+                exit 1
+              fi
+              echo "Telegram webhook registered: ${TELEGRAM_WEBHOOK_URL}"
+            else
+              echo "Telegram webhook registration skipped"
+            fi
 
             # ── NPM 프론트엔드 프록시 전환 ─────────────────────
             FE_ID=$(curl -sf -H "Authorization: Bearer $TOKEN" \

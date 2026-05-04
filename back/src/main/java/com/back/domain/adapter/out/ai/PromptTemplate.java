@@ -144,23 +144,39 @@ target 작성 규칙:
 8. confidence는 이전 값과 비슷하거나 약간 높게 설정해 (정보가 보완되므로).
 """;
 
-    // TODO: 임시로! 만든 프롬프트입니다. 검증되지 않았습니다.
-    // 구독용 프롬프트가 필요해서 만들었습니다.
     public static final String SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT = """
 당신은 구독 모니터링 실행 에이전트입니다.
 아래 JSON 배열의 각 구독을 순서대로 처리하세요.
 
-각 구독 처리 순서:
-1. domain과 params(region, condition 등)를 보고 적절한 MCP tool을 선택하여 호출
-2. 응답 데이터를 바탕으로 condition 조건 충족 여부 판단
-3. 조건 충족 시 notificationChannel과 notificationTarget 값을 사용해 반드시 send_notification MCP tool 호출
+도구 호출 순서:
+1. domain과 params(region, condition 등)를 보고 적절한 데이터 도구를 선택해 호출
+2. 데이터 도구 응답을 받은 뒤 반드시 compare_subscription_change MCP tool을 호출
+3. compare_subscription_change 결과로 조건 충족 여부를 판단한 뒤, 조건이 충족된 경우에만 send_notification MCP tool 호출
+
+필수 처리 흐름:
+- 전체 흐름은 데이터 도구 -> compare_subscription_change -> send_notification 순서입니다.
+- 데이터 조회 실패 시 해당 구독은 건너뛰고 compare_subscription_change와 send_notification을 호출하지 마세요.
+- compare_subscription_change에는 데이터 도구 응답과 구독의 params/condition을 기준으로 변화 비교에 필요한 값을 전달하세요.
+- compare_subscription_change 응답의 structured.diffs와 structured.briefing_facts를 조건 판단과 AI 브리핑 작성의 근거로 사용하세요.
+- 원본 데이터만 보고 알림 여부를 결정하지 말고, 반드시 compare_subscription_change 결과를 기준으로 판단하세요.
+- MCP가 먼저 코드로 diff와 명확한 조건을 판정합니다. AI 분석은 structured.requires_ai_analysis=true인 경우에만 수행하세요.
+
+변화 비교 결과 처리:
+- structured.baseline_initialized=true이면 이번 실행에서 기준값이 처음 초기화된 것입니다. 조건을 만족하더라도 첫 실행 알림은 보내지 마세요. send_notification을 호출하지 말고 알림을 보내지 마세요.
+- structured.changed=false이면 의미 있는 변화가 없습니다. send_notification을 호출하지 말고 알림을 보내지 마세요.
+- structured.requires_ai_analysis=false이면 MCP가 AI 분석 대상이 아니라고 판정한 것입니다. AI 분석과 AI 브리핑을 생성하지 마세요. send_notification도 호출하지 마세요.
+- structured.requires_ai_analysis=true인 경우에만 structured.diffs와 structured.briefing_facts를 읽고 사용자의 params/condition 조건이 실제로 충족되는지 판단하세요.
+- condition이 충족되지 않으면 send_notification을 호출하지 마세요.
+- condition이 충족되면 structured.diffs와 structured.briefing_facts를 바탕으로 간결한 사용자용 한국어 AI 브리핑을 작성하고 send_notification을 호출하세요.
 
 주의:
-- 각 구독은 독립적으로 처리
-- 알림은 자연어 응답이 아니라 send_notification MCP tool 호출로만 발송됨
-- 알림은 반드시 notificationTarget에 전달
-- send_notification 결과의 structured.sent가 true일 때만 알림 발송 성공으로 판단
-- 데이터 조회 실패 시 해당 구독은 건너뜀
+- 각 구독은 독립적으로 처리하세요.
+- 알림은 자연어 응답이 아니라 send_notification MCP tool 호출로만 발송됩니다.
+- assistant의 자연어 응답은 전달 수단이 아니며, 실제 전달은 send_notification만 수행합니다.
+- send_notification 호출에는 반드시 notificationChannel과 notificationTarget 값을 사용하세요.
+- 알림은 반드시 notificationTarget에 전달하세요.
+- send_notification의 알림 본문에는 사용자가 바로 이해할 수 있는 간결한 한국어 AI 브리핑을 담으세요.
+- send_notification 결과의 structured.sent가 true일 때만 알림 발송 성공으로 판단하세요.
 """;
 
     public static String buildUserPrompt(String userInput) {

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from scripts.export_tool_schema import export_schema, main
 
 
@@ -15,6 +14,15 @@ def test_export_schema_returns_dict_with_required_fields_for_search_house_price(
     assert set(schema["required"]) == {"region", "deal_ymd"}
     assert "region" in schema["properties"]
     assert "deal_ymd" in schema["properties"]
+
+
+def test_export_schema_returns_subscription_change_input_schema():
+    schema = export_schema("compare_subscription_change")
+    assert schema["type"] == "object"
+    assert set(schema["required"]) == {"subscriptionId", "domain", "current"}
+    assert "subscriptionId" in schema["properties"]
+    assert "params" in schema["properties"]
+    assert "current" in schema["properties"]
 
 
 def test_export_schema_raises_for_unknown_tool():

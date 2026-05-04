@@ -114,6 +114,8 @@ describe("subscription form helpers", () => {
       "<fieldset",
       "buildSubscriptionPayload",
       "createSubscription(",
+      'label="주기"',
+      'label="다음 확인"',
     ];
 
     assert.deepEqual(
