@@ -12,4 +12,5 @@ from mcp_server.tools import auction  # noqa: F401
 from mcp_server.tools import jobs  # noqa: F401
 from mcp_server.tools import law  # noqa: F401
 from mcp_server.tools import notifications  # noqa: F401
+from mcp_server.tools import cache_check  # noqa: F401
 from mcp_server.tools import real_estate  # noqa: F401
