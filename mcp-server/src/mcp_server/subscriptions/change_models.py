@@ -47,3 +47,6 @@ class SubscriptionChangeResult(BaseModel):
     current_summary: dict[str, Any]
     diffs: list[SummaryDiff] = Field(default_factory=list)
     briefing_facts: list[str] = Field(default_factory=list)
+    condition_satisfied: bool | None = None
+    requires_ai_analysis: bool = False
+    condition_reason: str | None = None

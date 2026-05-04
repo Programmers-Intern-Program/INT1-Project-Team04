@@ -45,6 +45,7 @@ async def test_compare_subscription_change_returns_common_schema(monkeypatch) ->
     assert response["text"] == "구독 42 변화 감지: 변경 있음."
     assert response["structured"]["subscriptionId"] == "42"
     assert response["structured"]["changed"] is True
+    assert response["structured"]["requires_ai_analysis"] is False
     assert response["structured"]["params_hash"] == "hash-42"
     assert response["source_url"] is None
     assert response["metadata"] == {

@@ -95,3 +95,26 @@ def test_change_result_serializes_subscription_id_alias() -> None:
 
     assert dumped["subscriptionId"] == "42"
     assert "subscription_id" not in dumped
+
+
+def test_change_result_serializes_ai_analysis_gate_fields() -> None:
+    result = SubscriptionChangeResult(
+        baseline_initialized=False,
+        changed=True,
+        subscription_id="42",
+        domain="real-estate",
+        params_hash="hash-42",
+        baseline_summary={"avg_deal_amount": 100000},
+        current_summary={"avg_deal_amount": 102000},
+        diffs=[],
+        briefing_facts=[],
+        condition_satisfied=False,
+        requires_ai_analysis=False,
+        condition_reason="condition not satisfied",
+    )
+
+    dumped = result.model_dump(by_alias=True)
+
+    assert dumped["condition_satisfied"] is False
+    assert dumped["requires_ai_analysis"] is False
+    assert dumped["condition_reason"] == "condition not satisfied"

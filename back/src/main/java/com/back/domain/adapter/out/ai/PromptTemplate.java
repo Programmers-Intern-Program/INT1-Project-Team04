@@ -159,11 +159,13 @@ target 작성 규칙:
 - compare_subscription_change에는 데이터 도구 응답과 구독의 params/condition을 기준으로 변화 비교에 필요한 값을 전달하세요.
 - compare_subscription_change 응답의 structured.diffs와 structured.briefing_facts를 조건 판단과 AI 브리핑 작성의 근거로 사용하세요.
 - 원본 데이터만 보고 알림 여부를 결정하지 말고, 반드시 compare_subscription_change 결과를 기준으로 판단하세요.
+- MCP가 먼저 코드로 diff와 명확한 조건을 판정합니다. AI 분석은 structured.requires_ai_analysis=true인 경우에만 수행하세요.
 
 변화 비교 결과 처리:
 - structured.baseline_initialized=true이면 이번 실행에서 기준값이 처음 초기화된 것입니다. 조건을 만족하더라도 첫 실행 알림은 보내지 마세요. send_notification을 호출하지 말고 알림을 보내지 마세요.
 - structured.changed=false이면 의미 있는 변화가 없습니다. send_notification을 호출하지 말고 알림을 보내지 마세요.
-- structured.changed=true인 경우에만 structured.diffs와 structured.briefing_facts를 읽고 사용자의 params/condition 조건이 실제로 충족되는지 판단하세요.
+- structured.requires_ai_analysis=false이면 MCP가 AI 분석 대상이 아니라고 판정한 것입니다. AI 분석과 AI 브리핑을 생성하지 마세요. send_notification도 호출하지 마세요.
+- structured.requires_ai_analysis=true인 경우에만 structured.diffs와 structured.briefing_facts를 읽고 사용자의 params/condition 조건이 실제로 충족되는지 판단하세요.
 - condition이 충족되지 않으면 send_notification을 호출하지 마세요.
 - condition이 충족되면 structured.diffs와 structured.briefing_facts를 바탕으로 간결한 사용자용 한국어 AI 브리핑을 작성하고 send_notification을 호출하세요.
 

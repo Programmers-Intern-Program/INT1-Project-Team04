@@ -51,4 +51,14 @@ class PromptTemplateTest {
                 .contains("structured.briefing_facts")
                 .contains("AI 브리핑");
     }
+
+    @Test
+    @DisplayName("구독 실행 프롬프트는 MCP가 AI 분석 필요로 표시한 경우에만 브리핑을 생성한다")
+    void subscriptionExecutionPromptUsesAiAnalysisGateFromMcp() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("structured.requires_ai_analysis=false")
+                .contains("AI 분석과 AI 브리핑을 생성하지 마세요")
+                .contains("structured.requires_ai_analysis=true")
+                .contains("AI 브리핑");
+    }
 }

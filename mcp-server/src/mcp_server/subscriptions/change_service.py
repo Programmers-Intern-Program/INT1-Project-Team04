@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import select
@@ -17,6 +19,12 @@ from mcp_server.subscriptions.change_models import (
     SubscriptionChangeResult,
     SummaryDiff,
 )
+
+AVG_PRICE_KEYS = frozenset({
+    "avg_deal_amount",
+    "avg_deposit",
+    "avg_monthly_rent",
+})
 
 
 def stable_params_hash(params: dict[str, Any]) -> str:
@@ -97,10 +105,17 @@ class SubscriptionChangeService:
                         current_summary=current_summary,
                         diffs=[],
                         briefing_facts=[],
+                        condition_satisfied=None,
+                        requires_ai_analysis=False,
+                        condition_reason="baseline initialized",
                     )
 
             baseline_summary = row.baseline_summary
             diffs = summary_diffs(baseline_summary, current_summary)
+            condition_satisfied, requires_ai_analysis, condition_reason = ai_analysis_gate(
+                input_model.params,
+                diffs,
+            )
             row.latest_summary = current_summary
             row.latest_content = current_content
             row.latest_captured_at = now
@@ -116,6 +131,9 @@ class SubscriptionChangeService:
             current_summary=current_summary,
             diffs=diffs,
             briefing_facts=_briefing_facts(diffs),
+            condition_satisfied=condition_satisfied,
+            requires_ai_analysis=requires_ai_analysis,
+            condition_reason=condition_reason,
         )
 
     async def _get_snapshot_row(
@@ -146,6 +164,101 @@ def summary_diffs(
             continue
         diffs.append(build_diff(field, baseline_value, current_value))
     return diffs
+
+
+def ai_analysis_gate(params: dict[str, Any], diffs: list[SummaryDiff]) -> tuple[bool | None, bool, str]:
+    """코드로 판별 가능한 경우 AI 분석 대상인지 먼저 거른다."""
+    if not diffs:
+        return None, False, "no diff"
+
+    condition = StructuredCondition.from_params(params)
+    if condition is None:
+        return None, True, "condition missing"
+
+    satisfied = condition_satisfied(diffs, condition)
+    if satisfied:
+        return True, True, "condition satisfied"
+    return False, False, "condition not satisfied"
+
+
+@dataclass(frozen=True)
+class StructuredCondition:
+    metric: str
+    direction: str
+    operator: str
+    threshold: Decimal
+    unit: str
+
+    @staticmethod
+    def from_params(params: dict[str, Any]) -> StructuredCondition | None:
+        try:
+            metric = str(params["conditionMetric"])
+            direction = str(params["conditionDirection"])
+            operator = str(params["conditionOperator"])
+            threshold = Decimal(str(params["conditionThreshold"]))
+            unit = str(params["conditionUnit"])
+        except (KeyError, InvalidOperation, TypeError, ValueError):
+            return None
+        return StructuredCondition(metric, direction, operator, threshold, unit)
+
+
+def condition_satisfied(diffs: list[SummaryDiff], condition: StructuredCondition) -> bool:
+    for diff in diffs:
+        if not metric_matches(diff.field, condition.metric):
+            continue
+        if diff.delta is None:
+            continue
+        delta = Decimal(str(diff.delta))
+        if not direction_matches(delta, condition.direction):
+            continue
+        comparable = comparable_value(diff, delta, condition.unit)
+        if comparable is None:
+            continue
+        if operator_matches(comparable, threshold_value(condition), condition.operator):
+            return True
+    return False
+
+
+def metric_matches(field: str, metric: str) -> bool:
+    if metric == "AVG_PRICE":
+        return field in AVG_PRICE_KEYS
+    return False
+
+
+def direction_matches(delta: Decimal, direction: str) -> bool:
+    if direction == "UP":
+        return delta > 0
+    if direction == "DOWN":
+        return delta < 0
+    if direction == "ANY":
+        return delta != 0
+    return False
+
+
+def comparable_value(diff: SummaryDiff, delta: Decimal, unit: str) -> Decimal | None:
+    if unit == "PERCENT":
+        if diff.change_rate is None:
+            return None
+        return abs(Decimal(str(diff.change_rate)))
+    return abs(delta)
+
+
+def threshold_value(condition: StructuredCondition) -> Decimal:
+    if condition.unit == "EOK":
+        return condition.threshold * Decimal("10000")
+    return condition.threshold
+
+
+def operator_matches(comparable: Decimal, threshold: Decimal, operator: str) -> bool:
+    if operator == "GTE":
+        return comparable >= threshold
+    if operator == "GT":
+        return comparable > threshold
+    if operator == "LTE":
+        return comparable <= threshold
+    if operator == "LT":
+        return comparable < threshold
+    return False
 
 
 def build_diff(field: str, baseline_value: Any, current_value: Any) -> SummaryDiff:

@@ -39,6 +39,18 @@ def _input(avg_deal_amount: int) -> SubscriptionChangeInput:
     )
 
 
+def _structured_condition_input(avg_deal_amount: int) -> SubscriptionChangeInput:
+    input_model = _input(avg_deal_amount)
+    input_model.params.update({
+        "conditionMetric": "AVG_PRICE",
+        "conditionDirection": "UP",
+        "conditionOperator": "GTE",
+        "conditionThreshold": "5",
+        "conditionUnit": "PERCENT",
+    })
+    return input_model
+
+
 def test_stable_params_hash_ignores_key_order() -> None:
     left = stable_params_hash({"region": "강남구", "condition": "5% 상승"})
     right = stable_params_hash({"condition": "5% 상승", "region": "강남구"})
@@ -64,6 +76,9 @@ async def test_first_run_initializes_baseline_without_diff(patched_session_facto
 
     assert result.baseline_initialized is True
     assert result.changed is False
+    assert result.condition_satisfied is None
+    assert result.requires_ai_analysis is False
+    assert result.condition_reason == "baseline initialized"
     assert result.baseline_summary == {"count": 20, "avg_deal_amount": 100000}
     assert result.current_summary == {"count": 20, "avg_deal_amount": 100000}
     assert result.diffs == []
@@ -86,6 +101,9 @@ async def test_second_run_returns_numeric_diff_and_updates_latest(
 
     assert result.baseline_initialized is False
     assert result.changed is True
+    assert result.condition_satisfied is None
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition missing"
     assert result.baseline_summary["avg_deal_amount"] == 100000
     assert result.current_summary["avg_deal_amount"] == 106000
     assert result.diffs[0].field == "avg_deal_amount"
@@ -101,6 +119,38 @@ async def test_second_run_returns_numeric_diff_and_updates_latest(
         row = (await session.execute(select(SubscriptionSnapshotState))).scalar_one()
 
     assert row.latest_summary == {"count": 20, "avg_deal_amount": 106000}
+
+
+async def test_diff_below_structured_condition_does_not_require_ai_analysis(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(_structured_condition_input(100000))
+    result = await service.compare(_structured_condition_input(102000))
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is False
+    assert result.requires_ai_analysis is False
+    assert result.condition_reason == "condition not satisfied"
+    assert result.diffs[0].change_rate == 2.0
+
+
+async def test_diff_meeting_structured_condition_requires_ai_analysis(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(_structured_condition_input(100000))
+    result = await service.compare(_structured_condition_input(106000))
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    assert result.diffs[0].change_rate == 6.0
 
 
 async def test_insert_race_rereads_row_and_compares(monkeypatch) -> None:
