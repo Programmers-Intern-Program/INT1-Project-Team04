@@ -3,6 +3,10 @@
 등록 도구 (2종):
 - check_api_cache  — staleness 센서. fetch tool 호출 전 캐시 상태 확인.
 - get_cached_data  — 캐시에서 직접 데이터 읽기. 외부 API 미호출.
+
+캐시 키 전략:
+- bulk-fetch tool (법률·채용·경매): tool_name 단위 1행.
+- param-keyed tool (부동산·의안):  tool_name + 핵심 params 조합당 1행.
 """
 
 from datetime import date, datetime
@@ -12,9 +16,18 @@ from mcp_server.domains.auction.normalizer import normalize_g2b_bid
 from mcp_server.domains.jobs.errors import WorknetPermissionDeniedError
 from mcp_server.domains.jobs.normalizer import normalize_public_job, normalize_worknet_job
 from mcp_server.domains.law.normalizer import normalize_bill_info, normalize_law_info
+from mcp_server.domains.real_estate.normalizer import (
+    normalize_apt_rent,
+    normalize_apt_trade,
+    normalize_offi_rent,
+    normalize_offi_trade,
+    normalize_rh_rent,
+    normalize_rh_trade,
+)
 from mcp_server.observability.tracing import traced
 from mcp_server.server import mcp
 from mcp_server.sources import api_source_service
+from mcp_server.sources.api_source_service import _PARAM_KEY_FIELDS
 
 _MAX_RESULTS = 20
 
@@ -26,22 +39,36 @@ _MAX_RESULTS = 20
 
 @mcp.tool()
 @traced("check_api_cache")
-async def check_api_cache(tool_name: str) -> dict[str, Any]:
+async def check_api_cache(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """fetch tool 호출 전 반드시 이 tool을 먼저 호출해 캐시 상태를 확인하라.
 
     반환된 cache_hit + last_fetched_at + tool_name(도메인 맥락)으로 fetch 필요 여부를 판단.
     - cache_hit: false  → search_* fetch tool 호출 필요
-    - cache_hit: true, 신선 → get_cached_data(tool_name) 호출 (외부 API 미호출)
+    - cache_hit: true, 신선 → get_cached_data(tool_name, params) 호출 (외부 API 미호출)
     - cache_hit: true, stale → search_* fetch tool 호출 필요
 
     freshness 기준은 도메인 특성에 따라 직접 판단할 것.
-    법률·의안=주 단위, 채용=일 단위, 경매=시간 단위 등.
-    부동산 6종(search_house_price 등)은 지원하지 않음.
+    법률=주 단위, 채용=일 단위, 경매=시간 단위, 부동산·의안=월/대수 단위 등.
+
+    **param-keyed tool (부동산·의안)은 params 필수:**
+    - 부동산 6종: {"lawd_cd": "11680", "deal_ymd": "202403"}
+    - search_bill_info: {"age": 22}
+    params 없이 호출하면 cache_hit: false + 안내 메시지 반환.
 
     Args:
-        tool_name: 예: "search_law_info", "search_g2b_bid".
+        tool_name: 예: "search_law_info", "search_house_price".
+        params: param-keyed tool 전용. 부동산은 lawd_cd+deal_ymd, 의안은 age 필요.
     """
-    cached_at: datetime | None = await api_source_service.peek_cached_at(tool_name)
+    if tool_name in _PARAM_KEY_FIELDS and not params:
+        required = list(_PARAM_KEY_FIELDS[tool_name])
+        return {
+            "cache_hit": False,
+            "last_fetched_at": None,
+            "tool_name": tool_name,
+            "message": f"{tool_name}은 params 필수: {required} (소문자 허용)",
+        }
+
+    cached_at: datetime | None = await api_source_service.peek_cached_at(tool_name, params)
 
     if cached_at is None:
         return {"cache_hit": False, "last_fetched_at": None, "tool_name": tool_name}
@@ -60,20 +87,30 @@ async def check_api_cache(tool_name: str) -> dict[str, Any]:
 
 @mcp.tool()
 @traced("get_cached_data")
-async def get_cached_data(tool_name: str) -> dict[str, Any]:
+async def get_cached_data(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """check_api_cache 결과가 cache_hit: true이고 신선하다고 판단할 때만 호출.
 
     캐시에서 데이터를 직접 읽어 정규화된 결과를 반환한다. 외부 API를 호출하지 않는다.
     응답 포맷은 fetch tool과 동일 (text, structured, source_url, metadata).
     metadata.cache_used: true 로 캐시 응답임을 표시.
 
-    캐시 없음 또는 지원하지 않는 tool_name → cache_hit: false 응답.
-    부동산 6종은 지원하지 않음.
+    **param-keyed tool (부동산·의안)은 params 필수:**
+    - 부동산 6종: {"lawd_cd": "11680", "deal_ymd": "202403"}
+    - search_bill_info: {"age": 22}
 
     Args:
-        tool_name: 예: "search_law_info", "search_g2b_bid".
+        tool_name: 예: "search_law_info", "search_house_price".
+        params: param-keyed tool 전용.
     """
-    result = await api_source_service.peek_cached_content(tool_name)
+    if tool_name in _PARAM_KEY_FIELDS and not params:
+        required = list(_PARAM_KEY_FIELDS[tool_name])
+        return {
+            "cache_hit": False,
+            "tool_name": tool_name,
+            "message": f"{tool_name}은 params 필수: {required} (소문자 허용)",
+        }
+
+    result = await api_source_service.peek_cached_content(tool_name, params)
     if result is None:
         return {
             "cache_hit": False,
@@ -90,15 +127,15 @@ async def get_cached_data(tool_name: str) -> dict[str, Any]:
             "message": f"{tool_name}은 get_cached_data 미지원 도구입니다.",
         }
 
-    return formatter(content, cached_at)
+    return formatter(content, cached_at, params or {})
 
 
 # ─────────────────────────────────────────────
-# 도메인별 formatter
+# bulk-fetch formatter (params 불필요, 시그니처 통일용 _ 무시)
 # ─────────────────────────────────────────────
 
 
-def _format_law_info(content: str, cached_at: datetime) -> dict[str, Any]:
+def _format_law_info(content: str, cached_at: datetime, _params: dict) -> dict[str, Any]:
     records = normalize_law_info(content)
     promulgation_dates = [r.promulgation_date for r in records if r.promulgation_date]
     ministries = sorted({r.ministry_name for r in records if r.ministry_name})
@@ -136,7 +173,7 @@ def _format_law_info(content: str, cached_at: datetime) -> dict[str, Any]:
     }
 
 
-def _format_bill_info(content: str, cached_at: datetime) -> dict[str, Any]:
+def _format_bill_info(content: str, cached_at: datetime, params: dict) -> dict[str, Any]:
     records = normalize_bill_info(content)
     propose_dates = [r.propose_date for r in records if r.propose_date]
     committees = sorted({r.committee for r in records if r.committee})
@@ -149,8 +186,10 @@ def _format_bill_info(content: str, cached_at: datetime) -> dict[str, Any]:
     sorted_records = sorted(records, key=lambda r: r.propose_date or date.min, reverse=True)
     returned = sorted_records[:_MAX_RESULTS]
 
+    # params에서 AGE 복원 (대소문자 무관)
+    age = int((params.get("AGE") or params.get("age") or (max(ages) if ages else 22)))
+    age_str = f"제{age}대 " if age else ""
     count = summary["count"]
-    age_str = f"제{max(ages)}대 " if ages else ""
     text = (
         f"{age_str}의안 {count}건 (캐시). 최근 발의 {summary['latest_propose_date'] or '-'}."
         if count > 0 else "의안 0건 (캐시)."
@@ -161,7 +200,7 @@ def _format_bill_info(content: str, cached_at: datetime) -> dict[str, Any]:
             "summary": summary,
             "bills": [r.model_dump(mode="json") for r in returned],
             "bills_truncated": len(sorted_records) > _MAX_RESULTS,
-            "query": {"age": max(ages) if ages else None, "page_no": 1, "num_of_rows": _MAX_RESULTS},
+            "query": {"age": age, "page_no": 1, "num_of_rows": _MAX_RESULTS},
         },
         "source_url": None,
         "metadata": {
@@ -174,7 +213,7 @@ def _format_bill_info(content: str, cached_at: datetime) -> dict[str, Any]:
     }
 
 
-def _format_public_job(content: str, cached_at: datetime) -> dict[str, Any]:
+def _format_public_job(content: str, cached_at: datetime, _params: dict) -> dict[str, Any]:
     records = normalize_public_job(content)
     ongoing_count = sum(1 for r in records if r.is_ongoing)
     institutes = sorted({r.institute for r in records if r.institute})
@@ -200,12 +239,7 @@ def _format_public_job(content: str, cached_at: datetime) -> dict[str, Any]:
             "summary": summary,
             "postings": [r.model_dump(mode="json") for r in returned],
             "postings_truncated": len(sorted_records) > _MAX_RESULTS,
-            "query": {
-                "page_no": 1,
-                "num_of_rows": _MAX_RESULTS,
-                "ongoing_yn": None,
-                "recrut_pbanc_ttl": None,
-            },
+            "query": {"page_no": 1, "num_of_rows": _MAX_RESULTS, "ongoing_yn": None, "recrut_pbanc_ttl": None},
         },
         "source_url": None,
         "metadata": {
@@ -218,17 +252,13 @@ def _format_public_job(content: str, cached_at: datetime) -> dict[str, Any]:
     }
 
 
-def _format_worknet_job(content: str, cached_at: datetime) -> dict[str, Any]:
+def _format_worknet_job(content: str, cached_at: datetime, _params: dict) -> dict[str, Any]:
     try:
         records = normalize_worknet_job(content)
     except WorknetPermissionDeniedError:
         return {
             "text": "워크넷 채용공고: 사업자/기관 회원 권한 필요 (캐시된 권한 거부 응답).",
-            "structured": {
-                "summary": {"count": 0},
-                "postings": [],
-                "postings_truncated": False,
-            },
+            "structured": {"summary": {"count": 0}, "postings": [], "postings_truncated": False},
             "source_url": None,
             "metadata": {
                 "fetched_at": cached_at.isoformat(),
@@ -284,7 +314,7 @@ def _to_eok(amount_won: int | None) -> str:
     return f"{amount_won:,}원"
 
 
-def _format_g2b_bid(content: str, cached_at: datetime) -> dict[str, Any]:
+def _format_g2b_bid(content: str, cached_at: datetime, _params: dict) -> dict[str, Any]:
     records = normalize_g2b_bid(content)
     estimated = [r.estimated_price for r in records if r.estimated_price]
     budgets = [r.assigned_budget for r in records if r.assigned_budget]
@@ -311,12 +341,7 @@ def _format_g2b_bid(content: str, cached_at: datetime) -> dict[str, Any]:
             "summary": summary,
             "notices": [r.model_dump(mode="json") for r in returned],
             "notices_truncated": len(sorted_records) > _MAX_RESULTS,
-            "query": {
-                "inqry_bgn_dt": None,
-                "inqry_end_dt": None,
-                "page_no": 1,
-                "num_of_rows": _MAX_RESULTS,
-            },
+            "query": {"inqry_bgn_dt": None, "inqry_end_dt": None, "page_no": 1, "num_of_rows": _MAX_RESULTS},
         },
         "source_url": None,
         "metadata": {
@@ -329,12 +354,100 @@ def _format_g2b_bid(content: str, cached_at: datetime) -> dict[str, Any]:
     }
 
 
-_FORMATTER_REGISTRY: dict[str, Callable[[str, datetime], dict[str, Any]]] = {
-    "search_law_info": _format_law_info,
-    "search_bill_info": _format_bill_info,
-    "search_public_job": _format_public_job,
+# ─────────────────────────────────────────────
+# param-keyed formatter — 부동산 (factory)
+# ─────────────────────────────────────────────
+
+
+def _make_real_estate_formatter(
+    normalizer: Callable,
+    tool_name: str,
+    kind: str,
+    is_trade: bool,
+) -> Callable[[str, datetime, dict], dict[str, Any]]:
+    """부동산 6종 formatter 공통 factory.
+
+    is_trade=True  → deal_amount 기준 통계 (매매)
+    is_trade=False → deposit 기준 통계 (전월세)
+    """
+    def formatter(content: str, cached_at: datetime, params: dict) -> dict[str, Any]:
+        normalized_params = {k.upper(): str(v) for k, v in params.items()}
+        lawd_cd = normalized_params.get("LAWD_CD", "")
+        deal_ymd = normalized_params.get("DEAL_YMD", "")
+
+        records = normalizer(content, lawd_cd=lawd_cd)
+
+        if is_trade:
+            amounts = [r.deal_amount for r in records]
+            summary = {
+                "count": len(records),
+                "avg_deal_amount": round(sum(amounts) / len(amounts)) if amounts else None,
+                "min_deal_amount": min(amounts) if amounts else None,
+                "max_deal_amount": max(amounts) if amounts else None,
+            }
+            sorted_records = sorted(records, key=lambda r: r.deal_amount, reverse=True)
+            text = (
+                f"LAWD_CD {lawd_cd} {deal_ymd} {kind} 실거래 {len(records)}건 (캐시). "
+                f"평균 {_to_eok(summary['avg_deal_amount'])}."
+                if records else f"LAWD_CD {lawd_cd} {deal_ymd} {kind} 실거래 0건 (캐시)."
+            )
+        else:
+            deposits = [r.deposit for r in records]
+            monthly = [r.monthly_rent for r in records]
+            summary = {
+                "count": len(records),
+                "avg_deposit": round(sum(deposits) / len(deposits)) if deposits else None,
+                "min_deposit": min(deposits) if deposits else None,
+                "max_deposit": max(deposits) if deposits else None,
+                "avg_monthly_rent": round(sum(monthly) / len(monthly)) if monthly else None,
+            }
+            sorted_records = sorted(records, key=lambda r: r.deposit, reverse=True)
+            text = (
+                f"LAWD_CD {lawd_cd} {deal_ymd} {kind} 실거래 {len(records)}건 (캐시). "
+                f"평균 보증금 {_to_eok(summary['avg_deposit'])}."
+                if records else f"LAWD_CD {lawd_cd} {deal_ymd} {kind} 실거래 0건 (캐시)."
+            )
+
+        returned = sorted_records[:_MAX_RESULTS]
+        return {
+            "text": text,
+            "structured": {
+                "summary": summary,
+                "trades": [r.model_dump(mode="json") for r in returned],
+                "trades_truncated": len(sorted_records) > _MAX_RESULTS,
+                "query": {"lawd_cd": lawd_cd, "deal_ymd": deal_ymd},
+            },
+            "source_url": None,
+            "metadata": {
+                "fetched_at": cached_at.isoformat(),
+                "raw_count": len(records),
+                "returned_count": len(returned),
+                "tool_name": tool_name,
+                "cache_used": True,
+            },
+        }
+
+    return formatter
+
+
+# ─────────────────────────────────────────────
+# 레지스트리
+# ─────────────────────────────────────────────
+
+_FORMATTER_REGISTRY: dict[str, Callable[[str, datetime, dict], dict[str, Any]]] = {
+    # bulk-fetch
+    "search_law_info":    _format_law_info,
+    "search_bill_info":   _format_bill_info,
+    "search_public_job":  _format_public_job,
     "search_worknet_job": _format_worknet_job,
-    "search_g2b_bid": _format_g2b_bid,
+    "search_g2b_bid":     _format_g2b_bid,
+    # param-keyed (부동산)
+    "search_house_price": _make_real_estate_formatter(normalize_apt_trade,  "search_house_price", "아파트 매매",      is_trade=True),
+    "search_apt_rent":    _make_real_estate_formatter(normalize_apt_rent,   "search_apt_rent",    "아파트 전월세",     is_trade=False),
+    "search_offi_trade":  _make_real_estate_formatter(normalize_offi_trade, "search_offi_trade",  "오피스텔 매매",     is_trade=True),
+    "search_offi_rent":   _make_real_estate_formatter(normalize_offi_rent,  "search_offi_rent",   "오피스텔 전월세",   is_trade=False),
+    "search_rh_rent":     _make_real_estate_formatter(normalize_rh_rent,    "search_rh_rent",     "연립다세대 전월세", is_trade=False),
+    "search_rh_trade":    _make_real_estate_formatter(normalize_rh_trade,   "search_rh_trade",    "연립다세대 매매",   is_trade=True),
 }
 
 __all__ = ["check_api_cache", "get_cached_data"]
