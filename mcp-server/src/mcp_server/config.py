@@ -7,7 +7,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 McpTransport = Literal["stdio", "sse"]
@@ -20,6 +20,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     pg_url: str = Field(
@@ -94,6 +95,108 @@ class Settings(BaseSettings):
     pps_g2b_bid_api_key: str = Field(
         default="",
         description="조달청 나라장터 입찰공고정보서비스 (data.go.kr/data/15129394) 서비스 키.",
+    )
+
+    # ── 알림 발송 ──
+    notification_telegram_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_TELEGRAM_ENABLED",
+            "NOTIFICATION_TELEGRAM_ENABLED",
+        ),
+    )
+    notification_telegram_bot_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_TELEGRAM_BOT_TOKEN",
+            "NOTIFICATION_TELEGRAM_BOT_TOKEN",
+        ),
+    )
+    notification_telegram_api_base_url: str = Field(
+        default="https://api.telegram.org",
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_TELEGRAM_API_BASE_URL",
+            "NOTIFICATION_TELEGRAM_API_BASE_URL",
+        ),
+    )
+
+    notification_discord_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_DISCORD_ENABLED",
+            "NOTIFICATION_DISCORD_ENABLED",
+        ),
+    )
+    notification_discord_bot_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_DISCORD_BOT_TOKEN",
+            "NOTIFICATION_DISCORD_BOT_TOKEN",
+        ),
+    )
+    notification_discord_api_base_url: str = Field(
+        default="https://discord.com/api/v10",
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_DISCORD_API_BASE_URL",
+            "NOTIFICATION_DISCORD_API_BASE_URL",
+        ),
+    )
+
+    notification_email_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_ENABLED",
+            "NOTIFICATION_EMAIL_ENABLED",
+        ),
+    )
+    notification_email_from: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_FROM",
+            "NOTIFICATION_EMAIL_FROM",
+        ),
+    )
+    notification_email_host: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_HOST",
+            "NOTIFICATION_EMAIL_HOST",
+        ),
+    )
+    notification_email_port: int = Field(
+        default=587,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_PORT",
+            "NOTIFICATION_EMAIL_PORT",
+        ),
+    )
+    notification_email_username: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_USERNAME",
+            "NOTIFICATION_EMAIL_USERNAME",
+        ),
+    )
+    notification_email_password: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_PASSWORD",
+            "NOTIFICATION_EMAIL_PASSWORD",
+        ),
+    )
+    notification_email_smtp_auth: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_SMTP_AUTH",
+            "NOTIFICATION_EMAIL_SMTP_AUTH",
+        ),
+    )
+    notification_email_starttls_enable: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_EMAIL_STARTTLS_ENABLE",
+            "NOTIFICATION_EMAIL_STARTTLS_ENABLE",
+        ),
     )
 
 

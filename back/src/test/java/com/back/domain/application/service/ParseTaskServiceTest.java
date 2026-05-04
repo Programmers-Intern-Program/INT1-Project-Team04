@@ -342,5 +342,8 @@ class ParseTaskServiceTest {
         public java.util.List<com.back.domain.application.result.TokenUsageHistoryResult> getUsageHistory(Long userId, int limit) {
             return java.util.List.of();
         }
+
+        @Override
+        public void initializeTokenIfAbsent(Long userId) {}
     }
 }

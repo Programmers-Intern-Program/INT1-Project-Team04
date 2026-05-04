@@ -1,5 +1,20 @@
 package com.back.domain.adapter.out.ai;
 
+// ────────────────────────────────────────────────────────────────────────────
+// [비활성화] GlmTaskParserAdapter
+//
+// RestClient를 사용해 GLM API(또는 grepp gateway)를 직접 호출하던 구현.
+// 현재는 VertexAiTaskParserAdapter(Spring AI + Vertex AI Gemini)로 대체되었다.
+//
+// ParseNaturalLanguagePort 구현체가 두 개 존재하면 Spring이 ambiguous 에러를 내므로
+// @Profile("glm")을 달아 기본 프로파일에서 빈 등록을 제외한다.
+// GLM API로 다시 전환할 경우 프로파일을 "glm"으로 활성화하면 된다.
+//
+// 인증 이슈 히스토리:
+//   - grepp gateway(aigw.alpha.grepp.co/v1)는 x-api-key 방식 불가, Bearer 방식 필요
+//   - Bearer 방식으로 전환 후에도 게이트웨이 인증 실패 확인 → Vertex AI로 이전 결정
+// ────────────────────────────────────────────────────────────────────────────
+
 import com.back.domain.application.port.out.ParseNaturalLanguagePort;
 import com.back.domain.application.result.ParsedTask;
 import com.back.global.error.ApiException;
@@ -12,10 +27,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 @Slf4j
+@Profile("glm")
 @Component
 public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
 
@@ -24,19 +41,19 @@ public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
     private final RestClient restClient;
     private final ObjectMapper objectMapper;
 
-    @Value("${ai-parser.model:glm-4.5}")
+    @Value("${ai-gateway.model:glm-4.5}")
     private String model;
 
-    @Value("${ai-parser.max-tokens:2048}")
+    @Value("${ai-gateway.max-tokens:2048}")
     private int maxTokens;
 
-    @Value("${ai-parser.temperature:0.3}")
+    @Value("${ai-gateway.temperature:0.3}")
     private double temperature;
 
     public GlmTaskParserAdapter(
             RestClient.Builder restClientBuilder,
-            @Value("${ai-parser.base-url}") String baseUrl,
-            @Value("${ai-parser.api-key}") String apiKey,
+            @Value("${ai-gateway.base-url}") String baseUrl,
+            @Value("${ai-gateway.api-key}") String apiKey,
             ObjectMapper objectMapper
     ) {
         this.restClient = restClientBuilder

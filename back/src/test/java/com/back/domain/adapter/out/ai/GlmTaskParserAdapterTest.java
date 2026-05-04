@@ -21,6 +21,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
+// TODO: GlmTaskParserAdapter는 @Profile("glm")으로 비활성화됨.
+//       VertexAiTaskParserAdapter로 전환 후 이 테스트도 재작성 필요.
+//       새 테스트는 MockRestServiceServer 대신 ChatModel mock (Mockito) 또는
+//       Spring AI의 TestChatModel을 사용할 것.
 class GlmTaskParserAdapterTest {
 
     @Test

@@ -40,7 +40,11 @@ mcp: FastMCP = FastMCP(
     name="monitoring-mcp",
     instructions=(
         "부동산 / 법률 / 채용 / 경매 4개 도메인의 변화를 감시하는 MCP 서버. "
-        "도구 호출 결과는 {text, structured, source_url, metadata} 공통 스키마로 반환된다."
+        "도구 호출 결과는 {text, structured, source_url, metadata} 공통 스키마로 반환된다. "
+        "구독 조건이 충족되어 notificationChannel 과 notificationTarget 으로 알림을 "
+        "발송해야 할 때는 반드시 send_notification 도구를 호출한다. 자연어 응답만으로는 "
+        "알림이 발송되지 않으며, send_notification 결과의 structured.sent 가 true 일 때만 "
+        "발송 성공으로 판단한다."
     ),
     host=_settings.mcp_sse_host,
     port=_settings.mcp_sse_port,

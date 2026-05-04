@@ -12,4 +12,23 @@ class JobsConfigError(JobsError):
     """
 
 
-__all__ = ["JobsError", "JobsConfigError"]
+class JobsNormalizationError(JobsError):
+    """API 응답 본문 정규화 실패 (XML/JSON 파싱, 응답 코드 비정상, 필수 필드 누락)."""
+
+
+class WorknetPermissionDeniedError(JobsNormalizationError):
+    """워크넷 OPEN-API 가 개인회원 키에 대해 거부 응답 반환.
+
+    응답 본문: <error>개인회원은 사용할 수 없는 OPEN-API입니다.</error>
+    키 교체로 해결 불가 (사업자/기관 회원 한정). 도구 레이어가 잡아서
+    사용자에게 명확한 "권한 미발급" 안내 응답을 반환할 수 있도록 일반
+    정규화 실패와 분리한다.
+    """
+
+
+__all__ = [
+    "JobsConfigError",
+    "JobsError",
+    "JobsNormalizationError",
+    "WorknetPermissionDeniedError",
+]

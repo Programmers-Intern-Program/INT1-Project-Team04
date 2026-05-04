@@ -22,6 +22,7 @@ import {
   getSubscriptionSummaries,
   sendConversationAction,
   sendConversationMessage,
+  simulateSubscriptionChangeAlert,
   type ConversationActionOption,
   type ConversationResponse,
   type SubscriptionSummary,
@@ -30,6 +31,7 @@ import {
 type SubmitState = "idle" | "sending";
 
 const PENDING_CHANNEL_KEY = "subscription-chat-pending-channel";
+const DEV_TOOLS_ENABLED = process.env.NEXT_PUBLIC_DEV_TOOLS === "true";
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   {
@@ -55,6 +57,7 @@ export function SubscriptionChat({
   const [subscriptions, setSubscriptions] = useState<SubscriptionSummary[]>([]);
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [deletingSubscriptionId, setDeletingSubscriptionId] = useState<string | null>(null);
+  const [testingSubscriptionId, setTestingSubscriptionId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [debugJson, setDebugJson] = useState<DebugJsonSnapshot>({
     request: "{}",
@@ -382,6 +385,27 @@ export function SubscriptionChat({
     await reloadSubscriptions();
   }
 
+  async function handleTestSubscription(subscriptionId: string) {
+    if (testingSubscriptionId) {
+      return;
+    }
+
+    setStatusMessage("");
+    setTestingSubscriptionId(subscriptionId);
+    const response = await simulateSubscriptionChangeAlert(subscriptionId);
+    setTestingSubscriptionId(null);
+
+    if (!response.ok) {
+      if (response.error.code === "UNAUTHENTICATED") {
+        onUnauthenticated?.();
+      }
+      setStatusMessage(response.error.message);
+      return;
+    }
+
+    setStatusMessage(`테스트 알림 요청을 실행했어요. (${response.data.dispatchedCount}건)`);
+  }
+
   return (
     <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 rounded-[28px] border border-stone-200 bg-white shadow-[0_18px_50px_rgba(61,46,26,0.08)]">
@@ -505,15 +529,28 @@ export function SubscriptionChat({
                   <h3 className="min-w-0 text-sm font-black leading-6">
                     {subscription.query}
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteSubscription(subscription.id)}
-                    disabled={deletingSubscriptionId !== null}
-                    aria-label={`${subscription.query} 알림 삭제`}
-                    className="shrink-0 rounded-full border border-white/15 px-3 py-1 text-xs font-black text-emerald-50 transition hover:border-white/40 hover:bg-white/10 disabled:cursor-not-allowed disabled:text-emerald-100/50"
-                  >
-                    {deletingSubscriptionId === subscription.id ? "삭제 중" : "삭제"}
-                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    {DEV_TOOLS_ENABLED ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleTestSubscription(subscription.id)}
+                        disabled={testingSubscriptionId !== null || deletingSubscriptionId !== null}
+                        aria-label={`${subscription.query} 테스트 알림 실행`}
+                        className="rounded-full border border-emerald-200/30 px-3 py-1 text-xs font-black text-emerald-50 transition hover:border-emerald-100 hover:bg-white/10 disabled:cursor-not-allowed disabled:text-emerald-100/50"
+                      >
+                        {testingSubscriptionId === subscription.id ? "Testing" : "Test"}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteSubscription(subscription.id)}
+                      disabled={deletingSubscriptionId !== null || testingSubscriptionId !== null}
+                      aria-label={`${subscription.query} 알림 삭제`}
+                      className="rounded-full border border-white/15 px-3 py-1 text-xs font-black text-emerald-50 transition hover:border-white/40 hover:bg-white/10 disabled:cursor-not-allowed disabled:text-emerald-100/50"
+                    >
+                      {deletingSubscriptionId === subscription.id ? "삭제 중" : "삭제"}
+                    </button>
+                  </div>
                 </div>
                 <dl className="mt-3 grid gap-2 text-sm">
                   <SummaryRow label="영역" value={subscription.domainLabel} dark />
