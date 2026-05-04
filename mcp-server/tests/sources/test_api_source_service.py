@@ -112,9 +112,38 @@ async def test_fetch_returns_empty_result_on_http_error_without_cache(patched_se
 
 
 @pytest.mark.asyncio
-async def test_fetch_writes_cache_on_success(patched_session_factory):
-    """성공 시 api_cache 에 도메인 단위 1 row upsert. site_url 은 cache://{tool_name}."""
-    source = await _create_source()
+async def test_fetch_writes_cache_on_success_bulk_fetch(patched_session_factory):
+    """bulk-fetch tool 성공 시 site_url = cache://{tool_name} 단일 행 upsert."""
+    source = await _create_source(
+        tool_name="search_law_info",
+        url_template="https://example.gov/law",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"items": [{"law": "민법"}]},
+            headers={"content-type": "application/json"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        await api_source_service.fetch(source_id=source.id, params={}, _test_http_client=client)
+
+    async with get_session() as session:
+        result = await session.execute(select(ApiCache).where(ApiCache.source_id == source.id))
+        cache = result.scalar_one_or_none()
+
+    assert cache is not None
+    assert cache.api_type == "search_law_info"
+    assert cache.site_url == "cache://search_law_info"
+    assert "민법" in cache.content
+
+
+@pytest.mark.asyncio
+async def test_fetch_writes_cache_on_success_param_keyed(patched_session_factory):
+    """param-keyed tool 성공 시 site_url = cache://{tool_name}/{LAWD_CD}/{DEAL_YMD}."""
+    source = await _create_source()  # search_house_price
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -127,7 +156,7 @@ async def test_fetch_writes_cache_on_success(patched_session_factory):
     async with httpx.AsyncClient(transport=transport) as client:
         await api_source_service.fetch(
             source_id=source.id,
-            params={"region": "강남구"},
+            params={"LAWD_CD": "11680", "DEAL_YMD": "202403"},
             _test_http_client=client,
         )
 
@@ -137,14 +166,17 @@ async def test_fetch_writes_cache_on_success(patched_session_factory):
 
     assert cache is not None
     assert cache.api_type == "search_house_price"
-    assert cache.site_url == "cache://search_house_price"
+    assert cache.site_url == "cache://search_house_price/11680/202403"
     assert "1500" in cache.content
 
 
 @pytest.mark.asyncio
-async def test_fetch_overwrites_cache_per_tool_name(patched_session_factory):
-    """같은 tool_name 에 두 번 호출하면 1 row 유지(덮어쓰기)."""
-    source = await _create_source()
+async def test_fetch_overwrites_cache_for_bulk_fetch_tool(patched_session_factory):
+    """bulk-fetch tool은 같은 tool_name 두 번 호출 시 1 row 유지(덮어쓰기)."""
+    source = await _create_source(
+        tool_name="search_law_info",
+        url_template="https://example.gov/law",
+    )
     counter = {"n": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -157,11 +189,44 @@ async def test_fetch_overwrites_cache_per_tool_name(patched_session_factory):
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
+        await api_source_service.fetch(source_id=source.id, params={}, _test_http_client=client)
+        await api_source_service.fetch(source_id=source.id, params={}, _test_http_client=client)
+
+    async with get_session() as session:
+        result = await session.execute(
+            select(ApiCache).where(ApiCache.api_type == "search_law_info")
+        )
+        rows = result.scalars().all()
+
+    assert len(rows) == 1
+    assert '"call": 2' in rows[0].content
+
+
+@pytest.mark.asyncio
+async def test_fetch_creates_separate_rows_for_param_keyed_tool(patched_session_factory):
+    """param-keyed tool은 (LAWD_CD, DEAL_YMD) 조합마다 별도 행 생성."""
+    source = await _create_source()  # search_house_price
+    call_no = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        call_no["n"] += 1
+        return httpx.Response(
+            200,
+            json={"call": call_no["n"]},
+            headers={"content-type": "application/json"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
         await api_source_service.fetch(
-            source_id=source.id, params={"region": "강남구"}, _test_http_client=client
+            source_id=source.id,
+            params={"LAWD_CD": "11680", "DEAL_YMD": "202403"},
+            _test_http_client=client,
         )
         await api_source_service.fetch(
-            source_id=source.id, params={"region": "부산"}, _test_http_client=client
+            source_id=source.id,
+            params={"LAWD_CD": "11500", "DEAL_YMD": "202403"},  # 다른 지역
+            _test_http_client=client,
         )
 
     async with get_session() as session:
@@ -170,8 +235,10 @@ async def test_fetch_overwrites_cache_per_tool_name(patched_session_factory):
         )
         rows = result.scalars().all()
 
-    assert len(rows) == 1
-    assert '"call": 2' in rows[0].content
+    assert len(rows) == 2
+    site_urls = {r.site_url for r in rows}
+    assert "cache://search_house_price/11680/202403" in site_urls
+    assert "cache://search_house_price/11500/202403" in site_urls
 
 
 @pytest.mark.asyncio
@@ -214,12 +281,8 @@ async def test_peek_cached_content_returns_content_and_cached_at(patched_session
 
 
 @pytest.mark.asyncio
-async def test_peek_cached_content_returns_none_for_real_estate_tools(patched_session_factory):
-    """부동산 6종은 _CACHEABLE_TOOLS 화이트리스트에 없어 peek_cached_content 가 항상 None.
-
-    캐시 row 가 실제로 저장돼 있어도 노출되면 안 된다 (다른 (region, ymd) 호출자에게
-    잘못된 응답을 줄 위험 차단).
-    """
+async def test_peek_cached_content_requires_params_for_real_estate(patched_session_factory):
+    """부동산은 params 포함 시 캐시 반환, params 없이 호출하면 None (다른 조합 오염 방지)."""
     source = await _create_source(
         tool_name="search_house_price",
         url_template="https://example.gov/molit/apt-trade",
@@ -234,25 +297,29 @@ async def test_peek_cached_content_returns_none_for_real_estate_tools(patched_se
 
     transport = httpx.MockTransport(handler)
     async with httpx.AsyncClient(transport=transport) as client:
-        # 캐시는 실제로 저장됨
         await api_source_service.fetch(
             source_id=source.id,
             params={"LAWD_CD": "11680", "DEAL_YMD": "202403"},
             _test_http_client=client,
         )
 
-    # 그러나 peek_cached_content 는 None (화이트리스트 제외)
-    result = await api_source_service.peek_cached_content("search_house_price")
-    assert result is None
+    # 같은 params → 캐시 반환
+    result = await api_source_service.peek_cached_content(
+        "search_house_price", params={"LAWD_CD": "11680", "DEAL_YMD": "202403"}
+    )
+    assert result is not None
+    content, _ = result
+    assert "1500" in content
 
-    for tool_name in (
-        "search_apt_rent",
-        "search_offi_trade",
-        "search_offi_rent",
-        "search_rh_trade",
-        "search_rh_rent",
-    ):
-        assert await api_source_service.peek_cached_content(tool_name) is None
+    # params 없이 호출 → site_url 불일치 → None
+    result_no_params = await api_source_service.peek_cached_content("search_house_price")
+    assert result_no_params is None
+
+    # 다른 지역 params → site_url 불일치 → None
+    result_diff = await api_source_service.peek_cached_content(
+        "search_house_price", params={"LAWD_CD": "11500", "DEAL_YMD": "202403"}
+    )
+    assert result_diff is None
 
 
 @pytest.mark.asyncio
