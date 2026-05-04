@@ -75,11 +75,11 @@ public class SubscriptionNotificationMessageFormatter {
     }
 
     public String formatCronDescription(String cronExpr) {
-        return formatCronDescription(cronExpr, "설정한 주기");
+        return "변화 감지 시";
     }
 
     public String formatCronLabel(String cronExpr) {
-        return formatCronDescription(cronExpr, cronExpr);
+        return "변화 감지 시";
     }
 
     private String formatTelegramSubscriptionStartedMessage(
@@ -92,7 +92,7 @@ public class SubscriptionNotificationMessageFormatter {
 
                 요청: %s
                 감시 영역: %s
-                확인 주기: %s
+                알림 방식: %s
 
                 변화가 감지되면 이 채널로 핵심만 먼저 알려드릴게요.
                 """.formatted(
@@ -112,7 +112,7 @@ public class SubscriptionNotificationMessageFormatter {
 
                 요청: %s
                 감시 영역: %s
-                확인 주기: %s
+                알림 방식: %s
 
                 이제부터 이 조건으로는 알림을 보내지 않을게요.
                 """.formatted(
@@ -137,7 +137,7 @@ public class SubscriptionNotificationMessageFormatter {
                 **감시 영역**
                 %s
 
-                **확인 주기**
+                **알림 방식**
                 %s
 
                 변화가 감지되면 새 항목과 근거 링크를 정리해서 보내드릴게요.
@@ -163,7 +163,7 @@ public class SubscriptionNotificationMessageFormatter {
                 **감시 영역**
                 %s
 
-                **확인 주기**
+                **알림 방식**
                 %s
 
                 필요하면 언제든 다시 설정할 수 있어요.
@@ -244,7 +244,7 @@ public class SubscriptionNotificationMessageFormatter {
                           </td>
                           <td style="width:50%%;vertical-align:top;padding-left:6px;">
                             <div style="background:#f5eedf;border-radius:14px;padding:14px;">
-                              <p style="margin:0 0 7px;color:#7a5a24;font-size:12px;line-height:1.2;font-weight:800;">확인 주기</p>
+                              <p style="margin:0 0 7px;color:#7a5a24;font-size:12px;line-height:1.2;font-weight:800;">알림 방식</p>
                               <p style="margin:0;color:#211a12;font-size:15px;line-height:1.35;font-weight:800;">%s</p>
                             </div>
                           </td>
@@ -265,15 +265,6 @@ public class SubscriptionNotificationMessageFormatter {
                 cronDescription,
                 escapedFooter
         );
-    }
-
-    private String formatCronDescription(String cronExpr, String fallback) {
-        return switch (cronExpr == null ? "" : cronExpr.trim()) {
-            case "0 0 * * * *" -> "매시간 정각";
-            case "0 0 9 * * *" -> "매일 오전 9시";
-            case "0 0 9 * * MON-FRI" -> "평일 오전 9시";
-            default -> fallback;
-        };
     }
 
     private String query(Subscription subscription) {

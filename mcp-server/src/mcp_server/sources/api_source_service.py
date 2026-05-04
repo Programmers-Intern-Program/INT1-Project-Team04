@@ -46,6 +46,8 @@ async def fetch(
     params = params or {}
     fetched_at = datetime.now(UTC)
 
+    cache_site_url = _derive_cache_site_url(source.tool_name, params)
+
     try:
         response_text = await _call_external_api(
             endpoint=source.url_template,
@@ -53,7 +55,7 @@ async def fetch(
             http_client=_test_http_client,
         )
     except SourceFetchError as exc:
-        cached = await _load_cache_by_tool(source.tool_name)
+        cached = await _load_cache_by_site_url(cache_site_url)
         base_meta = {
             "tool_name": source.tool_name,
             "url_template": source.url_template,
@@ -75,9 +77,10 @@ async def fetch(
             raw_metadata={**base_meta, "fetch_error": str(exc)},
         )
 
-    await _upsert_cache_by_tool(
+    await _upsert_cache_by_site_url(
         source_id=source.id,
         tool_name=source.tool_name,
+        site_url=cache_site_url,
         content=response_text,
         cached_at=fetched_at,
     )
@@ -96,54 +99,79 @@ async def fetch(
 
 
 def _build_site_url(url_template: str, params: dict) -> str:
-    """원본 호출 URL 디버그 표시용. 캐시 키로는 더 이상 사용하지 않음 (tool_name 으로 변경)."""
+    """원본 호출 URL 디버그 표시용."""
     cache_params = {k: v for k, v in params.items() if k != "serviceKey"}
     return f"{url_template}?{urlencode(sorted(cache_params.items()))}"
 
 
-def _cache_site_url(tool_name: str) -> str:
-    """캐시 site_url placeholder. UNIQUE 제약을 만족시키는 도메인 단위 1 row 키."""
-    return f"cache://{tool_name}"
+# param-keyed tool: API 필수 파라미터 조합이 캐시 키를 결정.
+# 여기 없는 tool은 bulk-fetch → tool_name 단위 1행 캐시.
+_PARAM_KEY_FIELDS: dict[str, tuple[str, ...]] = {
+    "search_house_price": ("LAWD_CD", "DEAL_YMD"),
+    "search_apt_rent":    ("LAWD_CD", "DEAL_YMD"),
+    "search_offi_trade":  ("LAWD_CD", "DEAL_YMD"),
+    "search_offi_rent":   ("LAWD_CD", "DEAL_YMD"),
+    "search_rh_rent":     ("LAWD_CD", "DEAL_YMD"),
+    "search_rh_trade":    ("LAWD_CD", "DEAL_YMD"),
+    "search_bill_info":   ("AGE",),
+}
 
 
-# 캐시 read 가 의미 있는 도구 화이트리스트.
-# 부동산 6종은 LAWD_CD 가 API 필수라 도메인 단위 단일 호출이 불가능하고, tool_name
-# 단위 1 row 캐시는 마지막 (region, deal_ymd) 응답만 보관하므로 다른 (region, ymd)
-# 호출자에게 잘못된 응답을 줄 수 있다. 따라서 부동산 도구는 캐시 read 노출 대상에서
-# 제외 — 캐시 팀의 check_api_cache 도구도 이 화이트리스트만 받아야 한다.
+def _derive_cache_site_url(tool_name: str, params: dict) -> str:
+    """tool_name + params 로 캐시 site_url 생성.
+
+    bulk-fetch tool → "cache://{tool_name}"
+    param-keyed tool → "cache://{tool_name}/{v1}/{v2}"
+
+    params 키는 대소문자 무관하게 매칭 (fetch는 대문자, check_api_cache는 소문자 허용).
+    """
+    key_fields = _PARAM_KEY_FIELDS.get(tool_name)
+    if not key_fields:
+        return f"cache://{tool_name}"
+    normalized = {k.upper(): str(v) for k, v in params.items()}
+    parts = [normalized.get(k, "") for k in key_fields]
+    return "cache://" + tool_name + "/" + "/".join(parts)
+
+
+# 모든 tool이 캐시 가능. param-keyed tool은 params 필수.
 _CACHEABLE_TOOLS: frozenset[str] = frozenset({
-    "search_public_job",
-    "search_worknet_job",
     "search_law_info",
     "search_bill_info",
+    "search_public_job",
+    "search_worknet_job",
     "search_g2b_bid",
+    "search_house_price",
+    "search_apt_rent",
+    "search_offi_trade",
+    "search_offi_rent",
+    "search_rh_rent",
+    "search_rh_trade",
 })
 
 
-async def peek_cached_at(tool_name: str) -> datetime | None:
-    """check_api_cache 전용. cached_at만 반환."""
-    if tool_name not in _CACHEABLE_TOOLS:
-        return None
-    cached = await _load_cache_by_tool(tool_name)
-    return cached.cached_at if cached is not None else None
+async def peek_cached_at(tool_name: str, params: dict | None = None) -> datetime | None:
+    """check_api_cache 전용. cached_at만 반환.
 
-
-async def peek_cached_content(tool_name: str) -> tuple[str, datetime] | None:
-    """캐시 팀의 check_api_cache 도구가 사용할 read 헬퍼.
-
-    캐시에 저장된 외부 API 응답 원문(content) 과 저장 시각(cached_at) 을 반환.
-    정규화·필터링은 도구 레이어 책임이라 여기선 raw content 그대로 노출한다.
-
-    Args:
-        tool_name: 캐시 read 대상 도구 이름.
-
-    Returns:
-        (content, cached_at) — 캐시가 있고 읽을 수 있을 때.
-        None — 캐시가 없거나, tool_name 이 _CACHEABLE_TOOLS 에 없을 때.
+    param-keyed tool(부동산·의안)은 params 필수.
+    params 없이 호출하면 None 반환 (cache miss로 처리).
     """
     if tool_name not in _CACHEABLE_TOOLS:
         return None
-    cached = await _load_cache_by_tool(tool_name)
+    site_url = _derive_cache_site_url(tool_name, params or {})
+    cached = await _load_cache_by_site_url(site_url)
+    return cached.cached_at if cached is not None else None
+
+
+async def peek_cached_content(tool_name: str, params: dict | None = None) -> tuple[str, datetime] | None:
+    """get_cached_data 전용. raw content + cached_at 반환.
+
+    param-keyed tool(부동산·의안)은 params 필수.
+    params 없이 호출하면 None 반환 (cache miss로 처리).
+    """
+    if tool_name not in _CACHEABLE_TOOLS:
+        return None
+    site_url = _derive_cache_site_url(tool_name, params or {})
+    cached = await _load_cache_by_site_url(site_url)
     if cached is None:
         return None
     return cached.content or "", cached.cached_at
@@ -158,29 +186,30 @@ async def _load_source(source_id: int) -> ApiSource:
     return source
 
 
-async def _load_cache_by_tool(tool_name: str) -> ApiCache | None:
+async def _load_cache_by_site_url(site_url: str) -> ApiCache | None:
     async with get_session() as session:
         result = await session.execute(
-            select(ApiCache).where(ApiCache.api_type == tool_name)
+            select(ApiCache).where(ApiCache.site_url == site_url)
         )
         return result.scalar_one_or_none()
 
 
-async def _upsert_cache_by_tool(
+async def _upsert_cache_by_site_url(
     source_id: int,
     tool_name: str,
+    site_url: str,
     content: str,
     cached_at: datetime,
 ) -> None:
     async with get_session() as session:
         result = await session.execute(
-            select(ApiCache).where(ApiCache.api_type == tool_name)
+            select(ApiCache).where(ApiCache.site_url == site_url)
         )
         cache = result.scalar_one_or_none()
         if cache is None:
             session.add(ApiCache(
                 source_id=source_id,
-                site_url=_cache_site_url(tool_name),
+                site_url=site_url,
                 api_type=tool_name,
                 content=content,
                 cached_at=cached_at,
@@ -234,4 +263,11 @@ async def _call_external_api(
     return response.text
 
 
-__all__ = ["fetch", "peek_cached_at", "peek_cached_content", "resolve_source_id_by_tool_name"]
+__all__ = [
+    "fetch",
+    "peek_cached_at",
+    "peek_cached_content",
+    "resolve_source_id_by_tool_name",
+    "_PARAM_KEY_FIELDS",
+    "_CACHEABLE_TOOLS",
+]

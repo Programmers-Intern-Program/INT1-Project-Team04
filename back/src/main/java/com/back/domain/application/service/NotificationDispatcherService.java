@@ -29,8 +29,12 @@ public class NotificationDispatcherService {
 
     public int dispatchPending(LocalDateTime now) {
         List<NotificationDelivery> deliveries = loadDeliveryPort.loadDispatchable(now);
+        return dispatch(deliveries, now);
+    }
+
+    public int dispatch(List<NotificationDelivery> deliveries, LocalDateTime now) {
         for (NotificationDelivery delivery : deliveries) {
-            NotificationDelivery dispatched = dispatch(delivery, now);
+            NotificationDelivery dispatched = dispatchOne(delivery, now);
             recordDispatch(dispatched);
             logDispatch(dispatched);
             saveDeliveryPort.save(dispatched);
@@ -38,7 +42,7 @@ public class NotificationDispatcherService {
         return deliveries.size();
     }
 
-    private NotificationDelivery dispatch(NotificationDelivery delivery, LocalDateTime now) {
+    private NotificationDelivery dispatchOne(NotificationDelivery delivery, LocalDateTime now) {
         SendNotificationDeliveryPort sender = senders.stream()
                 .filter(candidate -> candidate.supports(delivery.channel()))
                 .findFirst()

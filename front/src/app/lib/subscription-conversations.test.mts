@@ -28,8 +28,8 @@ describe("subscription conversation API client", () => {
         JSON.stringify({
           conversationId: "conversation-1",
           status: "NEEDS_INPUT",
-          assistantMessage: "얼마나 자주 확인할까요?",
-          actions: [{ type: "SELECT_CADENCE", label: "매일 오전 9시", value: "DAILY_9AM" }],
+          assistantMessage: "알림을 받을 채널을 선택해 주세요.",
+          actions: [{ type: "SELECT_CHANNEL", label: "Telegram", value: "TELEGRAM_DM" }],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
@@ -92,7 +92,7 @@ describe("subscription conversation API client", () => {
             id: "sub-1",
             query: "강남구 아파트 실거래가",
             domainLabel: "부동산",
-            cadenceLabel: "매일 오전 9시",
+            cadenceLabel: "변화 감지 시",
             notificationChannel: "TELEGRAM_DM",
             channelLabel: "Telegram",
             nextRun: "2026-04-28T09:00:00",
@@ -115,7 +115,7 @@ describe("subscription conversation API client", () => {
           id: "sub-1",
           query: "강남구 아파트 실거래가",
           domainLabel: "부동산",
-          cadenceLabel: "매일 오전 9시",
+          cadenceLabel: "변화 감지 시",
           notificationChannel: "TELEGRAM_DM",
           channelLabel: "Telegram",
           nextRun: "2026-04-28T09:00:00",

@@ -11,7 +11,6 @@ export type SubscriptionConversationFetch = (
 ) => Promise<Response>;
 
 export type ConversationActionType =
-  | "SELECT_CADENCE"
   | "SELECT_CHANNEL"
   | "CONFIRM_SUBSCRIPTION"
   | "CANCEL_CONVERSATION";
