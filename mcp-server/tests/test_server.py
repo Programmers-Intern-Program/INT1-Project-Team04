@@ -28,6 +28,7 @@ async def test_registered_tools_include_search_house_price() -> None:
     tools = await server_mod.mcp.list_tools()
     names = {t.name for t in tools}
     assert "search_house_price" in names
+    assert "send_notification" in names
 
 
 async def test_lifespan_calls_shutdown_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
