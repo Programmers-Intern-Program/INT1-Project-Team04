@@ -24,6 +24,78 @@ G2B_BID_JSON = (_FIXTURE_AUCTION / "search_g2b_bid.json").read_text(encoding="ut
 PUBLIC_JOB_JSON = (_FIXTURE_JOBS / "search_public_job.json").read_text(encoding="utf-8")
 WORKNET_PERMISSION_DENIED_XML = (_FIXTURE_JOBS / "search_worknet_job.xml").read_text(encoding="utf-8")
 APT_TRADE_XML = (_FIXTURE_RE / "molit_apt_trade_sample.xml").read_text(encoding="utf-8")
+PUBLIC_JOB_MIXED_JSON = """
+{
+  "result": [
+    {
+      "recrutPblntSn": 101,
+      "recrutPbancTtl": "백엔드 개발자 채용",
+      "instNm": "한국테스트공단",
+      "ongoingYn": "Y",
+      "pbancBgngYmd": "20260430",
+      "pbancEndYmd": "20260510",
+      "srcUrl": "https://public.example/jobs/101"
+    },
+    {
+      "recrutPblntSn": 102,
+      "recrutPbancTtl": "프론트엔드 개발자 채용",
+      "instNm": "한국테스트공단",
+      "ongoingYn": "Y",
+      "pbancBgngYmd": "20260429",
+      "pbancEndYmd": "20260509",
+      "srcUrl": "https://public.example/jobs/102"
+    },
+    {
+      "recrutPblntSn": 103,
+      "recrutPbancTtl": "백엔드 플랫폼 엔지니어 모집",
+      "instNm": "테스트진흥원",
+      "ongoingYn": "N",
+      "pbancBgngYmd": "20260428",
+      "pbancEndYmd": "20260429",
+      "srcUrl": "https://public.example/jobs/103"
+    }
+  ],
+  "resultCode": 200,
+  "resultMsg": "성공했습니다.",
+  "totalCount": 3
+}
+"""
+WORKNET_JOB_MIXED_XML = """<?xml version='1.0' encoding='UTF-8'?>
+<wantedRoot>
+  <pubJobs>
+    <wanted>
+      <wantedAuthNo>W001</wantedAuthNo>
+      <wantedTitle>백엔드 서버 개발자</wantedTitle>
+      <busplaName>테스트소프트</busplaName>
+      <regionNm>서울</regionNm>
+      <empTpNm>정규직</empTpNm>
+      <regDt>20260430</regDt>
+      <closeDt>20260530</closeDt>
+      <wantedInfoUrl>https://work.example/jobs/W001</wantedInfoUrl>
+    </wanted>
+    <wanted>
+      <wantedAuthNo>W002</wantedAuthNo>
+      <wantedTitle>프론트엔드 개발자</wantedTitle>
+      <busplaName>백엔드랩스</busplaName>
+      <regionNm>서울</regionNm>
+      <empTpNm>계약직</empTpNm>
+      <regDt>20260429</regDt>
+      <closeDt>20260529</closeDt>
+      <wantedInfoUrl>https://work.example/jobs/W002</wantedInfoUrl>
+    </wanted>
+    <wanted>
+      <wantedAuthNo>W003</wantedAuthNo>
+      <wantedTitle>데이터 엔지니어</wantedTitle>
+      <busplaName>테스트데이터</busplaName>
+      <regionNm>부산</regionNm>
+      <empTpNm>정규직</empTpNm>
+      <regDt>20260428</regDt>
+      <closeDt>20260528</closeDt>
+      <wantedInfoUrl>https://work.example/jobs/W003</wantedInfoUrl>
+    </wanted>
+  </pubJobs>
+</wantedRoot>
+"""
 
 _CACHED_AT = datetime(2026, 4, 30, 10, 0, tzinfo=UTC)
 
@@ -184,6 +256,60 @@ async def test_get_public_job_structured_key(patched_session_factory):
 
 
 @pytest.mark.asyncio
+async def test_get_public_job_cache_filters_by_subscription_params(patched_session_factory):
+    """공공 채용 캐시도 fetch tool과 동일하게 구독 keyword/진행중 조건으로 추린다."""
+    await _seed_cache("search_public_job", PUBLIC_JOB_MIXED_JSON)
+
+    result = await get_cached_data(
+        "search_public_job",
+        params={
+            "recrut_pbanc_ttl": "백엔드",
+            "ongoing_yn": "Y",
+            "page_no": 1,
+            "num_of_rows": 20,
+        },
+    )
+
+    structured = result["structured"]
+    postings = structured["postings"]
+
+    assert structured["query"]["recrut_pbanc_ttl"] == "백엔드"
+    assert structured["query"]["ongoing_yn"] == "Y"
+    assert structured["summary"]["count"] == 1
+    assert structured["summary"]["ongoing_count"] == 1
+    assert len(postings) == 1
+    assert all("백엔드" in posting["title"] for posting in postings)
+    assert all(posting["is_ongoing"] is True for posting in postings)
+    assert result["metadata"]["raw_count"] == 3
+    assert result["metadata"]["returned_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_worknet_job_cache_filters_by_subscription_params(patched_session_factory):
+    """워크넷 채용 캐시도 fetch tool과 동일하게 keyword 조건으로 추린다."""
+    await _seed_cache("search_worknet_job", WORKNET_JOB_MIXED_XML)
+
+    result = await get_cached_data(
+        "search_worknet_job",
+        params={"keyword": "백엔드", "start_page": 1, "display": 20},
+    )
+
+    structured = result["structured"]
+    postings = structured["postings"]
+
+    assert structured["query"]["keyword"] == "백엔드"
+    assert structured["summary"]["count"] == 2
+    assert len(postings) == 2
+    assert all(
+        "백엔드" in (posting.get("title") or "")
+        or "백엔드" in (posting.get("company") or "")
+        for posting in postings
+    )
+    assert result["metadata"]["raw_count"] == 3
+    assert result["metadata"]["returned_count"] == 2
+
+
+@pytest.mark.asyncio
 async def test_get_g2b_bid_structured_key(patched_session_factory):
     """경매 캐시 → structured.notices 키."""
     await _seed_cache("search_g2b_bid", G2B_BID_JSON)
@@ -208,6 +334,7 @@ async def test_get_worknet_permission_denied(patched_session_factory):
     assert result["metadata"]["api_status"] == "permission_denied"
     assert result["metadata"]["cache_used"] is True
     assert result["structured"]["summary"]["count"] == 0
+    assert result["structured"]["permission_denied"] is True
 
 
 # ─────────────────────────────────────────────
