@@ -10,6 +10,7 @@
 - 외부 호출 실패 + 캐시 없음 → 빈 RawResult + fetch_error 메타.
 """
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from urllib.parse import urlencode
@@ -21,6 +22,12 @@ from mcp_server.db.models import ApiCache, ApiSource
 from mcp_server.db.session import get_session
 from mcp_server.sources.errors import SourceFetchError, SourceNotFoundError
 from mcp_server.sources.result import RawResult
+
+
+# 동시에 같은 cache_key로 외부 API 호출이 들어오면 첫 번째 Task만 실제 호출하고
+# 나머지는 같은 Task를 await해서 결과를 공유한다 (singleflight 패턴).
+# asyncio 단일 이벤트 루프에서 동작하므로 별도 락 불필요.
+_in_flight: dict[str, asyncio.Task[str]] = {}
 
 
 async def fetch(
@@ -49,7 +56,13 @@ async def fetch(
     cache_site_url = _derive_cache_site_url(source.tool_name, params)
 
     try:
-        response_text = await _call_external_api(
+        # response_text = await _call_external_api(  # 기존: 동시 요청 시 중복 외부 API 호출 발생
+        #     endpoint=source.url_template,
+        #     params=params,
+        #     http_client=_test_http_client,
+        # )
+        response_text = await _fetch_with_singleflight(
+            cache_key=cache_site_url,
             endpoint=source.url_template,
             params=params,
             http_client=_test_http_client,
@@ -239,6 +252,24 @@ async def resolve_source_id_by_tool_name(tool_name: str) -> int:
     if source_id is None:
         raise SourceNotFoundError(f"api_source.tool_name={tool_name} 등록되지 않음")
     return source_id
+
+
+async def _fetch_with_singleflight(
+    cache_key: str,
+    endpoint: str,
+    params: dict[str, str | int | float | bool],
+    http_client: httpx.AsyncClient | None,
+) -> str:
+    """동일 cache_key 동시 요청을 하나의 외부 API 호출로 합친다."""
+    if cache_key in _in_flight:
+        return await _in_flight[cache_key]
+
+    task = asyncio.create_task(_call_external_api(endpoint, params, http_client))
+    _in_flight[cache_key] = task
+    try:
+        return await task
+    finally:
+        _in_flight.pop(cache_key, None)
 
 
 async def _call_external_api(

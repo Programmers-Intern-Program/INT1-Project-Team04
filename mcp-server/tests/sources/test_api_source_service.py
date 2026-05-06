@@ -3,6 +3,7 @@
 외부 호출은 httpx.MockTransport 로 모킹. 실제 네트워크는 사용하지 않음.
 """
 
+import asyncio
 import json
 
 import httpx
@@ -320,6 +321,34 @@ async def test_peek_cached_content_requires_params_for_real_estate(patched_sessi
         "search_house_price", params={"LAWD_CD": "11500", "DEAL_YMD": "202403"}
     )
     assert result_diff is None
+
+
+@pytest.mark.asyncio
+async def test_singleflight_deduplicates_concurrent_fetch(patched_session_factory):
+    """같은 cache_key로 동시에 fetch() 호출 시 외부 API는 1번만 호출된다."""
+    source = await _create_source(
+        tool_name="search_law_info",
+        url_template="https://example.gov/law",
+    )
+    call_count = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        call_count["n"] += 1
+        return httpx.Response(
+            200,
+            json={"items": [{"law": "민법"}]},
+            headers={"content-type": "application/json"},
+        )
+
+    transport = httpx.MockTransport(handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        results = await asyncio.gather(
+            api_source_service.fetch(source_id=source.id, params={}, _test_http_client=client),
+            api_source_service.fetch(source_id=source.id, params={}, _test_http_client=client),
+        )
+
+    assert call_count["n"] == 1
+    assert results[0].content == results[1].content
 
 
 @pytest.mark.asyncio
