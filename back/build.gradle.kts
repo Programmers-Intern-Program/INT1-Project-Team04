@@ -32,7 +32,7 @@ dependencyManagement {
 
 dependencies {
     // Rate limiting
-    implementation("com.bucket4j:bucket4j-core:8.14.0")
+    implementation("com.bucket4j:bucket4j-core:8.10.1")
 
     // Web & Core
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
