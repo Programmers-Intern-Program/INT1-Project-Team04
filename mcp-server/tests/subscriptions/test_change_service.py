@@ -293,6 +293,41 @@ async def test_recruitment_detects_new_posting_ids_when_count_is_unchanged(
     ]
 
 
+async def test_recruitment_added_posting_is_not_reported_again_after_latest_update(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(
+        _recruitment_input(
+            count=1,
+            ongoing_count=1,
+            postings=[_posting("A")],
+        )
+    )
+    first = await service.compare(
+        _recruitment_input(
+            count=2,
+            ongoing_count=2,
+            postings=[_posting("A"), _posting("B")],
+        )
+    )
+    second = await service.compare(
+        _recruitment_input(
+            count=2,
+            ongoing_count=2,
+            postings=[_posting("A"), _posting("B")],
+        )
+    )
+
+    assert first.changed is True
+    assert first.condition_satisfied is True
+    assert second.changed is False
+    assert second.condition_satisfied is None
+    assert second.requires_ai_analysis is False
+    assert second.condition_reason == "no diff"
+
+
 async def test_recruitment_detects_new_ongoing_posting_ids_when_ongoing_count_is_unchanged(
     patched_session_factory,
 ) -> None:

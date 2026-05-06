@@ -285,10 +285,10 @@ class SubscriptionChangeService:
                         condition_reason="baseline initialized",
                     )
 
-            baseline_summary = row.baseline_summary
-            diffs = summary_diffs(baseline_summary, current_summary)
+            comparison_summary = snapshot_comparison_summary(input_model.domain, row)
+            diffs = summary_diffs(comparison_summary, current_summary)
             briefing_postings_by_source = build_briefing_postings_by_source(
-                baseline_summary,
+                comparison_summary,
                 current_summary,
                 input_model.current,
             )
@@ -307,7 +307,7 @@ class SubscriptionChangeService:
             subscription_id=input_model.subscription_id,
             domain=input_model.domain,
             params_hash=params_hash,
-            baseline_summary=baseline_summary,
+            baseline_summary=comparison_summary,
             current_summary=current_summary,
             diffs=diffs,
             briefing_facts=_briefing_facts(diffs),
@@ -330,6 +330,13 @@ class SubscriptionChangeService:
             )
         )
         return result.scalar_one_or_none()
+
+
+def snapshot_comparison_summary(domain: str, row: SubscriptionSnapshotState) -> dict[str, Any]:
+    """채용은 직전 실행 대비 신규 공고를, 그 외 도메인은 최초 baseline 대비 변화를 본다."""
+    if domain == "recruitment" and isinstance(row.latest_summary, dict):
+        return row.latest_summary
+    return row.baseline_summary
 
 
 def summary_diffs(
