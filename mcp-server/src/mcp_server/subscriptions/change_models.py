@@ -35,6 +35,14 @@ class SummaryDiff(BaseModel):
     direction: Literal["increase", "decrease", "changed"] = "changed"
 
 
+class BriefingPosting(BaseModel):
+    """AI 브리핑에 노출할 신규 채용 공고 요약."""
+
+    posting_id: str
+    title: str
+    url: str | None = None
+
+
 class SubscriptionChangeResult(BaseModel):
     """AI 브리핑 생성을 위한 구조화된 변화 비교 결과."""
 
@@ -47,6 +55,7 @@ class SubscriptionChangeResult(BaseModel):
     current_summary: dict[str, Any]
     diffs: list[SummaryDiff] = Field(default_factory=list)
     briefing_facts: list[str] = Field(default_factory=list)
+    briefing_postings_by_source: dict[str, list[BriefingPosting]] = Field(default_factory=dict)
     condition_satisfied: bool | None = None
     requires_ai_analysis: bool = False
     condition_reason: str | None = None

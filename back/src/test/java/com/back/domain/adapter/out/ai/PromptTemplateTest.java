@@ -92,6 +92,20 @@ class PromptTemplateTest {
                 .contains("structured.requires_ai_analysis=false")
                 .contains("AI 분석과 AI 브리핑을 생성하지 마세요")
                 .contains("structured.requires_ai_analysis=true")
+                .contains("structured.condition_satisfied=true")
                 .contains("AI 브리핑");
+    }
+
+    @Test
+    @DisplayName("구독 실행 프롬프트는 채용 신규 공고 제목과 링크를 출처별로 브리핑하게 한다")
+    void subscriptionExecutionPromptSeparatesRecruitmentBriefingPostingsBySource() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("briefing_postings_by_source")
+                .contains("public_job")
+                .contains("worknet_job")
+                .contains("공공채용")
+                .contains("워크넷")
+                .contains("제목")
+                .contains("링크");
     }
 }

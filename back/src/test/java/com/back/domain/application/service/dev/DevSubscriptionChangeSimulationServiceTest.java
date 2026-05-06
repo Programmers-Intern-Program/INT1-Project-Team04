@@ -243,6 +243,144 @@ class DevSubscriptionChangeSimulationServiceTest {
     }
 
     @Test
+    @DisplayName("Application: 채용 구독 테스트 발송은 공공채용 공고 fake 데이터를 만들어 AI 브리핑에 전달한다")
+    void simulatesPublicJobChangeAlertWithRecruitmentPostings() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Subscription subscription = new Subscription(
+                "sub-1",
+                user,
+                new Domain(3L, "recruitment"),
+                "백엔드 채용 새 공고",
+                "job_posting_change",
+                true,
+                LocalDateTime.now()
+        );
+        DeliveryStore deliveryStore = new DeliveryStore();
+        FakeGenerateMonitoringBriefingPort briefingPort =
+                new FakeGenerateMonitoringBriefingPort("[AI 변화 브리핑] 백엔드 채용 새 공고가 감지되었습니다.");
+        DevSubscriptionChangeSimulationService service = newService(
+                (subscriptionId, userId) -> Optional.of(subscription),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_public_job",
+                        "job_posting_change",
+                        """
+                                {
+                                  "dataToolName": "search_public_job",
+                                  "keyword": "백엔드",
+                                  "conditionMetric": "COUNT",
+                                  "conditionDirection": "UP",
+                                  "conditionOperator": "GTE",
+                                  "conditionThreshold": "1",
+                                  "conditionUnit": "COUNT"
+                                }
+                                """
+                )),
+                briefingPort,
+                deliveryStore
+        );
+
+        DevSubscriptionChangeSimulationResult result = service.simulate(
+                "sub-1",
+                1L,
+                LocalDateTime.of(2026, 4, 29, 9, 30)
+        );
+
+        assertThat(result.triggered()).isTrue();
+        assertThat(result.metricKey()).isEqualTo("count");
+        assertThat(briefingPort.requests).singleElement()
+                .satisfies(request -> {
+                    assertThat(request.toolName()).isEqualTo("search_public_job");
+                    assertThat(request.previousSummaryJson())
+                            .contains("\"count\":10")
+                            .contains("\"postings\"")
+                            .doesNotContain("avg_deal_amount");
+                    assertThat(request.currentSummaryJson())
+                            .contains("\"count\":11")
+                            .contains("\"postings\"")
+                            .contains("\"pblnt_sn\":2026042901")
+                            .contains("한국데이터산업진흥원 백엔드 개발자 채용")
+                            .contains("https://public.example/jobs/2026042901")
+                            .doesNotContain("avg_deal_amount");
+                    assertThat(request.mcpContent())
+                            .contains("공공채용")
+                            .contains("한국데이터산업진흥원 백엔드 개발자 채용")
+                            .contains("https://public.example/jobs/2026042901")
+                            .doesNotContain("워크넷", "avg_deal_amount");
+                });
+        assertThat(deliveryStore.saved).singleElement()
+                .satisfies(delivery -> assertThat(delivery.message()).contains("백엔드 채용 새 공고가 감지되었습니다."));
+    }
+
+    @Test
+    @DisplayName("Application: 채용 구독 테스트 발송은 워크넷 진행중 공고 fake 데이터를 만들어 AI 브리핑에 전달한다")
+    void simulatesWorknetOngoingJobChangeAlertWithRecruitmentPostings() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Subscription subscription = new Subscription(
+                "sub-1",
+                user,
+                new Domain(3L, "recruitment"),
+                "백엔드 워크넷 진행중 공고",
+                "job_posting_change",
+                true,
+                LocalDateTime.now()
+        );
+        DeliveryStore deliveryStore = new DeliveryStore();
+        FakeGenerateMonitoringBriefingPort briefingPort =
+                new FakeGenerateMonitoringBriefingPort("[AI 변화 브리핑] 워크넷 진행중 공고가 감지되었습니다.");
+        DevSubscriptionChangeSimulationService service = newService(
+                (subscriptionId, userId) -> Optional.of(subscription),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_worknet_job",
+                        "job_posting_change",
+                        """
+                                {
+                                  "dataToolName": "search_worknet_job",
+                                  "keyword": "백엔드",
+                                  "conditionMetric": "ONGOING_COUNT",
+                                  "conditionDirection": "UP",
+                                  "conditionOperator": "GTE",
+                                  "conditionThreshold": "1",
+                                  "conditionUnit": "COUNT"
+                                }
+                                """
+                )),
+                briefingPort,
+                deliveryStore
+        );
+
+        DevSubscriptionChangeSimulationResult result = service.simulate(
+                "sub-1",
+                1L,
+                LocalDateTime.of(2026, 4, 29, 9, 30)
+        );
+
+        assertThat(result.triggered()).isTrue();
+        assertThat(result.metricKey()).isEqualTo("ongoing_count");
+        assertThat(briefingPort.requests).singleElement()
+                .satisfies(request -> {
+                    assertThat(request.toolName()).isEqualTo("search_worknet_job");
+                    assertThat(request.previousSummaryJson())
+                            .contains("\"ongoing_count\":3")
+                            .contains("\"postings\"")
+                            .doesNotContain("avg_deal_amount");
+                    assertThat(request.currentSummaryJson())
+                            .contains("\"ongoing_count\":4")
+                            .contains("\"postings\"")
+                            .contains("\"wanted_auth_no\":\"K120032604290001\"")
+                            .contains("워크넷 백엔드 개발자")
+                            .contains("https://work.example/jobs/K120032604290001")
+                            .doesNotContain("avg_deal_amount");
+                    assertThat(request.mcpContent())
+                            .contains("워크넷")
+                            .contains("워크넷 백엔드 개발자")
+                            .contains("https://work.example/jobs/K120032604290001")
+                            .doesNotContain("공공채용", "avg_deal_amount");
+                });
+    }
+
+    @Test
     @DisplayName("Application: 현재 로그인 사용자 소유 구독이 아니면 시뮬레이션을 거부한다")
     void rejectsSubscriptionOwnedByAnotherUser() {
         DeliveryStore deliveryStore = new DeliveryStore();

@@ -23,6 +23,14 @@ async def test_compare_subscription_change_returns_common_schema(monkeypatch) ->
             current_summary={"avg_deal_amount": 106000},
             diffs=[],
             briefing_facts=["avg_deal_amount 값이 100000에서 106000으로 증가했습니다."],
+            briefing_postings_by_source={
+                "public_job": [{
+                    "posting_id": "public_job:1",
+                    "title": "백엔드 개발자",
+                    "url": "https://public.example/jobs/1",
+                }],
+                "worknet_job": [],
+            },
         )
 
     monkeypatch.setattr(subscriptions.SubscriptionChangeService, "compare", fake_compare)
@@ -46,6 +54,14 @@ async def test_compare_subscription_change_returns_common_schema(monkeypatch) ->
     assert response["structured"]["subscriptionId"] == "42"
     assert response["structured"]["changed"] is True
     assert response["structured"]["requires_ai_analysis"] is False
+    assert response["structured"]["briefing_postings_by_source"] == {
+        "public_job": [{
+            "posting_id": "public_job:1",
+            "title": "백엔드 개발자",
+            "url": "https://public.example/jobs/1",
+        }],
+        "worknet_job": [],
+    }
     assert response["structured"]["params_hash"] == "hash-42"
     assert response["source_url"] is None
     assert response["metadata"] == {

@@ -61,14 +61,25 @@ public class MonitoringChangeDetector {
     }
 
     private String metricKey(JsonNode previousSummary, JsonNode currentSummary, StructuredCondition condition) {
-        if (condition.metric() != StructuredCondition.Metric.AVG_PRICE) {
-            return null;
+        return switch (condition.metric()) {
+            case AVG_PRICE -> AVG_PRICE_KEYS.stream()
+                    .filter(key -> hasComparableMetric(previousSummary, currentSummary, key))
+                    .findFirst()
+                    .orElse(null);
+            case COUNT -> comparableMetricKey(previousSummary, currentSummary, "count");
+            case ONGOING_COUNT -> comparableMetricKey(previousSummary, currentSummary, "ongoing_count");
+        };
+    }
+
+    private String comparableMetricKey(JsonNode previousSummary, JsonNode currentSummary, String key) {
+        if (hasComparableMetric(previousSummary, currentSummary, key)) {
+            return key;
         }
-        return AVG_PRICE_KEYS.stream()
-                .filter(key -> decimal(previousSummary.path(key)) != null)
-                .filter(key -> decimal(currentSummary.path(key)) != null)
-                .findFirst()
-                .orElse(null);
+        return null;
+    }
+
+    private boolean hasComparableMetric(JsonNode previousSummary, JsonNode currentSummary, String key) {
+        return decimal(previousSummary.path(key)) != null && decimal(currentSummary.path(key)) != null;
     }
 
     private BigDecimal comparableValue(StructuredCondition condition, BigDecimal change, BigDecimal rate) {
