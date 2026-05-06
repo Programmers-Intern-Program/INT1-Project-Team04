@@ -89,7 +89,9 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         }
     }
 
-    private void executeBatch(List<SubscriptionContext> batch, int batchIndex, int totalBatches) {
+    // execute()를 통하면 virtual thread 타이밍에 의존하게 된다.
+    // package-private으로 열어두면 테스트에서 동기 직접 호출이 가능하다.
+    void executeBatch(List<SubscriptionContext> batch, int batchIndex, int totalBatches) {
         try {
             bucket.asBlocking().consume(1);
         } catch (InterruptedException e) {
