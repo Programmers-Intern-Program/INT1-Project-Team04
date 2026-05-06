@@ -20,6 +20,9 @@ from mcp_server.subscriptions.draft_models import SubscriptionDraftNormalization
 from mcp_server.subscriptions.draft_normalizer import (
     normalize_subscription_draft as normalize_subscription_draft_service,
 )
+from mcp_server.subscriptions.recruitment_keyword_validation import (
+    validate_recruitment_keyword_for_draft,
+)
 
 _TOOL_COMPARE_SUBSCRIPTION_CHANGE = "compare_subscription_change"
 _TOOL_NORMALIZE_SUBSCRIPTION_DRAFT = "normalize_subscription_draft"
@@ -58,6 +61,7 @@ async def normalize_subscription_draft(input: SubscriptionDraftNormalizationInpu
     합성한 뒤, missingFields 가 비어 있을 때만 확인 화면으로 넘긴다.
     """
     result = normalize_subscription_draft_service(input)
+    result = await validate_recruitment_keyword_for_draft(result)
     text = (
         "구독 초안 구조화 완료."
         if not result.missing_fields

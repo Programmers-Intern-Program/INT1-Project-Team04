@@ -29,8 +29,20 @@ type StoredSubscriptionChatSession = {
   snapshot: SubscriptionChatSessionSnapshot;
 };
 
+export const STALE_CONVERSATION_MESSAGE = "이전 대화가 만료되어 새로 시작할게요.";
 export const SUBSCRIPTION_CHAT_SESSION_KEY = "subscription-chat-session";
 export const SUBSCRIPTION_CHAT_SESSION_TTL_MS = 30 * 60 * 1000;
+
+export function isStaleConversationError(
+  error: { code: string },
+  conversationId: string | null | undefined,
+): boolean {
+  return (
+    typeof conversationId === "string" &&
+    conversationId.trim() !== "" &&
+    (error.code === "SESSION_NOT_FOUND" || error.code === "INVALID_REQUEST")
+  );
+}
 
 export function encodeSubscriptionChatSession(
   snapshot: SubscriptionChatSessionSnapshot,

@@ -131,6 +131,44 @@ class CreateSubscriptionServiceTest {
     }
 
     @Test
+    @DisplayName("Application: 채용 구독도 기존 구독 시작 알림을 생성한다")
+    void createsRecruitmentSubscriptionStartedDelivery() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(3L, "recruitment");
+        FakeSaveNotificationDeliveryPort saveDeliveryPort = new FakeSaveNotificationDeliveryPort();
+        CreateSubscriptionService service = new CreateSubscriptionService(
+                new FakeLoadUserPort(user),
+                new FakeLoadDomainPort(domain),
+                new NoDuplicateSubscriptionPort(),
+                new FakeSaveSubscriptionPort(),
+                new FakeSaveSchedulePort(),
+                (endpointUserId, channel) -> Optional.empty(),
+                endpoint -> endpoint,
+                preference -> preference,
+                saveDeliveryPort,
+                new SubscriptionNotificationMessageFormatter()
+        );
+
+        service.createForUser(user.id(), new CreateSubscriptionCommand(
+                domain.id(),
+                "백엔드 채용 새 공고",
+                "0 0 * * * *",
+                NotificationChannel.TELEGRAM_DM,
+                "123456789"
+        ));
+
+        assertThat(saveDeliveryPort.saved.channel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
+        assertThat(saveDeliveryPort.saved.recipient()).isEqualTo("123456789");
+        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정이 완료됐어요");
+        assertThat(saveDeliveryPort.saved.message()).contains(
+                "요청: 백엔드 채용 새 공고",
+                "감시 영역: 채용",
+                "알림 방식: 변화 감지 시"
+        );
+        assertThat(saveDeliveryPort.saved.status()).isEqualTo(NotificationDeliveryStatus.PENDING);
+    }
+
+    @Test
     @DisplayName("Application: Discord 알림 구독은 Markdown 카드형 시작 알림을 생성한다")
     void createsDiscordOptimizedSubscriptionStartedDelivery() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);

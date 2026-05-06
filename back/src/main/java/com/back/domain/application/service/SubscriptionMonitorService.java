@@ -16,6 +16,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,6 +40,7 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> PARAMETER_MAP = new TypeReference<>() {};
+    private static final DateTimeFormatter DEAL_YMD_FORMATTER = DateTimeFormatter.ofPattern("yyyyMM");
     private static final Pattern REGION = Pattern.compile(
             "([가-힣]+(?:특별자치시|특별자치도|특별시|광역시|시|군|구)|서울|부산|대구|인천|광주|대전|울산|세종|제주)"
     );
@@ -63,7 +66,7 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
                 .map(schedule -> {
                     Optional<SubscriptionMonitoringConfig> config =
                             loadSubscriptionMonitoringConfigPort.loadBySubscriptionId(schedule.subscription().id());
-                    return buildContext(schedule, config);
+                    return buildContext(schedule, config, now);
                 })
                 .toList();
 
@@ -75,10 +78,11 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
 
     private SubscriptionContext buildContext(
             Schedule schedule,
-            Optional<SubscriptionMonitoringConfig> monitoringConfig
+            Optional<SubscriptionMonitoringConfig> monitoringConfig,
+            LocalDateTime now
     ) {
         Map<String, Object> params = monitoringConfig
-                .map(this::parameters)
+                .map(config -> parameters(config, now))
                 .orElseGet(() -> fallbackParameters(schedule.subscription().query()));
 
         NotificationChannel channel = notificationChannel(schedule.subscription().id());
@@ -113,16 +117,28 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
         }
     }
 
-    private Map<String, Object> parameters(SubscriptionMonitoringConfig config) {
+    private Map<String, Object> parameters(SubscriptionMonitoringConfig config, LocalDateTime now) {
         if (isBlank(config.parametersJson())) {
             return Map.of();
         }
         try {
-            return OBJECT_MAPPER.readValue(config.parametersJson(), PARAMETER_MAP);
+            Map<String, Object> parsed = OBJECT_MAPPER.readValue(config.parametersJson(), PARAMETER_MAP);
+            return normalizeExecutionParameters(parsed, now);
         } catch (JsonProcessingException e) {
             log.warn("parametersJson 파싱 실패 - subscriptionId: {}", config.subscriptionId(), e);
             return Map.of();
         }
+    }
+
+    private Map<String, Object> normalizeExecutionParameters(Map<String, Object> params, LocalDateTime now) {
+        Map<String, Object> normalized = new LinkedHashMap<>(params);
+        // Spring AI 실행 경로는 SearchHousePriceMcpInput을 거치지 않아 정책을 실제 tool 인자로 확정한다.
+        if ("LATEST_AVAILABLE_MONTH".equals(String.valueOf(normalized.get("dealYmdPolicy")))
+                && !normalized.containsKey("deal_ymd")
+                && !normalized.containsKey("dealYmd")) {
+            normalized.put("deal_ymd", now.minusMonths(1).format(DEAL_YMD_FORMATTER));
+        }
+        return normalized;
     }
 
     private Map<String, Object> fallbackParameters(String query) {

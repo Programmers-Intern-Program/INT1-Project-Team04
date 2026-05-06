@@ -10,9 +10,11 @@ import {
   type NotificationChannelId,
 } from "../lib/subscriptions";
 import {
+  STALE_CONVERSATION_MESSAGE,
   SUBSCRIPTION_CHAT_SESSION_KEY,
   decodeSubscriptionChatSession,
   encodeSubscriptionChatSession,
+  isStaleConversationError,
   type ChatMessage,
   type DebugJsonSnapshot,
   type SubscriptionChatSessionSnapshot,
@@ -78,6 +80,22 @@ export function SubscriptionChat({
     setSubscriptions(response.data);
   }, [onUnauthenticated]);
 
+  const resetExpiredConversation = useCallback(() => {
+    sessionStorage.removeItem(SUBSCRIPTION_CHAT_SESSION_KEY);
+    sessionStorage.removeItem(PENDING_CHANNEL_KEY);
+    setConversationId(null);
+    setActions([]);
+    setDraft(null);
+    setMessages([
+      {
+        id: createMessageId("assistant-reset"),
+        role: "assistant",
+        content: STALE_CONVERSATION_MESSAGE,
+      },
+    ]);
+    setStatusMessage("");
+  }, []);
+
   const applyConversationResponse = useCallback(
     async (
       response: ConversationResponse,
@@ -140,12 +158,16 @@ export function SubscriptionChat({
       if (response.error.code === "UNAUTHENTICATED") {
         onUnauthenticated?.();
       }
+      if (isStaleConversationError(response.error, pending.conversationId)) {
+        resetExpiredConversation();
+        return;
+      }
       setStatusMessage(response.error.message);
       return;
     }
 
     await applyConversationResponse(response.data);
-  }, [applyConversationResponse, onUnauthenticated]);
+  }, [applyConversationResponse, onUnauthenticated, resetExpiredConversation]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -242,6 +264,10 @@ export function SubscriptionChat({
       if (response.error.code === "UNAUTHENTICATED") {
         onUnauthenticated?.();
       }
+      if (isStaleConversationError(response.error, requestPayload.conversationId)) {
+        resetExpiredConversation();
+        return;
+      }
       replaceMessage(pendingMessageId, response.error.message, "error");
       setStatusMessage(response.error.message);
       return;
@@ -297,6 +323,10 @@ export function SubscriptionChat({
     if (!response.ok) {
       if (response.error.code === "UNAUTHENTICATED") {
         onUnauthenticated?.();
+      }
+      if (isStaleConversationError(response.error, requestPayload.conversationId)) {
+        resetExpiredConversation();
+        return;
       }
       replaceMessage(pendingMessageId, response.error.message, "error");
       setStatusMessage(response.error.message);

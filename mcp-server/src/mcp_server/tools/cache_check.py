@@ -213,19 +213,30 @@ def _format_bill_info(content: str, cached_at: datetime, params: dict) -> dict[s
     }
 
 
-def _format_public_job(content: str, cached_at: datetime, _params: dict) -> dict[str, Any]:
+def _format_public_job(content: str, cached_at: datetime, params: dict) -> dict[str, Any]:
     records = normalize_public_job(content)
-    ongoing_count = sum(1 for r in records if r.is_ongoing)
-    institutes = sorted({r.institute for r in records if r.institute})
-    begin_dates = [r.pbanc_begin_date for r in records if r.pbanc_begin_date]
+    filtered = records
+    # 채용 캐시는 bulk 원천 데이터라 구독 조건 필터를 formatter에서 재적용한다.
+    ongoing_yn = _optional_text(params.get("ongoing_yn") or params.get("ongoingYn"))
+    keyword = _optional_text(params.get("recrut_pbanc_ttl") or params.get("recrutPbancTtl"))
+    if ongoing_yn == "Y":
+        filtered = [r for r in filtered if r.is_ongoing]
+    if keyword:
+        filtered = [r for r in filtered if keyword in (r.title or "")]
+
+    ongoing_count = sum(1 for r in filtered if r.is_ongoing)
+    institutes = sorted({r.institute for r in filtered if r.institute})
+    begin_dates = [r.pbanc_begin_date for r in filtered if r.pbanc_begin_date]
     summary = {
-        "count": len(records),
+        "count": len(filtered),
         "ongoing_count": ongoing_count,
         "institutes": institutes,
         "latest_pbanc_begin_date": max(begin_dates).isoformat() if begin_dates else None,
     }
-    sorted_records = sorted(records, key=lambda r: r.pbanc_begin_date or date.min, reverse=True)
-    returned = sorted_records[:_MAX_RESULTS]
+    sorted_records = sorted(filtered, key=lambda r: r.pbanc_begin_date or date.min, reverse=True)
+    page_no = _positive_int(params.get("page_no") or params.get("pageNo"), 1)
+    num_of_rows = _positive_int(params.get("num_of_rows") or params.get("numOfRows"), _MAX_RESULTS)
+    returned = _page_records(sorted_records, page_no, num_of_rows)
 
     count = summary["count"]
     text = (
@@ -239,7 +250,12 @@ def _format_public_job(content: str, cached_at: datetime, _params: dict) -> dict
             "summary": summary,
             "postings": [r.model_dump(mode="json") for r in returned],
             "postings_truncated": len(sorted_records) > _MAX_RESULTS,
-            "query": {"page_no": 1, "num_of_rows": _MAX_RESULTS, "ongoing_yn": None, "recrut_pbanc_ttl": None},
+            "query": {
+                "page_no": page_no,
+                "num_of_rows": num_of_rows,
+                "ongoing_yn": ongoing_yn,
+                "recrut_pbanc_ttl": keyword,
+            },
         },
         "source_url": None,
         "metadata": {
@@ -252,13 +268,24 @@ def _format_public_job(content: str, cached_at: datetime, _params: dict) -> dict
     }
 
 
-def _format_worknet_job(content: str, cached_at: datetime, _params: dict) -> dict[str, Any]:
+def _format_worknet_job(content: str, cached_at: datetime, params: dict) -> dict[str, Any]:
     try:
         records = normalize_worknet_job(content)
     except WorknetPermissionDeniedError:
+        # 권한 거부 캐시는 Worknet source만 제외할 수 있도록 structured에도 표시한다.
         return {
             "text": "워크넷 채용공고: 사업자/기관 회원 권한 필요 (캐시된 권한 거부 응답).",
-            "structured": {"summary": {"count": 0}, "postings": [], "postings_truncated": False},
+            "structured": {
+                "summary": {"count": 0},
+                "postings": [],
+                "postings_truncated": False,
+                "permission_denied": True,
+                "query": {
+                    "keyword": _optional_text(params.get("keyword")),
+                    "page_no": _positive_int(params.get("start_page") or params.get("page_no"), 1),
+                    "display": _positive_int(params.get("display"), _MAX_RESULTS),
+                },
+            },
             "source_url": None,
             "metadata": {
                 "fetched_at": cached_at.isoformat(),
@@ -270,15 +297,26 @@ def _format_worknet_job(content: str, cached_at: datetime, _params: dict) -> dic
             },
         }
 
-    reg_dates = [r.reg_date for r in records if r.reg_date]
-    emp_types = sorted({r.emp_type for r in records if r.emp_type})
+    filtered = records
+    # Worknet도 API 호출은 wide fetch이고, 구독 keyword는 캐시 읽기 단계에서 적용한다.
+    keyword = _optional_text(params.get("keyword"))
+    if keyword:
+        filtered = [
+            r for r in filtered
+            if keyword in (r.title or "") or keyword in (r.company or "")
+        ]
+
+    reg_dates = [r.reg_date for r in filtered if r.reg_date]
+    emp_types = sorted({r.emp_type for r in filtered if r.emp_type})
     summary = {
-        "count": len(records),
+        "count": len(filtered),
         "latest_reg_date": max(reg_dates).isoformat() if reg_dates else None,
         "emp_types": emp_types,
     }
-    sorted_records = sorted(records, key=lambda r: r.reg_date or date.min, reverse=True)
-    returned = sorted_records[:_MAX_RESULTS]
+    sorted_records = sorted(filtered, key=lambda r: r.reg_date or date.min, reverse=True)
+    start_page = _positive_int(params.get("start_page") or params.get("page_no"), 1)
+    display = _positive_int(params.get("display"), _MAX_RESULTS)
+    returned = _page_records(sorted_records, start_page, display)
 
     count = summary["count"]
     text = (
@@ -291,7 +329,8 @@ def _format_worknet_job(content: str, cached_at: datetime, _params: dict) -> dic
             "summary": summary,
             "postings": [r.model_dump(mode="json") for r in returned],
             "postings_truncated": len(sorted_records) > _MAX_RESULTS,
-            "query": {"page_no": 1, "num_of_rows": _MAX_RESULTS},
+            "permission_denied": False,
+            "query": {"keyword": keyword, "page_no": start_page, "display": display},
         },
         "source_url": None,
         "metadata": {
@@ -302,6 +341,27 @@ def _format_worknet_job(content: str, cached_at: datetime, _params: dict) -> dic
             "cache_used": True,
         },
     }
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _page_records(records: list[Any], page_no: int, page_size: int) -> list[Any]:
+    start = (page_no - 1) * page_size
+    end = start + page_size
+    return records[start:end][:_MAX_RESULTS]
 
 
 def _to_eok(amount_won: int | None) -> str:

@@ -23,6 +23,14 @@ async def test_compare_subscription_change_returns_common_schema(monkeypatch) ->
             current_summary={"avg_deal_amount": 106000},
             diffs=[],
             briefing_facts=["avg_deal_amount 값이 100000에서 106000으로 증가했습니다."],
+            briefing_postings_by_source={
+                "public_job": [{
+                    "posting_id": "public_job:1",
+                    "title": "백엔드 개발자",
+                    "url": "https://public.example/jobs/1",
+                }],
+                "worknet_job": [],
+            },
         )
 
     monkeypatch.setattr(subscriptions.SubscriptionChangeService, "compare", fake_compare)
@@ -46,6 +54,14 @@ async def test_compare_subscription_change_returns_common_schema(monkeypatch) ->
     assert response["structured"]["subscriptionId"] == "42"
     assert response["structured"]["changed"] is True
     assert response["structured"]["requires_ai_analysis"] is False
+    assert response["structured"]["briefing_postings_by_source"] == {
+        "public_job": [{
+            "posting_id": "public_job:1",
+            "title": "백엔드 개발자",
+            "url": "https://public.example/jobs/1",
+        }],
+        "worknet_job": [],
+    }
     assert response["structured"]["params_hash"] == "hash-42"
     assert response["source_url"] is None
     assert response["metadata"] == {
@@ -53,6 +69,49 @@ async def test_compare_subscription_change_returns_common_schema(monkeypatch) ->
         "subscription_id": "42",
         "params_hash": "hash-42",
     }
+
+
+async def test_compare_subscription_change_accepts_current_sources_contract(monkeypatch) -> None:
+    captured_sources: list[dict] = []
+
+    async def fake_compare(_, input_model: SubscriptionChangeInput) -> SubscriptionChangeResult:
+        captured_sources.extend(input_model.current["sources"])
+        return SubscriptionChangeResult(
+            baseline_initialized=False,
+            changed=False,
+            subscription_id=input_model.subscription_id,
+            domain=input_model.domain,
+            params_hash="hash-job",
+            baseline_summary={"count": 1},
+            current_summary={"count": 1},
+            diffs=[],
+            briefing_facts=[],
+            briefing_postings_by_source={"public_job": [], "worknet_job": []},
+        )
+
+    monkeypatch.setattr(subscriptions.SubscriptionChangeService, "compare", fake_compare)
+
+    response = await subscriptions.compare_subscription_change(
+        SubscriptionChangeInput.model_validate(
+            {
+                "subscriptionId": "job-42",
+                "domain": "recruitment",
+                "query": "백엔드 채용 공고",
+                "params": {"keyword": "백엔드"},
+                "current": {
+                    "sources": [{
+                        "text": "공공채용 1건",
+                        "structured": {"summary": {"count": 1}, "postings": []},
+                        "metadata": {"tool_name": "search_public_job"},
+                    }],
+                },
+            }
+        )
+    )
+
+    assert captured_sources[0]["metadata"]["tool_name"] == "search_public_job"
+    assert response["structured"]["changed"] is False
+    assert response["metadata"]["params_hash"] == "hash-job"
 
 
 async def test_normalize_subscription_draft_returns_common_schema() -> None:

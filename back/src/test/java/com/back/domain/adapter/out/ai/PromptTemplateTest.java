@@ -9,6 +9,39 @@ import org.junit.jupiter.api.Test;
 class PromptTemplateTest {
 
     @Test
+    @DisplayName("파서 프롬프트는 채용 새 공고 조건을 1건 이상 증가 조건으로 해석하게 한다")
+    void parserPromptNormalizesRecruitmentNewPostingCondition() {
+        assertThat(PromptTemplate.SYSTEM_PROMPT)
+                .contains("채용 도메인")
+                .contains("새 공고")
+                .contains("1건 이상 증가")
+                .contains("needs_confirmation을 false")
+                .contains("진행중 공고")
+                .contains("진행중 공고 1건 이상 증가");
+    }
+
+    @Test
+    @DisplayName("파서 프롬프트는 채용 query와 target에 시간/채널 문구를 섞지 않게 한다")
+    void parserPromptKeepsRecruitmentQueryFocusedOnSearchTarget() {
+        assertThat(PromptTemplate.SYSTEM_PROMPT)
+                .contains("채용 query")
+                .contains("검색 키워드")
+                .contains("시간")
+                .contains("채널")
+                .contains("섞지 마");
+    }
+
+    @Test
+    @DisplayName("후속 파서 프롬프트는 채용 조건 답변도 1건 이상 증가 조건으로 보정한다")
+    void continuePromptNormalizesRecruitmentConditionAnswers() {
+        assertThat(PromptTemplate.CONTINUE_SYSTEM_PROMPT)
+                .contains("채용")
+                .contains("새 공고")
+                .contains("1건 이상 증가")
+                .contains("needs_confirmation을 false");
+    }
+
+    @Test
     @DisplayName("구독 실행 프롬프트는 MCP 알림 발송 도구 호출 계약을 포함한다")
     void subscriptionExecutionPromptRequiresSendNotificationTool() {
         assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
@@ -59,6 +92,22 @@ class PromptTemplateTest {
                 .contains("structured.requires_ai_analysis=false")
                 .contains("AI 분석과 AI 브리핑을 생성하지 마세요")
                 .contains("structured.requires_ai_analysis=true")
+                .contains("structured.condition_satisfied=true")
                 .contains("AI 브리핑");
+    }
+
+    @Test
+    @DisplayName("구독 실행 프롬프트는 채용 신규 공고 제목과 링크를 출처별로 브리핑하게 한다")
+    void subscriptionExecutionPromptSeparatesRecruitmentBriefingPostingsBySource() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("current.sources")
+                .contains("briefing_postings_by_source")
+                .contains("public_job")
+                .contains("worknet_job")
+                .contains("공공채용")
+                .contains("워크넷")
+                .contains("제목")
+                .contains("링크")
+                .contains("권한 거부");
     }
 }

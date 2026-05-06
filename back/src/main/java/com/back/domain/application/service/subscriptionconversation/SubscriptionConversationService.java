@@ -25,12 +25,14 @@ import com.back.global.error.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -43,7 +45,13 @@ public class SubscriptionConversationService {
 
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final String PENDING_DEAL_TYPE_CONFIRMATION = "pendingDealTypeConfirmation";
+    private static final String KEYWORD_CONFIRMATION = "keywordConfirmation";
+    private static final String KEYWORD_VALIDATION_STATUS = "keywordValidationStatus";
+    private static final String ZERO_RESULTS = "ZERO_RESULTS";
+    private static final String SUGGESTED_KEYWORD = "suggestedKeyword";
+    private static final String KEYWORD_ORIGINAL = "keywordOriginal";
     private static final String DEFAULT_INTERNAL_CHECK_CRON = "0 0 * * * *";
+    private static final Pattern RECRUITMENT_COUNT_THRESHOLD = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:건|개)");
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
 
@@ -108,6 +116,13 @@ public class SubscriptionConversationService {
         }
         if (conversation.getStatus() == SubscriptionConversationStatus.CREATED
                 || conversation.getStatus() == SubscriptionConversationStatus.CANCELLED) {
+            return true;
+        }
+        Optional<String> requestedDomain = explicitDomainFromMessage(message);
+        if (requestedDomain.isPresent()
+                && !isBlank(conversation.getDraftDomainName())
+                && !requestedDomain.get().equals(conversation.getDraftDomainName())
+                && allowsDomainSwitch(conversation, requestedDomain.get(), message)) {
             return true;
         }
         return isUnsupportedConversation(conversation)
@@ -419,6 +434,10 @@ public class SubscriptionConversationService {
                 || !missingPersistedFields(conversation).contains("condition")) {
             return null;
         }
+        // 채용 조건은 COUNT 계열이므로 부동산 가격 조건 파서로 보완하지 않는다.
+        if (!isRealEstateDraft(conversation)) {
+            return null;
+        }
 
         Optional<StructuredCondition> condition = StructuredCondition.parse(message);
         if (condition.isEmpty()) {
@@ -450,6 +469,19 @@ public class SubscriptionConversationService {
             String message
     ) {
         List<String> missing = missingPersistedFields(conversation);
+        if (missing.contains(KEYWORD_CONFIRMATION)) {
+            Response response = completeKeywordConfirmationIfPossible(conversation, message);
+            if (response != null) {
+                return response;
+            }
+        }
+
+        // 채용 대상/건수 조건처럼 짧은 후속 답변은 AI JSON 파싱 실패가 잦아 로컬에서 먼저 보완한다.
+        Response recruitmentResponse = completeRecruitmentAnswerIfPossible(conversation, message, missing);
+        if (recruitmentResponse != null) {
+            return recruitmentResponse;
+        }
+
         if (missing.contains("dealType")) {
             Optional<String> dealType = parseDealTypeAnswer(message);
             if (dealType.isPresent()) {
@@ -465,6 +497,219 @@ public class SubscriptionConversationService {
         }
 
         return null;
+    }
+
+    private Response completeRecruitmentAnswerIfPossible(
+            SubscriptionConversationJpaEntity conversation,
+            String message,
+            List<String> missing
+    ) {
+        boolean askedRecruitmentCondition = askedRecruitmentCondition(conversation);
+        if (!isRecruitmentDraft(conversation)
+                || (!missing.contains("keyword") && !missing.contains("condition") && !askedRecruitmentCondition)) {
+            return null;
+        }
+
+        Map<String, String> params = new HashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
+        boolean updated = false;
+
+        Optional<String> keyword = Optional.empty();
+        if (missing.contains("keyword")) {
+            keyword = parseRecruitmentKeywordAnswer(message);
+            if (keyword.isPresent()) {
+                clearRecruitmentKeywordValidation(params);
+                params.put("keyword", keyword.get());
+                if ("search_public_job".equals(params.getOrDefault("dataToolName", "search_public_job"))) {
+                    params.put("recrut_pbanc_ttl", keyword.get());
+                }
+                updated = true;
+            }
+        }
+
+        Optional<Map<String, String>> condition = Optional.empty();
+        if (missing.contains("condition") || askedRecruitmentCondition) {
+            // 채용 조건은 가격 조건과 달리 공고 수 delta 기준 COUNT 파라미터로 저장한다.
+            condition = parseRecruitmentConditionAnswer(message);
+            if (condition.isPresent()) {
+                params.putAll(condition.get());
+                updated = true;
+            }
+        }
+
+        if (keyword.isPresent() && askedRecruitmentCondition && condition.isEmpty()) {
+            // 조건을 함께 물은 턴에서는 대상만 답한 값을 기존 기본 조건 확정으로 취급하지 않는다.
+            clearRecruitmentCondition(params);
+        }
+
+        if (!updated) {
+            return null;
+        }
+
+        ensureRecruitmentDefaults(params);
+        String queryKeyword = keyword.orElse(params.get("keyword"));
+        updateRecruitmentParams(
+                conversation,
+                params,
+                isBlank(queryKeyword) ? conversation.getDraftQuery() : queryKeyword + " 채용 공고"
+        );
+        return completeOrAsk(conversation);
+    }
+
+    private boolean askedRecruitmentCondition(SubscriptionConversationJpaEntity conversation) {
+        if (!isRecruitmentDraft(conversation)) {
+            return false;
+        }
+        String message = conversation.getLastAssistantMessage();
+        return containsAny(message, "어떤 조건", "조건으로", "조건일 때", "채용 공고 변화");
+    }
+
+    private Optional<String> parseRecruitmentKeywordAnswer(String value) {
+        if (isBlank(value)) {
+            return Optional.empty();
+        }
+
+        String candidate = value.trim();
+        int conditionStart = firstRecruitmentConditionIndex(candidate);
+        if (conditionStart >= 0) {
+            // "백엔드 전체 5건 이상 변동"처럼 대상과 조건이 한 문장에 함께 온 경우 앞부분만 검색어로 쓴다.
+            candidate = candidate.substring(0, conditionStart);
+        }
+
+        String keyword = cleanRecruitmentKeywordAnswer(candidate)
+                .replace("전체", "")
+                .replace("전부", "")
+                .replace("모든", "")
+                .replace("진행중", "")
+                .replace("진행 중", "")
+                .replaceAll("\\s+", " ")
+                .strip();
+
+        for (String prefix : List.of("공공기관 ", "공기업 ", "공공 ", "기관 ", "워크넷 ")) {
+            if (keyword.startsWith(prefix)) {
+                keyword = keyword.substring(prefix.length()).strip();
+                break;
+            }
+        }
+
+        return isBlank(keyword) ? Optional.empty() : Optional.of(keyword);
+    }
+
+    private int firstRecruitmentConditionIndex(String value) {
+        int first = value.length();
+        Matcher count = RECRUITMENT_COUNT_THRESHOLD.matcher(value);
+        if (count.find()) {
+            first = Math.min(first, count.start());
+        }
+        for (String marker : List.of(
+                "새 공고",
+                "신규 공고",
+                "진행중 공고",
+                "진행 중 공고",
+                "새로",
+                "뜨면",
+                "올라오면",
+                "등록",
+                "늘면",
+                "증가",
+                "감소",
+                "줄면",
+                "줄어",
+                "마감",
+                "변동",
+                "변화"
+        )) {
+            int index = value.indexOf(marker);
+            if (index >= 0) {
+                first = Math.min(first, index);
+            }
+        }
+        return first == value.length() ? -1 : first;
+    }
+
+    private Optional<Map<String, String>> parseRecruitmentConditionAnswer(String value) {
+        String text = value == null ? "" : value.trim();
+        Matcher count = RECRUITMENT_COUNT_THRESHOLD.matcher(text);
+        boolean hasCountThreshold = count.find();
+        if (!hasCountThreshold && !containsRecruitmentChangeWord(text)) {
+            return Optional.empty();
+        }
+
+        // 숫자가 없는 "새 공고가 올라오면" 계열은 최소 1건 증가 조건으로 해석한다.
+        String threshold = hasCountThreshold ? normalizeDecimal(count.group(1)) : "1";
+        return Optional.of(Map.of(
+                "conditionMetric", text.contains("진행중") || text.contains("진행 중") ? "ONGOING_COUNT" : "COUNT",
+                "conditionDirection", recruitmentConditionDirection(text),
+                "conditionOperator", recruitmentConditionOperator(text),
+                "conditionThreshold", threshold,
+                "conditionUnit", "COUNT"
+        ));
+    }
+
+    private boolean containsRecruitmentChangeWord(String text) {
+        return containsAny(
+                text,
+                "새 공고",
+                "신규",
+                "새로",
+                "뜨면",
+                "올라오면",
+                "등록",
+                "변화",
+                "변동",
+                "늘면",
+                "증가",
+                "마감",
+                "감소",
+                "줄면",
+                "줄어"
+        );
+    }
+
+    private String recruitmentConditionDirection(String text) {
+        if (containsAny(text, "감소", "줄면", "줄어", "마감")) {
+            return "DOWN";
+        }
+        if (containsAny(text, "새 공고", "신규", "새로", "뜨면", "올라오면", "등록", "늘면", "증가")) {
+            return "UP";
+        }
+        if (containsAny(text, "변동", "변화")) {
+            return "ANY";
+        }
+        return "UP";
+    }
+
+    private String recruitmentConditionOperator(String text) {
+        if (text.contains("미만")) {
+            return "LT";
+        }
+        if (text.contains("이하")) {
+            return "LTE";
+        }
+        if (text.contains("초과")) {
+            return "GT";
+        }
+        return "GTE";
+    }
+
+    private String normalizeDecimal(String raw) {
+        return new BigDecimal(raw).stripTrailingZeros().toPlainString();
+    }
+
+    private void ensureRecruitmentDefaults(Map<String, String> params) {
+        String toolName = params.getOrDefault("dataToolName", "search_public_job");
+        params.put("dataToolName", toolName);
+        if ("search_public_job".equals(toolName)) {
+            params.putIfAbsent("page_no", "1");
+            params.putIfAbsent("num_of_rows", "20");
+            params.putIfAbsent("ongoing_yn", "Y");
+            String keyword = params.get("keyword");
+            if (!isBlank(keyword)) {
+                params.put("recrut_pbanc_ttl", keyword);
+            }
+        } else if ("search_worknet_job".equals(toolName)) {
+            params.putIfAbsent("start_page", "1");
+            params.putIfAbsent("display", "20");
+        }
     }
 
     private List<String> missingPersistedFields(SubscriptionConversationJpaEntity conversation) {
@@ -488,7 +733,15 @@ public class SubscriptionConversationService {
         if (requiresApartmentDealType(conversation)) {
             missing.add("dealType");
         }
-        if (StructuredCondition.fromParameters(monitoringParams(conversation.getDraftMonitoringParams())).isEmpty()) {
+        Map<String, String> monitoringParams = monitoringParams(conversation.getDraftMonitoringParams());
+        // 저장된 draft에는 MCP missingFields가 남지 않으므로 채용 필수 키워드를 다시 검증한다.
+        if (isRecruitmentKeywordConfirmationPending(monitoringParams)) {
+            missing.add(KEYWORD_CONFIRMATION);
+        }
+        if (isRecruitmentDraft(conversation) && isBlank(monitoringParams.get("keyword"))) {
+            missing.add("keyword");
+        }
+        if (StructuredCondition.fromParameters(monitoringParams).isEmpty()) {
             missing.add("condition");
         }
         if (conversation.getDraftDomainId() == null
@@ -617,10 +870,23 @@ public class SubscriptionConversationService {
     }
 
     private String questionForMissing(List<String> missing, SubscriptionConversationJpaEntity conversation) {
+        if (missing.contains(KEYWORD_CONFIRMATION)) {
+            Map<String, String> params = monitoringParams(conversation.getDraftMonitoringParams());
+            String keyword = params.getOrDefault(KEYWORD_ORIGINAL, params.get("keyword"));
+            String suggestedKeyword = params.get(SUGGESTED_KEYWORD);
+            return "현재 '" + keyword + "' 검색 결과가 없어요. '" + suggestedKeyword
+                    + "'를 뜻한 걸까요? 맞으면 '응', 아니면 원하는 채용 검색어를 다시 입력해 주세요.";
+        }
+        if (missing.contains("keyword") && isRecruitmentDraft(conversation)) {
+            return "어떤 채용 공고를 구독할까요? 예: 백엔드, 데이터, 공공기관 인턴 등";
+        }
         if (missing.contains("dealType")) {
             return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요.";
         }
         if (missing.contains("condition")) {
+            if (isRecruitmentDraft(conversation)) {
+                return "어떤 채용 공고 변화가 생기면 알림을 받을까요? 예: 새 공고 1건 이상 등록 등";
+            }
             return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
         }
         if (missing.contains("notificationChannel")) {
@@ -677,6 +943,125 @@ public class SubscriptionConversationService {
 
     private boolean isEmail(String value) {
         return !isBlank(value) && EMAIL.matcher(value.trim()).matches();
+    }
+
+    private Response completeKeywordConfirmationIfPossible(
+            SubscriptionConversationJpaEntity conversation,
+            String message
+    ) {
+        Map<String, String> params = new HashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
+        String suggestedKeyword = params.get(SUGGESTED_KEYWORD);
+        if (isBlank(suggestedKeyword)) {
+            return null;
+        }
+
+        Optional<Boolean> accepted = parseKeywordConfirmationAnswer(message);
+        if (accepted.isPresent()) {
+            if (accepted.get()) {
+                return updateRecruitmentKeywordAndComplete(conversation, params, suggestedKeyword);
+            }
+            clearRecruitmentKeyword(params);
+            updateRecruitmentParams(conversation, params, "채용 공고");
+            return completeOrAsk(conversation);
+        }
+
+        String replacement = cleanRecruitmentKeywordAnswer(message);
+        if (isBlank(replacement)) {
+            return null;
+        }
+        return updateRecruitmentKeywordAndComplete(conversation, params, replacement);
+    }
+
+    private Response updateRecruitmentKeywordAndComplete(
+            SubscriptionConversationJpaEntity conversation,
+            Map<String, String> params,
+            String keyword
+    ) {
+        clearRecruitmentKeywordValidation(params);
+        params.put("keyword", keyword);
+        if ("search_public_job".equals(params.get("dataToolName"))) {
+            params.put("recrut_pbanc_ttl", keyword);
+        }
+        updateRecruitmentParams(conversation, params, keyword + " 채용 공고");
+        return completeOrAsk(conversation);
+    }
+
+    private void updateRecruitmentParams(
+            SubscriptionConversationJpaEntity conversation,
+            Map<String, String> params,
+            String query
+    ) {
+        conversation.updateParsedDraft(
+                conversation.getParseSessionId(),
+                query,
+                conversation.getDraftDomainId(),
+                conversation.getDraftDomainName(),
+                conversation.getDraftIntent(),
+                conversation.getDraftToolName(),
+                toJson(params),
+                conversation.getDraftCronExpr(),
+                conversation.getDraftNotificationChannel(),
+                conversation.getDraftNotificationTargetAddress(),
+                conversation.getLastAssistantMessage(),
+                conversation.getStatus()
+        );
+    }
+
+    private void clearRecruitmentKeyword(Map<String, String> params) {
+        params.remove("keyword");
+        params.remove("recrut_pbanc_ttl");
+        clearRecruitmentKeywordValidation(params);
+    }
+
+    private void clearRecruitmentKeywordValidation(Map<String, String> params) {
+        params.remove(KEYWORD_VALIDATION_STATUS);
+        params.remove(KEYWORD_ORIGINAL);
+        params.remove(SUGGESTED_KEYWORD);
+    }
+
+    private void clearRecruitmentCondition(Map<String, String> params) {
+        params.remove("condition");
+        params.remove("conditionMetric");
+        params.remove("conditionDirection");
+        params.remove("conditionOperator");
+        params.remove("conditionThreshold");
+        params.remove("conditionUnit");
+    }
+
+    private Optional<Boolean> parseKeywordConfirmationAnswer(String value) {
+        String text = lower(value).trim();
+        if (text.isBlank()) {
+            return Optional.empty();
+        }
+        if (text.equals("y")
+                || text.equals("yes")
+                || text.contains("응")
+                || text.contains("네")
+                || text.contains("맞")
+                || text.contains("좋아")) {
+            return Optional.of(true);
+        }
+        if (text.equals("n")
+                || text.equals("no")
+                || text.contains("아니")
+                || text.contains("아님")
+                || text.contains("틀려")) {
+            return Optional.of(false);
+        }
+        return Optional.empty();
+    }
+
+    private String cleanRecruitmentKeywordAnswer(String value) {
+        if (isBlank(value)) {
+            return "";
+        }
+        return value.trim()
+                .replace("채용", "")
+                .replace("공고", "")
+                .replace("알려줘", "")
+                .replace("구독", "")
+                .replace("알림", "")
+                .strip();
     }
 
     private Optional<String> parseDealTypeAnswer(String value) {
@@ -757,6 +1142,94 @@ public class SubscriptionConversationService {
                 || text.contains("실거래가")
                 || text.contains("변경")
                 || text.contains("변동");
+    }
+
+    private boolean isRealEstateDraft(SubscriptionConversationJpaEntity conversation) {
+        return "real-estate".equals(conversation.getDraftDomainName());
+    }
+
+    private boolean isRecruitmentDraft(SubscriptionConversationJpaEntity conversation) {
+        return "recruitment".equals(conversation.getDraftDomainName());
+    }
+
+    private Optional<String> explicitDomainFromMessage(String message) {
+        String text = lower(message);
+        if (isBlank(text)) {
+            return Optional.empty();
+        }
+        int recruitmentIndex = Math.max(
+                lastIndexOfAny(text, "채용", "구인", "일자리", "워크넷"),
+                lastIndexOfEnglishWord(text, "job", "jobs", "recruitment", "recruit", "worknet")
+        );
+        int realEstateIndex = lastIndexOfAny(text, "부동산", "아파트", "매매", "전세", "월세", "실거래가", "집값", "real estate", "apartment");
+        if (recruitmentIndex < 0 && realEstateIndex < 0) {
+            return Optional.empty();
+        }
+        if (recruitmentIndex > realEstateIndex) {
+            return Optional.of("recruitment");
+        }
+        return Optional.of("real-estate");
+    }
+
+    private boolean allowsDomainSwitch(
+            SubscriptionConversationJpaEntity conversation,
+            String requestedDomain,
+            String message
+    ) {
+        if (isRecruitmentDraft(conversation)
+                && "real-estate".equals(requestedDomain)
+                && isRecruitmentKeywordConfirmationPending(monitoringParams(conversation.getDraftMonitoringParams()))) {
+            return isStrongRealEstateRequest(message);
+        }
+        return true;
+    }
+
+    private boolean isStrongRealEstateRequest(String message) {
+        String text = lower(message);
+        return containsAny(text, "부동산", "실거래가", "집값", "real estate", "house price")
+                || (containsAny(text, "아파트")
+                        && containsAny(text, "매매", "전세", "월세", "가격", "시세", "변동", "변경"));
+    }
+
+    private int lastIndexOfAny(String value, String... tokens) {
+        if (isBlank(value)) {
+            return -1;
+        }
+        int index = -1;
+        for (String token : tokens) {
+            index = Math.max(index, value.lastIndexOf(token));
+        }
+        return index;
+    }
+
+    private int lastIndexOfEnglishWord(String value, String... words) {
+        if (isBlank(value)) {
+            return -1;
+        }
+        int index = -1;
+        for (String word : words) {
+            java.util.regex.Matcher matcher = Pattern.compile("\\b" + Pattern.quote(word) + "\\b")
+                    .matcher(value);
+            while (matcher.find()) {
+                index = Math.max(index, matcher.start());
+            }
+        }
+        return index;
+    }
+
+    private boolean isRecruitmentKeywordConfirmationPending(Map<String, String> monitoringParams) {
+        return ZERO_RESULTS.equals(monitoringParams.get(KEYWORD_VALIDATION_STATUS))
+                && !isBlank(monitoringParams.get(SUGGESTED_KEYWORD));
+    }
+
+    private boolean containsAny(String value, String... candidates) {
+        String text = value == null ? "" : value;
+        for (String candidate : candidates) {
+            if (text.contains(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String lower(String value) {

@@ -370,6 +370,7 @@ async def test_search_worknet_job_normal_response_returns_postings(
     assert result["metadata"]["api_status"] == "ok"
     assert result["structured"]["summary"]["count"] == 1
     assert result["structured"]["postings"][0]["title"] == "백엔드 개발자"
+    assert result["structured"]["postings"][0]["wanted_auth_no"] is None
     # #3 bulk fetch — keyword 는 API params 에 포함되지 않음 (추후 적용 예정)
     assert "keyword" not in captured["params"]
     assert captured["params"]["startPage"] == 1

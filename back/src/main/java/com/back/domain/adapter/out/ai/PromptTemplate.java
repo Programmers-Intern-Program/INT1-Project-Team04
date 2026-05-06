@@ -80,11 +80,19 @@ condition 규칙 (중요):
 - condition은 백엔드에서 비교 연산에 사용되므로 반드시 수치 기반이어야 해
 - 사용자가 명시한 수치(예: "5%", "50만원 이하")가 있으면 그대로 사용: "5% 이상 상승", "50만원 이하"
 - "반토막", "두 배" 같은 비유 표현은 수치로 변환: "반토막" → "50% 하락", "두 배" → "100% 상승"
+- 채용 도메인에서 "새 공고 뜨면", "새로 올라오면", "공고가 등록되면"은 수치 조건으로 해석 가능해. condition을 "1건 이상 증가"로 설정하고, 대상 검색어가 있으면 needs_confirmation을 false로 설정
+- 채용 도메인에서 "진행중 공고가 늘면"은 condition을 "진행중 공고 1건 이상 증가"로 설정
+- 채용 도메인에서 "3건 이상 늘면"처럼 건수가 명시되면 condition을 "{명시 건수}건 이상 증가"로 설정
 - "좀 많이", "살짝", "많이", "바뀌면", "오르면" 같은 모호한 표현은 절대 임의로 수치를 추정하지 마
 - 모호한 표현인 경우 condition을 빈 문자열("")로 두고 needs_confirmation을 true로 설정
 - confirmation_question에 구체적으로 어떤 수치 기준을 원하는지 질문. 예: "몇 % 이상 변동 시 알려드릴까요?"
 - delete 요청은 condition을 "삭제 요청"으로 설정
 - reject 요청은 condition을 "지원하지 않는 도메인"으로 설정
+
+채용 query 규칙:
+- 채용 query에는 검색 키워드와 채용 표현만 남겨. 시간, 주기, 알림 채널, 전달 방식 문구는 query나 target에 섞지 마
+- 예: "백엔드 채용 새 공고 뜨면 매일 오전 9시에 텔레그램으로 알려줘" → query: "백엔드 채용 새 공고", target: "백엔드 채용 공고"
+- 예: "공공기관 데이터 채용 진행중 공고가 늘면 알려줘" → query: "공공기관 데이터 채용", target: "공공기관 데이터 채용 진행중 공고"
 
 urls 규칙:
 - metadata.urls는 실제 존재할 것 같은 URL을 추천해서 넣어
@@ -137,6 +145,8 @@ target 작성 규칙:
 1. 이전 JSON 결과를 기반으로 사용자의 추가 입력을 반영해 전체 JSON을 업데이트해.
 2. 사용자가 명시하지 않은 필드는 이전 값을 그대로 유지해.
 3. condition 필드에 사용자가 제공한 수치를 반영해.
+   - 채용 조건 답변이 "새 공고", "새로 올라오면", "공고가 등록되면"이면 condition을 "1건 이상 증가"로 설정하고 needs_confirmation을 false로 설정해.
+   - 채용 조건 답변이 "진행중 공고가 늘면"이면 condition을 "진행중 공고 1건 이상 증가"로 설정하고 needs_confirmation을 false로 설정해.
 4. 모든 모호성이 해결되면 needs_confirmation을 false로 설정하고 confirmation_question을 빈 문자열("")로 해.
 5. 여전히 모호한 부분이 있으면 needs_confirmation을 true로 유지하고 새로운 confirmation_question을 작성해.
 6. 동일한 JSON 스키마를 사용해: [{intent, domain_name, query, condition, cron_expr, channel, api_type, metadata: {target, urls, confidence, needs_confirmation, confirmation_question}}]
@@ -155,8 +165,16 @@ target 작성 규칙:
 
 필수 처리 흐름:
 - 전체 흐름은 데이터 도구 -> compare_subscription_change -> send_notification 순서입니다.
+- 구독 params.dataToolName이 있으면 그 도구를 우선 선택하세요.
+- 채용 도메인에서는 search_public_job(공공채용)과 search_worknet_job(워크넷)을 채용 데이터 도구로 사용합니다.
+- 채용 데이터 도구를 호출하기 전에 check_api_cache를 먼저 호출하세요. 채용 캐시는 일 단위로 판단하며, 신선한 cache_hit이면 get_cached_data를 사용하고 외부 데이터 도구를 호출하지 마세요.
+- 캐시가 없거나 오래되었으면 해당 채용 데이터 도구를 호출하세요.
+- search_worknet_job 또는 get_cached_data(search_worknet_job) 응답이 structured.permission_denied=true 또는 metadata.api_status="permission_denied"이면 Worknet 결과만 건너뛰세요. 이 경우 공공채용 등 사용 가능한 다른 채용 데이터가 있으면 전체 채용 구독 실행은 계속 진행하세요.
 - 데이터 조회 실패 시 해당 구독은 건너뛰고 compare_subscription_change와 send_notification을 호출하지 마세요.
 - compare_subscription_change에는 데이터 도구 응답과 구독의 params/condition을 기준으로 변화 비교에 필요한 값을 전달하세요.
+- 채용 도메인에서 공공채용과 워크넷을 모두 조회한 경우, 사용 가능한 각 도구 응답을 current.sources 배열에 담아 compare_subscription_change에 전달하세요.
+- current.sources는 MCP가 deterministic하게 count/postings를 병합하기 위한 계약입니다. AI가 공공채용/워크넷 count나 postings를 직접 합산해 새 current를 만들지 마세요.
+- Worknet 권한 거부 응답은 current.sources에 넣지 않아도 됩니다. 포함된 경우에도 MCP는 권한 거부 source를 비교 대상에서 제외합니다.
 - compare_subscription_change 응답의 structured.diffs와 structured.briefing_facts를 조건 판단과 AI 브리핑 작성의 근거로 사용하세요.
 - 원본 데이터만 보고 알림 여부를 결정하지 말고, 반드시 compare_subscription_change 결과를 기준으로 판단하세요.
 - MCP가 먼저 코드로 diff와 명확한 조건을 판정합니다. AI 분석은 structured.requires_ai_analysis=true인 경우에만 수행하세요.
@@ -166,8 +184,14 @@ target 작성 규칙:
 - structured.changed=false이면 의미 있는 변화가 없습니다. send_notification을 호출하지 말고 알림을 보내지 마세요.
 - structured.requires_ai_analysis=false이면 MCP가 AI 분석 대상이 아니라고 판정한 것입니다. AI 분석과 AI 브리핑을 생성하지 마세요. send_notification도 호출하지 마세요.
 - structured.requires_ai_analysis=true인 경우에만 structured.diffs와 structured.briefing_facts를 읽고 사용자의 params/condition 조건이 실제로 충족되는지 판단하세요.
+- structured.condition_satisfied=true이면 MCP가 구조화 조건 충족을 판정한 것입니다. 이 경우에만 AI 브리핑과 send_notification 호출을 진행하세요.
 - condition이 충족되지 않으면 send_notification을 호출하지 마세요.
 - condition이 충족되면 structured.diffs와 structured.briefing_facts를 바탕으로 간결한 사용자용 한국어 AI 브리핑을 작성하고 send_notification을 호출하세요.
+- 채용 도메인의 condition이 충족되면 compare_subscription_change 응답의 structured.briefing_postings_by_source를 우선 사용해 신규 채용공고를 출처별로 안내하세요.
+- structured.briefing_postings_by_source.public_job 목록은 "공공채용" 섹션에 공고 제목과 링크를 함께 적으세요.
+- structured.briefing_postings_by_source.worknet_job 목록은 "워크넷" 섹션에 공고 제목과 링크를 함께 적으세요.
+- public_job 또는 worknet_job 목록이 비어 있으면 해당 섹션은 생략하세요.
+- Worknet 권한 거부 응답은 신규 공고나 변화 근거로 쓰지 말고, 공공채용 신규 공고가 있으면 공공채용 섹션만 브리핑하세요.
 
 주의:
 - 각 구독은 독립적으로 처리하세요.
