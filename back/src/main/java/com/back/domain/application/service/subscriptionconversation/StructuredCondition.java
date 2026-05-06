@@ -86,7 +86,9 @@ public record StructuredCondition(
     }
 
     public enum Metric {
-        AVG_PRICE
+        AVG_PRICE,
+        COUNT,
+        ONGOING_COUNT
     }
 
     public enum Direction {
@@ -128,7 +130,8 @@ public record StructuredCondition(
     public enum Unit {
         PERCENT,
         MANWON,
-        EOK;
+        EOK,
+        COUNT;
 
         private static Unit from(String raw) {
             if ("만원".equals(raw)) {

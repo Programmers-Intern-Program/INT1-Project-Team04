@@ -23,7 +23,17 @@ public class DomainCapabilityRegistry {
                     ))
             ),
             "law-regulation", new DomainCapability("law-regulation", "법률/규제", SupportStatus.PLANNED, List.of()),
-            "recruitment", new DomainCapability("recruitment", "채용", SupportStatus.PLANNED, List.of()),
+            "recruitment", new DomainCapability(
+                    "recruitment",
+                    "채용",
+                    SupportStatus.ENABLED,
+                    List.of(new IntentCapability(
+                            "job_posting_change",
+                            null,
+                            List.of(),
+                            Map.of("dataToolName", "search_public_job")
+                    ))
+            ),
             "auction", new DomainCapability("auction", "경매/희소매물", SupportStatus.PLANNED, List.of())
     );
 
