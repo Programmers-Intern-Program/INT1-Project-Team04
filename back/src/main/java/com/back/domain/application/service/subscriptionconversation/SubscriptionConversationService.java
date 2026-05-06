@@ -25,12 +25,14 @@ import com.back.global.error.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -49,6 +51,7 @@ public class SubscriptionConversationService {
     private static final String SUGGESTED_KEYWORD = "suggestedKeyword";
     private static final String KEYWORD_ORIGINAL = "keywordOriginal";
     private static final String DEFAULT_INTERNAL_CHECK_CRON = "0 0 * * * *";
+    private static final Pattern RECRUITMENT_COUNT_THRESHOLD = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:건|개)");
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
 
@@ -466,6 +469,12 @@ public class SubscriptionConversationService {
             }
         }
 
+        // 채용 대상/건수 조건처럼 짧은 후속 답변은 AI JSON 파싱 실패가 잦아 로컬에서 먼저 보완한다.
+        Response recruitmentResponse = completeRecruitmentAnswerIfPossible(conversation, message, missing);
+        if (recruitmentResponse != null) {
+            return recruitmentResponse;
+        }
+
         if (missing.contains("dealType")) {
             Optional<String> dealType = parseDealTypeAnswer(message);
             if (dealType.isPresent()) {
@@ -481,6 +490,204 @@ public class SubscriptionConversationService {
         }
 
         return null;
+    }
+
+    private Response completeRecruitmentAnswerIfPossible(
+            SubscriptionConversationJpaEntity conversation,
+            String message,
+            List<String> missing
+    ) {
+        if (!isRecruitmentDraft(conversation)
+                || (!missing.contains("keyword") && !missing.contains("condition"))) {
+            return null;
+        }
+
+        Map<String, String> params = new HashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
+        boolean updated = false;
+
+        Optional<String> keyword = Optional.empty();
+        if (missing.contains("keyword")) {
+            keyword = parseRecruitmentKeywordAnswer(message);
+            if (keyword.isPresent()) {
+                clearRecruitmentKeywordValidation(params);
+                params.put("keyword", keyword.get());
+                if ("search_public_job".equals(params.getOrDefault("dataToolName", "search_public_job"))) {
+                    params.put("recrut_pbanc_ttl", keyword.get());
+                }
+                updated = true;
+            }
+        }
+
+        if (missing.contains("condition")) {
+            // 채용 조건은 가격 조건과 달리 공고 수 delta 기준 COUNT 파라미터로 저장한다.
+            Optional<Map<String, String>> condition = parseRecruitmentConditionAnswer(message);
+            if (condition.isPresent()) {
+                params.putAll(condition.get());
+                updated = true;
+            }
+        }
+
+        if (!updated) {
+            return null;
+        }
+
+        ensureRecruitmentDefaults(params);
+        String queryKeyword = keyword.orElse(params.get("keyword"));
+        updateRecruitmentParams(
+                conversation,
+                params,
+                isBlank(queryKeyword) ? conversation.getDraftQuery() : queryKeyword + " 채용 공고"
+        );
+        return completeOrAsk(conversation);
+    }
+
+    private Optional<String> parseRecruitmentKeywordAnswer(String value) {
+        if (isBlank(value)) {
+            return Optional.empty();
+        }
+
+        String candidate = value.trim();
+        int conditionStart = firstRecruitmentConditionIndex(candidate);
+        if (conditionStart >= 0) {
+            // "백엔드 전체 5건 이상 변동"처럼 대상과 조건이 한 문장에 함께 온 경우 앞부분만 검색어로 쓴다.
+            candidate = candidate.substring(0, conditionStart);
+        }
+
+        String keyword = cleanRecruitmentKeywordAnswer(candidate)
+                .replace("전체", "")
+                .replace("전부", "")
+                .replace("모든", "")
+                .replace("진행중", "")
+                .replace("진행 중", "")
+                .replaceAll("\\s+", " ")
+                .strip();
+
+        for (String prefix : List.of("공공기관 ", "공기업 ", "공공 ", "기관 ", "워크넷 ")) {
+            if (keyword.startsWith(prefix)) {
+                keyword = keyword.substring(prefix.length()).strip();
+                break;
+            }
+        }
+
+        return isBlank(keyword) ? Optional.empty() : Optional.of(keyword);
+    }
+
+    private int firstRecruitmentConditionIndex(String value) {
+        int first = value.length();
+        Matcher count = RECRUITMENT_COUNT_THRESHOLD.matcher(value);
+        if (count.find()) {
+            first = Math.min(first, count.start());
+        }
+        for (String marker : List.of(
+                "새 공고",
+                "신규 공고",
+                "진행중 공고",
+                "진행 중 공고",
+                "새로",
+                "뜨면",
+                "올라오면",
+                "등록",
+                "늘면",
+                "증가",
+                "감소",
+                "줄면",
+                "줄어",
+                "마감",
+                "변동",
+                "변화"
+        )) {
+            int index = value.indexOf(marker);
+            if (index >= 0) {
+                first = Math.min(first, index);
+            }
+        }
+        return first == value.length() ? -1 : first;
+    }
+
+    private Optional<Map<String, String>> parseRecruitmentConditionAnswer(String value) {
+        String text = value == null ? "" : value.trim();
+        Matcher count = RECRUITMENT_COUNT_THRESHOLD.matcher(text);
+        boolean hasCountThreshold = count.find();
+        if (!hasCountThreshold && !containsRecruitmentChangeWord(text)) {
+            return Optional.empty();
+        }
+
+        // 숫자가 없는 "새 공고가 올라오면" 계열은 최소 1건 증가 조건으로 해석한다.
+        String threshold = hasCountThreshold ? normalizeDecimal(count.group(1)) : "1";
+        return Optional.of(Map.of(
+                "conditionMetric", text.contains("진행중") || text.contains("진행 중") ? "ONGOING_COUNT" : "COUNT",
+                "conditionDirection", recruitmentConditionDirection(text),
+                "conditionOperator", recruitmentConditionOperator(text),
+                "conditionThreshold", threshold,
+                "conditionUnit", "COUNT"
+        ));
+    }
+
+    private boolean containsRecruitmentChangeWord(String text) {
+        return containsAny(
+                text,
+                "새 공고",
+                "신규",
+                "새로",
+                "뜨면",
+                "올라오면",
+                "등록",
+                "변화",
+                "변동",
+                "늘면",
+                "증가",
+                "마감",
+                "감소",
+                "줄면",
+                "줄어"
+        );
+    }
+
+    private String recruitmentConditionDirection(String text) {
+        if (containsAny(text, "감소", "줄면", "줄어", "마감")) {
+            return "DOWN";
+        }
+        if (containsAny(text, "새 공고", "신규", "새로", "뜨면", "올라오면", "등록", "늘면", "증가")) {
+            return "UP";
+        }
+        if (containsAny(text, "변동", "변화")) {
+            return "ANY";
+        }
+        return "UP";
+    }
+
+    private String recruitmentConditionOperator(String text) {
+        if (text.contains("미만")) {
+            return "LT";
+        }
+        if (text.contains("이하")) {
+            return "LTE";
+        }
+        if (text.contains("초과")) {
+            return "GT";
+        }
+        return "GTE";
+    }
+
+    private String normalizeDecimal(String raw) {
+        return new BigDecimal(raw).stripTrailingZeros().toPlainString();
+    }
+
+    private void ensureRecruitmentDefaults(Map<String, String> params) {
+        String toolName = params.getOrDefault("dataToolName", "search_public_job");
+        params.put("dataToolName", toolName);
+        if ("search_public_job".equals(toolName)) {
+            params.putIfAbsent("page_no", "1");
+            params.putIfAbsent("num_of_rows", "20");
+            params.putIfAbsent("ongoing_yn", "Y");
+            String keyword = params.get("keyword");
+            if (!isBlank(keyword)) {
+                params.put("recrut_pbanc_ttl", keyword);
+            }
+        } else if ("search_worknet_job".equals(toolName)) {
+            params.putIfAbsent("start_page", "1");
+            params.putIfAbsent("display", "20");
+        }
     }
 
     private List<String> missingPersistedFields(SubscriptionConversationJpaEntity conversation) {
@@ -822,6 +1029,7 @@ public class SubscriptionConversationService {
                 .replace("공고", "")
                 .replace("알려줘", "")
                 .replace("구독", "")
+                .replace("알림", "")
                 .strip();
     }
 
@@ -916,6 +1124,16 @@ public class SubscriptionConversationService {
     private boolean isRecruitmentKeywordConfirmationPending(Map<String, String> monitoringParams) {
         return ZERO_RESULTS.equals(monitoringParams.get(KEYWORD_VALIDATION_STATUS))
                 && !isBlank(monitoringParams.get(SUGGESTED_KEYWORD));
+    }
+
+    private boolean containsAny(String value, String... candidates) {
+        String text = value == null ? "" : value;
+        for (String candidate : candidates) {
+            if (text.contains(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String lower(String value) {
