@@ -199,6 +199,35 @@ def test_normalize_worknet_job_normal_response_extracts_records():
     assert records[0].reg_date == date(2026, 4, 20)
 
 
+def test_normalize_worknet_job_official_list_fields_extracts_record_id():
+    """고용24 공식 목록 응답 필드명(title/company/wantedAuthNo) 정규화."""
+    xml = """<?xml version="1.0"?>
+<wantedRoot>
+  <total>1</total>
+  <startPage>1</startPage>
+  <display>10</display>
+  <wanted>
+    <wantedAuthNo>K120032605010001</wantedAuthNo>
+    <company>테스트회사</company>
+    <title>백엔드 개발자</title>
+    <salTpNm>연봉</salTpNm>
+    <region>서울 강남구</region>
+    <minEdubg>대졸(4년)</minEdubg>
+    <regDt>20260425</regDt>
+    <closeDt>20260525</closeDt>
+    <wantedInfoUrl>https://www.work24.go.kr/wk/a/b/1200/retriveDtlEmpSrchList.do</wantedInfoUrl>
+  </wanted>
+</wantedRoot>"""
+    records = normalize_worknet_job(xml)
+
+    assert len(records) == 1
+    assert records[0].wanted_auth_no == "K120032605010001"
+    assert records[0].title == "백엔드 개발자"
+    assert records[0].company == "테스트회사"
+    assert records[0].region == "서울 강남구"
+    assert records[0].min_education == "대졸(4년)"
+
+
 def test_normalize_worknet_job_empty_pub_jobs_returns_empty_list():
     """<wanted> 노드 없음 → 빈 리스트 (에러 아님)."""
     xml = """<?xml version="1.0"?>
