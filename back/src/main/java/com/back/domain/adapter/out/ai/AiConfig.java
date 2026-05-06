@@ -1,5 +1,6 @@
 package com.back.domain.adapter.out.ai;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Optional;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -13,9 +14,13 @@ public class AiConfig {
 
     @Bean
     public ChatClient monitorChatClient(ChatClient.Builder builder,
-                                        Optional<ToolCallbackProvider> toolCallbackProvider) {
+                                        Optional<ToolCallbackProvider> toolCallbackProvider,
+                                        ObjectMapper objectMapper) {
 
-        toolCallbackProvider.ifPresent(builder::defaultToolCallbacks);
+        toolCallbackProvider
+                // Vertex Gemini는 MCP가 제공하는 Pydantic $defs 스키마를 바로 변환하지 못한다.
+                .map(provider -> GeminiToolSchemaAdapter.adapt(provider, objectMapper))
+                .ifPresent(builder::defaultToolCallbacks);
 
         // Spring이 세팅해둔 관찰성(Langfuse 등)이 포함된 빌더를 그대로 빌드합니다.
         return builder.build();
