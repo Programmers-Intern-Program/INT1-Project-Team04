@@ -5,10 +5,12 @@ import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.service.SubscriptionContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.util.concurrent.RateLimiter;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +21,8 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     @Nullable
     private final ChatClient monitorChatClient;
     private final ObjectMapper objectMapper;
+    private final int batchSize;
+    private final RateLimiter rateLimiter;
 
     // [레버 1] system prompt로 tool 호출 순서/조건 유도
     // [레버 2] MCP tool description에 순서/조건 명시 → Python 담당자 담당
@@ -34,10 +38,14 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
 
     public SpringAiMonitorAdapter(
             @Autowired(required = false) ChatClient monitorChatClient,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            @Value("${app.monitor.batch-size:5}") int batchSize,
+            @Value("${app.monitor.rpm-limit:10}") int rpmLimit
     ) {
         this.monitorChatClient = monitorChatClient;
         this.objectMapper = objectMapper;
+        this.batchSize = batchSize;
+        this.rateLimiter = RateLimiter.create((double) rpmLimit / 60);
     }
 
     @Override
@@ -64,16 +72,29 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         if (subscriptions.isEmpty()) {
             return;
         }
-        log.info("[SpringAiMonitorAdapter] 구독 실행 요청 - {}건", subscriptions.size());
+        int total = subscriptions.size();
+        int totalBatches = (total + batchSize - 1) / batchSize;
+        log.info("[SpringAiMonitorAdapter] 구독 실행 요청 - {}건 / {}개 배치 (배치 크기: {})", total, totalBatches, batchSize);
+        for (int i = 0; i < total; i += batchSize) {
+            List<SubscriptionContext> batch = subscriptions.subList(i, Math.min(i + batchSize, total));
+            int batchIndex = i / batchSize + 1;
+            Thread.ofVirtual().start(() -> executeBatch(batch, batchIndex, totalBatches));
+        }
+    }
+
+    private void executeBatch(List<SubscriptionContext> batch, int batchIndex, int totalBatches) {
+        rateLimiter.acquire();
         try {
-            String payload = objectMapper.writeValueAsString(subscriptions);
+            log.info("[SpringAiMonitorAdapter] 배치 {}/{} 실행 - {}건", batchIndex, totalBatches, batch.size());
+            String payload = objectMapper.writeValueAsString(batch);
             monitorChatClient.prompt()
                     .system(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
                     .user(payload)
                     .call()
                     .content();
+            log.info("[SpringAiMonitorAdapter] 배치 {}/{} 완료", batchIndex, totalBatches);
         } catch (JsonProcessingException e) {
-            log.error("[SpringAiMonitorAdapter] 구독 context 직렬화 실패", e);
+            log.error("[SpringAiMonitorAdapter] 배치 {}/{} 직렬화 실패", batchIndex, totalBatches, e);
         }
     }
 }
