@@ -25,6 +25,26 @@ AVG_PRICE_KEYS = frozenset({
     "avg_deposit",
     "avg_monthly_rent",
 })
+COUNT_KEYS = frozenset({"added_count", "count"})
+ONGOING_COUNT_KEYS = frozenset({"ongoing_added_count", "ongoing_count"})
+POSTING_IDS_FIELD = "posting_ids"
+ONGOING_POSTING_IDS_FIELD = "ongoing_posting_ids"
+INTERNAL_SUMMARY_FIELDS = frozenset({POSTING_IDS_FIELD, ONGOING_POSTING_IDS_FIELD})
+
+# 현재는 ALIO/워크넷의 공식 공고 ID만 확정 계약으로 사용한다.
+# URL/id 같은 범용 fallback 은 임시 추정값이라 오탐 위험이 있어 제외한다.
+POSTING_ID_KEY_GROUPS = (
+    ("public_job", ("pblnt_sn", "pblntSn", "recrutPblntSn", "recrut_pblnt_sn")),
+    ("worknet_job", ("wanted_auth_no", "wantedAuthNo")),
+)
+POSTING_ONGOING_KEYS = ("is_ongoing", "isOngoing", "ongoing_yn", "ongoingYn")
+
+# conditionMetric 과 current summary 필드를 분리해 도메인별 비교 대상이 섞이지 않게 한다.
+METRIC_SUMMARY_KEYS = {
+    "AVG_PRICE": AVG_PRICE_KEYS,
+    "COUNT": COUNT_KEYS,
+    "ONGOING_COUNT": ONGOING_COUNT_KEYS,
+}
 
 
 def stable_params_hash(params: dict[str, Any]) -> str:
@@ -50,13 +70,88 @@ def extract_current_summary(current: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("current.structured 또는 current.structured.summary 가 필요합니다.")
 
 
+def enrich_summary_with_posting_ids(
+    summary: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    """채용 응답의 공고 ID 목록을 summary 에 보강해 count 동률 교체를 감지한다."""
+    posting_id_sets = extract_posting_id_sets(current)
+    if posting_id_sets is None:
+        return dict(summary)
+
+    posting_ids, ongoing_posting_ids = posting_id_sets
+    enriched = dict(summary)
+    enriched[POSTING_IDS_FIELD] = sorted(posting_ids)
+    enriched[ONGOING_POSTING_IDS_FIELD] = sorted(ongoing_posting_ids)
+    return enriched
+
+
+def extract_posting_id_sets(current: dict[str, Any]) -> tuple[set[str], set[str]] | None:
+    """structured.postings 에서 전체/진행중 공고 ID 집합을 추출한다."""
+    structured = current.get("structured")
+    if not isinstance(structured, dict):
+        return None
+
+    postings = structured.get("postings")
+    if not isinstance(postings, list):
+        return None
+
+    posting_ids: set[str] = set()
+    ongoing_posting_ids: set[str] = set()
+    for posting in postings:
+        if not isinstance(posting, dict):
+            continue
+        posting_id = posting_identity(posting)
+        if posting_id is None:
+            continue
+        posting_ids.add(posting_id)
+        if is_ongoing_posting(posting):
+            ongoing_posting_ids.add(posting_id)
+    return posting_ids, ongoing_posting_ids
+
+
+def posting_identity(posting: dict[str, Any]) -> str | None:
+    """공고별 안정 식별자를 만든다."""
+    for namespace, keys in POSTING_ID_KEY_GROUPS:
+        for key in keys:
+            value = posting.get(key)
+            normalized = normalize_posting_id_value(value)
+            if normalized is not None:
+                return f"{namespace}:{normalized}"
+    return None
+
+
+def normalize_posting_id_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def is_ongoing_posting(posting: dict[str, Any]) -> bool:
+    """진행 여부 필드가 없으면 현재 조회 결과에 포함된 공고로 보고 진행중으로 취급한다."""
+    for key in POSTING_ONGOING_KEYS:
+        if key not in posting:
+            continue
+        value = posting[key]
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return True
+        return str(value).strip().upper() != "N"
+    return True
+
+
 class SubscriptionChangeService:
     """구독별 기준/최신 스냅샷을 저장하고 요약 변화 목록을 생성한다."""
 
     async def compare(self, input_model: SubscriptionChangeInput) -> SubscriptionChangeResult:
         now = datetime.now(UTC)
         params_hash = stable_params_hash(input_model.params)
-        current_summary = extract_current_summary(input_model.current)
+        current_summary = enrich_summary_with_posting_ids(
+            extract_current_summary(input_model.current),
+            input_model.current,
+        )
         current_content = input_model.current.get("text")
         current_content = current_content if isinstance(current_content, str) else None
 
@@ -156,14 +251,73 @@ def summary_diffs(
     current_summary: dict[str, Any],
 ) -> list[SummaryDiff]:
     """요약 dict 의 공통 필드 중 값이 달라진 항목만 변화 목록으로 반환한다."""
-    diffs: list[SummaryDiff] = []
+    diffs = posting_id_diffs(baseline_summary, current_summary)
     for field in sorted(set(baseline_summary) & set(current_summary)):
+        if field in INTERNAL_SUMMARY_FIELDS:
+            continue
         baseline_value = baseline_summary[field]
         current_value = current_summary[field]
         if baseline_value == current_value:
             continue
         diffs.append(build_diff(field, baseline_value, current_value))
     return diffs
+
+
+def posting_id_diffs(
+    baseline_summary: dict[str, Any],
+    current_summary: dict[str, Any],
+) -> list[SummaryDiff]:
+    """공고 ID 집합을 비교해 신규/제외 공고 수를 변화 목록으로 만든다."""
+    diffs: list[SummaryDiff] = []
+    diffs.extend(
+        posting_set_diffs(
+            baseline_summary,
+            current_summary,
+            POSTING_IDS_FIELD,
+            "added_count",
+            "removed_count",
+        )
+    )
+    diffs.extend(
+        posting_set_diffs(
+            baseline_summary,
+            current_summary,
+            ONGOING_POSTING_IDS_FIELD,
+            "ongoing_added_count",
+            "ongoing_removed_count",
+        )
+    )
+    return diffs
+
+
+def posting_set_diffs(
+    baseline_summary: dict[str, Any],
+    current_summary: dict[str, Any],
+    id_field: str,
+    added_field: str,
+    removed_field: str,
+) -> list[SummaryDiff]:
+    baseline_ids = summary_id_set(baseline_summary, id_field)
+    current_ids = summary_id_set(current_summary, id_field)
+    if baseline_ids is None or current_ids is None:
+        return []
+
+    # added_ids 는 baseline 에 없고 current 에 새로 등장한 공고 ID 집합이다.
+    added_ids = current_ids - baseline_ids
+    removed_ids = baseline_ids - current_ids
+    diffs: list[SummaryDiff] = []
+    if added_ids:
+        diffs.append(build_diff(added_field, 0, len(added_ids)))
+    if removed_ids:
+        diffs.append(build_diff(removed_field, 0, len(removed_ids)))
+    return diffs
+
+
+def summary_id_set(summary: dict[str, Any], field: str) -> set[str] | None:
+    value = summary.get(field)
+    if not isinstance(value, list):
+        return None
+    return {str(item) for item in value}
 
 
 def ai_analysis_gate(params: dict[str, Any], diffs: list[SummaryDiff]) -> tuple[bool | None, bool, str]:
@@ -220,9 +374,9 @@ def condition_satisfied(diffs: list[SummaryDiff], condition: StructuredCondition
 
 
 def metric_matches(field: str, metric: str) -> bool:
-    if metric == "AVG_PRICE":
-        return field in AVG_PRICE_KEYS
-    return False
+    # summary_fields는 현재 conditionMetric이 비교할 summary 필드 집합이다.
+    summary_fields = METRIC_SUMMARY_KEYS.get(metric)
+    return summary_fields is not None and field in summary_fields
 
 
 def direction_matches(delta: Decimal, direction: str) -> bool:

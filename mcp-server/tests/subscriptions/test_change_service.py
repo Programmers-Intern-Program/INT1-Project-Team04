@@ -51,6 +51,54 @@ def _structured_condition_input(avg_deal_amount: int) -> SubscriptionChangeInput
     return input_model
 
 
+def _recruitment_input(
+    count: int,
+    ongoing_count: int,
+    *,
+    metric: str = "COUNT",
+    direction: str = "UP",
+    threshold: str = "1",
+    postings: list[dict] | None = None,
+) -> SubscriptionChangeInput:
+    # 채용 구독 조건은 current summary 의 공고 수 delta 를 기준으로 판별한다.
+    structured = {
+        "summary": {
+            "count": count,
+            "ongoing_count": ongoing_count,
+        }
+    }
+    if postings is not None:
+        structured["postings"] = postings
+
+    return SubscriptionChangeInput.model_validate(
+        {
+            "subscriptionId": "job-42",
+            "domain": "recruitment",
+            "query": "백엔드 채용 공고",
+            "params": {
+                "keyword": "백엔드",
+                "conditionMetric": metric,
+                "conditionDirection": direction,
+                "conditionOperator": "GTE",
+                "conditionThreshold": threshold,
+                "conditionUnit": "COUNT",
+            },
+            "current": {
+                "text": f"채용 공고 {count}건",
+                "structured": structured,
+            },
+        }
+    )
+
+
+def _posting(posting_id: str, *, is_ongoing: bool = True) -> dict:
+    return {
+        "pblnt_sn": posting_id,
+        "title": f"{posting_id} 백엔드 개발자",
+        "is_ongoing": is_ongoing,
+    }
+
+
 def test_stable_params_hash_ignores_key_order() -> None:
     left = stable_params_hash({"region": "강남구", "condition": "5% 상승"})
     right = stable_params_hash({"condition": "5% 상승", "region": "강남구"})
@@ -151,6 +199,179 @@ async def test_diff_meeting_structured_condition_requires_ai_analysis(
     assert result.requires_ai_analysis is True
     assert result.condition_reason == "condition satisfied"
     assert result.diffs[0].change_rate == 6.0
+
+
+async def test_recruitment_count_increase_meeting_condition_requires_ai_analysis(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(_recruitment_input(count=1, ongoing_count=1, metric="COUNT"))
+    result = await service.compare(_recruitment_input(count=2, ongoing_count=1, metric="COUNT"))
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    assert result.diffs[0].field == "count"
+    assert result.diffs[0].delta == 1
+
+
+async def test_recruitment_ongoing_count_increase_meeting_condition_requires_ai_analysis(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(_recruitment_input(count=3, ongoing_count=1, metric="ONGOING_COUNT", threshold="2"))
+    result = await service.compare(_recruitment_input(count=3, ongoing_count=3, metric="ONGOING_COUNT", threshold="2"))
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    assert result.diffs[0].field == "ongoing_count"
+    assert result.diffs[0].delta == 2
+
+
+async def test_recruitment_count_decrease_does_not_satisfy_up_condition(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(_recruitment_input(count=2, ongoing_count=2, metric="COUNT"))
+    result = await service.compare(_recruitment_input(count=1, ongoing_count=1, metric="COUNT"))
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is False
+    assert result.requires_ai_analysis is False
+    assert result.condition_reason == "condition not satisfied"
+    assert result.diffs[0].field == "count"
+    assert result.diffs[0].direction == "decrease"
+
+
+async def test_recruitment_detects_new_posting_ids_when_count_is_unchanged(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(
+        _recruitment_input(
+            count=2,
+            ongoing_count=2,
+            metric="COUNT",
+            postings=[_posting("A"), _posting("B")],
+        )
+    )
+    result = await service.compare(
+        _recruitment_input(
+            count=2,
+            ongoing_count=2,
+            metric="COUNT",
+            postings=[_posting("B"), _posting("C")],
+        )
+    )
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    assert result.diffs[0].field == "added_count"
+    assert result.diffs[0].delta == 1
+
+
+async def test_recruitment_detects_new_ongoing_posting_ids_when_ongoing_count_is_unchanged(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(
+        _recruitment_input(
+            count=2,
+            ongoing_count=1,
+            metric="ONGOING_COUNT",
+            postings=[_posting("A", is_ongoing=True), _posting("B", is_ongoing=False)],
+        )
+    )
+    result = await service.compare(
+        _recruitment_input(
+            count=2,
+            ongoing_count=1,
+            metric="ONGOING_COUNT",
+            postings=[_posting("B", is_ongoing=False), _posting("C", is_ongoing=True)],
+        )
+    )
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    ongoing_added_diff = next(diff for diff in result.diffs if diff.field == "ongoing_added_count")
+    assert ongoing_added_diff.delta == 1
+
+
+async def test_recruitment_detects_new_worknet_posting_ids_when_count_is_unchanged(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(
+        _recruitment_input(
+            count=1,
+            ongoing_count=1,
+            metric="COUNT",
+            postings=[{"wanted_auth_no": "K120032605010001", "title": "백엔드 개발자"}],
+        )
+    )
+    result = await service.compare(
+        _recruitment_input(
+            count=1,
+            ongoing_count=1,
+            metric="COUNT",
+            postings=[{"wanted_auth_no": "K120032605020002", "title": "서버 개발자"}],
+        )
+    )
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    assert result.diffs[0].field == "added_count"
+    assert result.diffs[0].delta == 1
+
+
+async def test_recruitment_ignores_unconfirmed_posting_id_fallback_keys(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(
+        _recruitment_input(
+            count=1,
+            ongoing_count=1,
+            metric="COUNT",
+            postings=[{"id": "A", "src_url": "https://example.com/a"}],
+        )
+    )
+    result = await service.compare(
+        _recruitment_input(
+            count=1,
+            ongoing_count=1,
+            metric="COUNT",
+            postings=[{"id": "B", "src_url": "https://example.com/b"}],
+        )
+    )
+
+    assert result.baseline_initialized is False
+    assert result.changed is False
+    assert result.condition_satisfied is None
+    assert result.requires_ai_analysis is False
+    assert result.condition_reason == "no diff"
 
 
 async def test_insert_race_rereads_row_and_compares(monkeypatch) -> None:

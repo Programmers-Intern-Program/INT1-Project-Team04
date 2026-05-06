@@ -56,6 +56,7 @@ class PublicJobPosting(BaseModel):
 class WorknetJobPosting(BaseModel):
     """워크넷 채용공고 1건 (정상 응답 구조 기준)."""
 
+    wanted_auth_no: str | None = Field(default=None, description="구인인증번호 (wantedAuthNo)")
     title: str = Field(description="채용 제목 (wantedTitle)")
     company: str = Field(description="회사명/사업장명 (busplaName)")
     region: str | None = Field(default=None, description="근무지역명 (regionNm)")
@@ -155,11 +156,12 @@ def normalize_worknet_job(xml_text: str) -> list[WorknetJobPosting]:
 def _build_worknet_posting(node: ET.Element) -> WorknetJobPosting:
     try:
         return WorknetJobPosting(
-            title=_required_node(node, "wantedTitle"),
-            company=_required_node(node, "busplaName"),
-            region=_node_text(node, "regionNm"),
-            emp_type=_node_text(node, "empTpNm"),
-            min_education=_node_text(node, "minEdubgNm"),
+            wanted_auth_no=_node_text(node, "wantedAuthNo"),
+            title=_required_any_node(node, ("title", "wantedTitle")),
+            company=_required_any_node(node, ("company", "busplaName")),
+            region=_first_node_text(node, ("region", "regionNm")),
+            emp_type=_first_node_text(node, ("empTpNm", "empTpCd")),
+            min_education=_first_node_text(node, ("minEdubg", "minEdubgNm")),
             salary_type=_node_text(node, "salTpNm"),
             reg_date=_optional_yyyymmdd(_node_text(node, "regDt")),
             close_date=_optional_yyyymmdd(_node_text(node, "closeDt")),
@@ -250,6 +252,22 @@ def _required_node(parent: ET.Element, tag: str) -> str:
     text = _node_text(parent, tag)
     if text is None:
         raise KeyError(tag)
+    return text
+
+
+def _first_node_text(parent: ET.Element, tags: tuple[str, ...]) -> str | None:
+    """공식 필드명과 기존 추정 필드명 중 먼저 존재하는 값을 반환한다."""
+    for tag in tags:
+        text = _node_text(parent, tag)
+        if text is not None:
+            return text
+    return None
+
+
+def _required_any_node(parent: ET.Element, tags: tuple[str, ...]) -> str:
+    text = _first_node_text(parent, tags)
+    if text is None:
+        raise KeyError("/".join(tags))
     return text
 
 
