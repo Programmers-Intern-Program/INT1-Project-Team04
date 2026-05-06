@@ -118,6 +118,13 @@ public class SubscriptionConversationService {
                 || conversation.getStatus() == SubscriptionConversationStatus.CANCELLED) {
             return true;
         }
+        Optional<String> requestedDomain = explicitDomainFromMessage(message);
+        if (requestedDomain.isPresent()
+                && !isBlank(conversation.getDraftDomainName())
+                && !requestedDomain.get().equals(conversation.getDraftDomainName())
+                && allowsDomainSwitch(conversation, requestedDomain.get(), message)) {
+            return true;
+        }
         return isUnsupportedConversation(conversation)
                 || (isBlank(conversation.getDraftDomainName()) && isBlank(conversation.getDraftQuery()));
     }
@@ -1119,6 +1126,71 @@ public class SubscriptionConversationService {
 
     private boolean isRecruitmentDraft(SubscriptionConversationJpaEntity conversation) {
         return "recruitment".equals(conversation.getDraftDomainName());
+    }
+
+    private Optional<String> explicitDomainFromMessage(String message) {
+        String text = lower(message);
+        if (isBlank(text)) {
+            return Optional.empty();
+        }
+        int recruitmentIndex = Math.max(
+                lastIndexOfAny(text, "채용", "구인", "일자리", "워크넷"),
+                lastIndexOfEnglishWord(text, "job", "jobs", "recruitment", "recruit", "worknet")
+        );
+        int realEstateIndex = lastIndexOfAny(text, "부동산", "아파트", "매매", "전세", "월세", "실거래가", "집값", "real estate", "apartment");
+        if (recruitmentIndex < 0 && realEstateIndex < 0) {
+            return Optional.empty();
+        }
+        if (recruitmentIndex > realEstateIndex) {
+            return Optional.of("recruitment");
+        }
+        return Optional.of("real-estate");
+    }
+
+    private boolean allowsDomainSwitch(
+            SubscriptionConversationJpaEntity conversation,
+            String requestedDomain,
+            String message
+    ) {
+        if (isRecruitmentDraft(conversation)
+                && "real-estate".equals(requestedDomain)
+                && isRecruitmentKeywordConfirmationPending(monitoringParams(conversation.getDraftMonitoringParams()))) {
+            return isStrongRealEstateRequest(message);
+        }
+        return true;
+    }
+
+    private boolean isStrongRealEstateRequest(String message) {
+        String text = lower(message);
+        return containsAny(text, "부동산", "실거래가", "집값", "real estate", "house price")
+                || (containsAny(text, "아파트")
+                        && containsAny(text, "매매", "전세", "월세", "가격", "시세", "변동", "변경"));
+    }
+
+    private int lastIndexOfAny(String value, String... tokens) {
+        if (isBlank(value)) {
+            return -1;
+        }
+        int index = -1;
+        for (String token : tokens) {
+            index = Math.max(index, value.lastIndexOf(token));
+        }
+        return index;
+    }
+
+    private int lastIndexOfEnglishWord(String value, String... words) {
+        if (isBlank(value)) {
+            return -1;
+        }
+        int index = -1;
+        for (String word : words) {
+            java.util.regex.Matcher matcher = Pattern.compile("\\b" + Pattern.quote(word) + "\\b")
+                    .matcher(value);
+            while (matcher.find()) {
+                index = Math.max(index, matcher.start());
+            }
+        }
+        return index;
     }
 
     private boolean isRecruitmentKeywordConfirmationPending(Map<String, String> monitoringParams) {

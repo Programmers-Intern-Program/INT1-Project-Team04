@@ -636,6 +636,259 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("부동산 조건 대기 중 채용 입력은 기존 가격 조건으로 흡수하지 않고 새 대화로 파싱한다")
+    void realEstateConditionWaitStartsNewConversationForRecruitmentRequest() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-real-estate",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{" +
+                        "\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"," +
+                        "\"region\":\"강남구\"" +
+                        "}",
+                "0 0 * * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "어떤 가격 변동 조건 시 알림을 받으시겠어요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-recruitment", List.of(new ParsedTask(
+                "create",
+                "채용",
+                "백엔드 채용 새 공고",
+                "1건 이상 증가",
+                "",
+                "telegram",
+                "api",
+                "백엔드 채용 공고",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "백엔드 채용 새 공고 1건 이상 텔레그램으로 알려줘",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isEqualTo(1);
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.draft()).isNotNull();
+        assertThat(response.draft().domainLabel()).isEqualTo("채용");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "COUNT")
+                .containsEntry("conditionUnit", "COUNT")
+                .doesNotContainEntry("conditionMetric", "AVG_PRICE");
+    }
+
+    @Test
+    @DisplayName("부동산 채널 대기 중 채용 입력은 기존 draft 채널 선택으로 흡수하지 않는다")
+    void realEstateChannelWaitStartsNewConversationForRecruitmentRequest() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-real-estate",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{" +
+                        "\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"," +
+                        "\"region\":\"강남구\"," +
+                        "\"conditionMetric\":\"AVG_PRICE\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"5\"," +
+                        "\"conditionUnit\":\"PERCENT\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요.",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-recruitment", List.of(new ParsedTask(
+                "create",
+                "채용",
+                "백엔드 채용 새 공고",
+                "1건 이상 증가",
+                "",
+                "telegram",
+                "api",
+                "백엔드 채용 공고",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "백엔드 채용 새 공고 뜨면 텔레그램으로 알려줘",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isEqualTo(1);
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.draft()).isNotNull();
+        assertThat(response.draft().domainLabel()).isEqualTo("채용");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("dataToolName", "search_public_job")
+                .containsEntry("keyword", "백엔드")
+                .containsEntry("conditionMetric", "COUNT");
+    }
+
+    @Test
+    @DisplayName("부동산 채널 대기 중 영어 채용 입력도 기존 draft 채널 선택으로 흡수하지 않는다")
+    void realEstateChannelWaitStartsNewConversationForEnglishRecruitmentRequest() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-real-estate",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{" +
+                        "\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"," +
+                        "\"region\":\"강남구\"," +
+                        "\"conditionMetric\":\"AVG_PRICE\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"5\"," +
+                        "\"conditionUnit\":\"PERCENT\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요.",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-recruitment", List.of(new ParsedTask(
+                "create",
+                "recruitment",
+                "backend jobs",
+                "1건 이상 증가",
+                "",
+                "telegram",
+                "api",
+                "backend jobs",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "backend jobs telegram",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isEqualTo(1);
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.draft()).isNotNull();
+        assertThat(response.draft().domainLabel()).isEqualTo("채용");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "COUNT")
+                .containsEntry("conditionUnit", "COUNT");
+    }
+
+    @Test
+    @DisplayName("부동산 채널 대기 중 영어 단수 job 입력도 기존 draft 채널 선택으로 흡수하지 않는다")
+    void realEstateChannelWaitStartsNewConversationForEnglishSingularJobRequest() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-real-estate",
+                "강남구 아파트 매매 실거래가",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{" +
+                        "\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"," +
+                        "\"region\":\"강남구\"," +
+                        "\"conditionMetric\":\"AVG_PRICE\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"5\"," +
+                        "\"conditionUnit\":\"PERCENT\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요.",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-recruitment", List.of(new ParsedTask(
+                "create",
+                "recruitment",
+                "backend job",
+                "1건 이상 증가",
+                "",
+                "telegram",
+                "api",
+                "backend job",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "backend job, telegram",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isEqualTo(1);
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.draft()).isNotNull();
+        assertThat(response.draft().domainLabel()).isEqualTo("채용");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "COUNT")
+                .containsEntry("conditionUnit", "COUNT");
+    }
+
+    @Test
     @DisplayName("0건 채용 키워드 후보가 있으면 사용자 확인을 질문한다")
     void recruitmentDraftWithZeroResultKeywordSuggestionAsksForConfirmation() {
         SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
@@ -750,6 +1003,207 @@ class SubscriptionConversationServiceTest {
                 .containsEntry("recrut_pbanc_ttl", "백엔드")
                 .doesNotContainKey("keywordValidationStatus")
                 .doesNotContainKey("suggestedKeyword");
+    }
+
+    @Test
+    @DisplayName("채용 키워드 확인 중 부동산 입력은 키워드로 저장하지 않고 새 대화로 파싱한다")
+    void recruitmentKeywordConfirmationStartsNewConversationForRealEstateRequest() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-recruitment",
+                "벡엔드 채용 공고",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"," +
+                        "\"keyword\":\"벡엔드\"," +
+                        "\"recrut_pbanc_ttl\":\"벡엔드\"," +
+                        "\"keywordValidationStatus\":\"ZERO_RESULTS\"," +
+                        "\"keywordOriginal\":\"벡엔드\"," +
+                        "\"suggestedKeyword\":\"백엔드\"," +
+                        "\"conditionMetric\":\"COUNT\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"1\"," +
+                        "\"conditionUnit\":\"COUNT\"" +
+                        "}",
+                "0 0 * * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "현재 '벡엔드' 검색 결과가 없어요. '백엔드'를 뜻한 걸까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-real-estate", List.of(new ParsedTask(
+                "create",
+                "부동산",
+                "강남구 아파트 매매 실거래가",
+                "5% 이상 상승",
+                "",
+                "telegram",
+                "api",
+                "강남구 아파트 매매 실거래가 변동",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "강남구 아파트 매매 실거래가 5% 상승 텔레그램으로 알려줘",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isEqualTo(1);
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.draft()).isNotNull();
+        assertThat(response.draft().domainLabel()).isEqualTo("부동산");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "AVG_PRICE")
+                .containsEntry("conditionUnit", "PERCENT");
+    }
+
+    @Test
+    @DisplayName("채용 키워드 확인 중 채용 말고 부동산 입력은 부동산 새 대화로 파싱한다")
+    void recruitmentKeywordConfirmationUsesLastExplicitDomainInMixedDomainRequest() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-recruitment",
+                "벡엔드 채용 공고",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"," +
+                        "\"keyword\":\"벡엔드\"," +
+                        "\"recrut_pbanc_ttl\":\"벡엔드\"," +
+                        "\"keywordValidationStatus\":\"ZERO_RESULTS\"," +
+                        "\"keywordOriginal\":\"벡엔드\"," +
+                        "\"suggestedKeyword\":\"백엔드\"," +
+                        "\"conditionMetric\":\"COUNT\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"1\"," +
+                        "\"conditionUnit\":\"COUNT\"" +
+                        "}",
+                "0 0 * * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "현재 '벡엔드' 검색 결과가 없어요. '백엔드'를 뜻한 걸까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-real-estate", List.of(new ParsedTask(
+                "create",
+                "부동산",
+                "강남구 아파트 매매 실거래가",
+                "5% 이상 상승",
+                "",
+                "telegram",
+                "api",
+                "강남구 아파트 매매 실거래가 변동",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "채용 말고 강남구 아파트 매매 실거래가 5% 상승 텔레그램으로 알려줘",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isEqualTo(1);
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.draft()).isNotNull();
+        assertThat(response.draft().domainLabel()).isEqualTo("부동산");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "AVG_PRICE")
+                .containsEntry("conditionUnit", "PERCENT");
+    }
+
+    @Test
+    @DisplayName("채용 키워드 확인 중 아파트 직무 입력은 부동산 새 대화가 아니라 키워드로 저장한다")
+    void recruitmentKeywordConfirmationKeepsApartmentJobKeywordInRecruitmentDraft() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-recruitment",
+                "벡엔드 채용 공고",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"," +
+                        "\"keyword\":\"벡엔드\"," +
+                        "\"recrut_pbanc_ttl\":\"벡엔드\"," +
+                        "\"keywordValidationStatus\":\"ZERO_RESULTS\"," +
+                        "\"keywordOriginal\":\"벡엔드\"," +
+                        "\"suggestedKeyword\":\"백엔드\"," +
+                        "\"conditionMetric\":\"COUNT\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"1\"," +
+                        "\"conditionUnit\":\"COUNT\"" +
+                        "}",
+                "0 0 * * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "현재 '벡엔드' 검색 결과가 없어요. '백엔드'를 뜻한 걸까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-real-estate", List.of(realEstateTask(false)));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "아파트 경비",
+                null
+        );
+
+        assertThat(parseTaskUseCase.parseCallCount).isZero();
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().domainLabel()).isEqualTo("채용");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("keyword", "아파트 경비")
+                .containsEntry("recrut_pbanc_ttl", "아파트 경비")
+                .doesNotContainKeys("keywordValidationStatus", "keywordOriginal", "suggestedKeyword");
     }
 
     @Test
