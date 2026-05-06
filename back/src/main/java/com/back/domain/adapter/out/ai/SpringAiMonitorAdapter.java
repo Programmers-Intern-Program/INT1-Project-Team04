@@ -3,9 +3,14 @@ package com.back.domain.adapter.out.ai;
 import com.back.domain.application.port.out.RunAiMonitorPort;
 import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.service.SubscriptionContext;
+import com.back.global.error.ApiException;
+import com.back.global.error.ErrorCode;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,7 +64,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     public void execute(List<SubscriptionContext> subscriptions) {
         if (monitorChatClient == null) {
             log.warn("[SpringAiMonitorAdapter] ChatClient 미구성 — 구독 실행 스킵 ({}건)", subscriptions.size());
-            return;
+            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
         }
         if (subscriptions.isEmpty()) {
             return;
@@ -67,13 +72,76 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         log.info("[SpringAiMonitorAdapter] 구독 실행 요청 - {}건", subscriptions.size());
         try {
             String payload = objectMapper.writeValueAsString(subscriptions);
-            monitorChatClient.prompt()
+            String content = monitorChatClient.prompt()
                     .system(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
                     .user(payload)
                     .call()
                     .content();
+            verifyExecutionResponse(content, subscriptions);
         } catch (JsonProcessingException e) {
             log.error("[SpringAiMonitorAdapter] 구독 context 직렬화 실패", e);
+            throw new ApiException(ErrorCode.AI_PARSE_FAILED);
         }
+    }
+
+    private void verifyExecutionResponse(String content, List<SubscriptionContext> subscriptions) {
+        JsonNode resultsNode = readResultsNode(content);
+        Map<String, JsonNode> results = new HashMap<>();
+        resultsNode.forEach(node -> {
+            String subscriptionId = text(node, "subscriptionId", "subscription_id");
+            if (subscriptionId != null && !subscriptionId.isBlank()) {
+                results.put(subscriptionId, node);
+            }
+        });
+
+        for (SubscriptionContext subscription : subscriptions) {
+            JsonNode result = results.get(subscription.subscriptionId());
+            if (result == null || !isSuccessful(result)) {
+                throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+            }
+        }
+    }
+
+    private JsonNode readResultsNode(String content) {
+        if (content == null || content.isBlank()) {
+            throw new ApiException(ErrorCode.AI_PARSE_FAILED);
+        }
+        try {
+            JsonNode root = objectMapper.readTree(content);
+            JsonNode resultsNode = root.isArray() ? root : root.path("results");
+            if (!resultsNode.isArray()) {
+                throw new ApiException(ErrorCode.AI_PARSE_FAILED);
+            }
+            return resultsNode;
+        } catch (JsonProcessingException e) {
+            throw new ApiException(ErrorCode.AI_PARSE_FAILED);
+        }
+    }
+
+    private boolean isSuccessful(JsonNode node) {
+        boolean notificationRequired = bool(node, "notificationRequired", "notification_required");
+        return bool(node, "dataToolExecuted", "data_tool_executed")
+                && bool(node, "compareExecuted", "compare_executed", "compareSubscriptionChangeExecuted")
+                && (!notificationRequired || bool(node, "notificationSent", "notification_sent"));
+    }
+
+    private boolean bool(JsonNode node, String... names) {
+        for (String name : names) {
+            JsonNode value = node.get(name);
+            if (value != null && !value.isNull()) {
+                return value.asBoolean(false);
+            }
+        }
+        return false;
+    }
+
+    private String text(JsonNode node, String... names) {
+        for (String name : names) {
+            JsonNode value = node.get(name);
+            if (value != null && !value.isNull()) {
+                return value.asText();
+            }
+        }
+        return null;
     }
 }

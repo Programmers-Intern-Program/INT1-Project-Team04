@@ -86,6 +86,41 @@ class PromptTemplateTest {
     }
 
     @Test
+    @DisplayName("구독 실행 프롬프트는 최종 실행 증빙 JSON 응답 계약을 포함한다")
+    void subscriptionExecutionPromptRequiresFinalExecutionEvidenceJson() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("최종 응답")
+                .contains("JSON만 반환")
+                .contains("subscriptionId")
+                .contains("dataToolExecuted")
+                .contains("compareExecuted")
+                .contains("notificationRequired")
+                .contains("notificationSent");
+    }
+
+    @Test
+    @DisplayName("구독 실행 프롬프트는 캐시 가능한 모든 데이터 도구에서 최신 캐시를 우선 사용하게 한다")
+    void subscriptionExecutionPromptUsesFreshCacheBeforeFetchForCacheableTools() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("모든 캐시 가능한 데이터 도구")
+                .contains("check_api_cache")
+                .contains("get_cached_data")
+                .contains("신선한 cache_hit")
+                .contains("외부 데이터 도구를 호출하지 마세요")
+                .contains("search_house_price")
+                .contains("search_apt_rent")
+                .contains("search_offi_trade")
+                .contains("search_offi_rent")
+                .contains("search_rh_trade")
+                .contains("search_rh_rent")
+                .contains("search_law_info")
+                .contains("search_bill_info")
+                .contains("search_g2b_bid")
+                .contains("search_public_job")
+                .contains("search_worknet_job");
+    }
+
+    @Test
     @DisplayName("구독 실행 프롬프트는 MCP가 AI 분석 필요로 표시한 경우에만 브리핑을 생성한다")
     void subscriptionExecutionPromptUsesAiAnalysisGateFromMcp() {
         assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)

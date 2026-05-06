@@ -62,18 +62,24 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
         }
         log.info("[SubscriptionMonitorService] 구독 실행 시작 - {}건", dueSchedules.size());
 
-        List<SubscriptionContext> contexts = dueSchedules.stream()
-                .map(schedule -> {
-                    Optional<SubscriptionMonitoringConfig> config =
-                            loadSubscriptionMonitoringConfigPort.loadBySubscriptionId(schedule.subscription().id());
-                    return buildContext(schedule, config, now);
-                })
-                .toList();
+        dueSchedules.forEach(schedule -> executeSchedule(schedule, now));
+    }
 
-        runSubscriptionExecutionPort.execute(contexts);
-
-        // MCP server가 실행을 위임받은 후 Spring Boot는 nextRun만 업데이트
-        dueSchedules.forEach(schedule -> advanceSchedule(schedule, now));
+    private void executeSchedule(Schedule schedule, LocalDateTime now) {
+        Optional<SubscriptionMonitoringConfig> config =
+                loadSubscriptionMonitoringConfigPort.loadBySubscriptionId(schedule.subscription().id());
+        SubscriptionContext context = buildContext(schedule, config, now);
+        try {
+            runSubscriptionExecutionPort.execute(List.of(context));
+            advanceSchedule(schedule, now);
+        } catch (RuntimeException e) {
+            log.warn(
+                    "[SubscriptionMonitorService] 구독 실행 실패 - 스케줄 갱신 스킵. scheduleId={}, subscriptionId={}",
+                    schedule.id(),
+                    schedule.subscription().id(),
+                    e
+            );
+        }
     }
 
     private SubscriptionContext buildContext(

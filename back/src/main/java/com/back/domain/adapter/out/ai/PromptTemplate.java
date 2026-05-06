@@ -166,9 +166,12 @@ target 작성 규칙:
 필수 처리 흐름:
 - 전체 흐름은 데이터 도구 -> compare_subscription_change -> send_notification 순서입니다.
 - 구독 params.dataToolName이 있으면 그 도구를 우선 선택하세요.
+- 모든 캐시 가능한 데이터 도구는 fetch 전에 check_api_cache를 먼저 호출하세요.
+- 캐시 가능한 데이터 도구: search_house_price, search_apt_rent, search_offi_trade, search_offi_rent, search_rh_trade, search_rh_rent, search_law_info, search_bill_info, search_g2b_bid, search_public_job, search_worknet_job.
+- 신선한 cache_hit이면 get_cached_data를 사용하고 외부 데이터 도구를 호출하지 마세요.
+- 캐시가 없거나 도메인 기준상 오래되었으면 해당 데이터 도구를 호출하세요.
+- 캐시 신선도는 도메인 특성에 맞춰 판단하세요. 채용은 일 단위, 경매는 시간 단위, 법률은 주 단위, 부동산은 거래연월 단위, 의안은 대수 단위입니다.
 - 채용 도메인에서는 search_public_job(공공채용)과 search_worknet_job(워크넷)을 채용 데이터 도구로 사용합니다.
-- 채용 데이터 도구를 호출하기 전에 check_api_cache를 먼저 호출하세요. 채용 캐시는 일 단위로 판단하며, 신선한 cache_hit이면 get_cached_data를 사용하고 외부 데이터 도구를 호출하지 마세요.
-- 캐시가 없거나 오래되었으면 해당 채용 데이터 도구를 호출하세요.
 - search_worknet_job 또는 get_cached_data(search_worknet_job) 응답이 structured.permission_denied=true 또는 metadata.api_status="permission_denied"이면 Worknet 결과만 건너뛰세요. 이 경우 공공채용 등 사용 가능한 다른 채용 데이터가 있으면 전체 채용 구독 실행은 계속 진행하세요.
 - 데이터 조회 실패 시 해당 구독은 건너뛰고 compare_subscription_change와 send_notification을 호출하지 마세요.
 - compare_subscription_change에는 데이터 도구 응답과 구독의 params/condition을 기준으로 변화 비교에 필요한 값을 전달하세요.
@@ -201,6 +204,27 @@ target 작성 규칙:
 - 알림은 반드시 notificationTarget에 전달하세요.
 - send_notification의 알림 본문에는 사용자가 바로 이해할 수 있는 간결한 한국어 AI 브리핑을 담으세요.
 - send_notification 결과의 structured.sent가 true일 때만 알림 발송 성공으로 판단하세요.
+
+최종 응답:
+- 모든 구독 처리를 마친 뒤 assistant 응답은 아래 JSON만 반환하세요. 다른 자연어를 붙이지 마세요.
+- dataToolExecuted는 데이터 도구 또는 get_cached_data가 성공 응답을 반환했을 때만 true입니다.
+- compareExecuted는 해당 구독에 대해 compare_subscription_change를 실제 호출했을 때만 true입니다.
+- notificationRequired는 compare 결과상 알림 발송이 필요한 경우에만 true입니다.
+- notificationSent는 send_notification 결과의 structured.sent=true를 확인했을 때만 true입니다.
+
+{
+  "results": [
+    {
+      "subscriptionId": "구독 ID",
+      "dataToolExecuted": true,
+      "compareExecuted": true,
+      "notificationRequired": false,
+      "notificationSent": false,
+      "status": "BASELINE_INITIALIZED | NO_CHANGE | NOTIFIED | SKIPPED | FAILED",
+      "reason": "짧은 실행 요약"
+    }
+  ]
+}
 """;
 
     public static String buildUserPrompt(String userInput) {

@@ -48,13 +48,11 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
 /**
  * [Domain Service] 예약된 스케줄에 따라 AI 분석 및 알림을 총괄하는 Service
  * * 비즈니스 로직의 오케스트레이터 역할
  */
-@Service
 @RequiredArgsConstructor
 @Slf4j
 public class ScheduleExecutionService implements RunDueSchedulesUseCase {

@@ -20,9 +20,11 @@ import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.port.out.NormalizeSubscriptionDraftPort;
+import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
+import com.back.domain.application.service.SubscriptionContext;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.mcp.McpServer;
 import com.back.domain.model.mcp.McpTool;
@@ -31,6 +33,8 @@ import com.back.domain.model.notification.NotificationEndpoint;
 import com.back.domain.model.subscription.SubscriptionConversationStatus;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +55,8 @@ class SubscriptionConversationServiceTest {
     private final LoadDomainPort loadDomainPort = new FakeLoadDomainPort();
     private final LoadNotificationEndpointPort loadNotificationEndpointPort =
             (userId, channel) -> Optional.empty();
+    private final FakeRunSubscriptionExecutionPort runSubscriptionExecutionPort =
+            new FakeRunSubscriptionExecutionPort();
 
     @Test
     @DisplayName("새 메시지는 인증 사용자 id로 파싱하고 누락된 채널을 질문한다")
@@ -1480,7 +1486,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("확정된 준비 초안은 구독을 생성하고 모니터링 설정을 저장한다")
+    @DisplayName("확정된 준비 초안은 구독과 모니터링 설정 저장 후 baseline을 초기화한다")
     void confirmCreatesSubscriptionAndMonitoringConfig() {
         SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
         readyConversation.updateParsedDraft(
@@ -1531,6 +1537,15 @@ class SubscriptionConversationServiceTest {
                 ArgumentCaptor.forClass(SubscriptionMonitoringConfigJpaEntity.class);
         verify(monitoringConfigRepository).save(captor.capture());
         assertThat(captor.getValue().getToolName()).isEqualTo("search_house_price");
+        assertThat(runSubscriptionExecutionPort.contexts).hasSize(1);
+        SubscriptionContext baselineContext = runSubscriptionExecutionPort.contexts.getFirst();
+        assertThat(baselineContext.subscriptionId()).isEqualTo("sub-1");
+        assertThat(baselineContext.domain()).isEqualTo("real-estate");
+        assertThat(baselineContext.params())
+                .containsEntry("region", "강남구")
+                .containsEntry("deal_ymd", latestAvailableDealYmd());
+        assertThat(baselineContext.notificationChannel()).isEqualTo("TELEGRAM_DM");
+        assertThat(baselineContext.notificationTarget()).isEqualTo("123456789");
     }
 
     @Test
@@ -1680,8 +1695,13 @@ class SubscriptionConversationServiceTest {
                 endpointPort,
                 conversationRepository,
                 monitoringConfigRepository,
-                new ObjectMapper()
+                new ObjectMapper(),
+                runSubscriptionExecutionPort
         );
+    }
+
+    private static String latestAvailableDealYmd() {
+        return LocalDateTime.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyyMM"));
     }
 
     private static McpTool mcpTool(String name) {
@@ -1963,6 +1983,16 @@ class SubscriptionConversationServiceTest {
 
         private static boolean isBlank(String value) {
             return value == null || value.isBlank();
+        }
+    }
+
+    private static class FakeRunSubscriptionExecutionPort implements RunSubscriptionExecutionPort {
+        private final List<SubscriptionContext> contexts = new ArrayList<>();
+
+        @Override
+        public void execute(List<SubscriptionContext> subscriptions) {
+            contexts.clear();
+            contexts.addAll(subscriptions);
         }
     }
 
