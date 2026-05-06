@@ -13,11 +13,11 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-@DisplayName("Application: ParsedTask normalizer")
+@DisplayName("Application: ParsedTask 정규화 테스트")
 class ParsedTaskNormalizerTest {
 
     @Test
-    @DisplayName("does not fallback to backend domain parsing when MCP normalization is unavailable")
+    @DisplayName("MCP 정규화가 불가능하면 백엔드 도메인 파싱으로 fallback하지 않는다")
     void doesNotFallbackWhenMcpNormalizationIsUnavailable() {
         NormalizeSubscriptionDraftPort mcpNormalizer = (task, userMessage, previousDraft) -> Optional.empty();
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(mcpNormalizer);
@@ -32,7 +32,7 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
-    @DisplayName("merges MCP domain draft with internal check schedule and explicitly mentioned channel")
+    @DisplayName("MCP 도메인 초안에 내부 확인 주기와 명시 채널을 합성한다")
     void mergesMcpDomainDraftWithExplicitConversationFields() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(returning(domainDraft(
                 "강남구 아파트 매매 실거래가",
@@ -65,7 +65,7 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
-    @DisplayName("keeps MCP missing fields and does not accept parser default channel")
+    @DisplayName("MCP missing field를 유지하고 파서 기본 채널은 확정하지 않는다")
     void ignoresImplicitDefaultChannel() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(returning(domainDraft(
                 "강남구 아파트 매매 실거래가",
@@ -85,7 +85,7 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
-    @DisplayName("uses internal check schedule instead of asking for cadence")
+    @DisplayName("사용자에게 주기를 묻지 않고 내부 확인 주기를 사용한다")
     void usesInternalCheckScheduleInsteadOfAskingForCadence() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(returning(domainDraft(
                 "강남구 아파트 매매 실거래가",
@@ -107,7 +107,30 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
-    @DisplayName("reuses previous channel when MCP keeps the same domain")
+    @DisplayName("MCP 질문이 없으면 채용 전용 fallback 질문을 사용한다")
+    void usesRecruitmentFallbackQuestionWhenMcpQuestionIsBlank() {
+        ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(returning(new DomainNormalizedSubscriptionDraft(
+                "채용 알려줘",
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                Map.of("dataToolName", "search_public_job"),
+                List.of("keyword", "condition"),
+                "",
+                0.91
+        )));
+
+        SubscriptionDraft draft = normalizer.normalize(
+                recruitmentTask("채용 알려줘", ""),
+                "채용 알려줘"
+        );
+
+        assertThat(draft.assistantMessage()).contains("어떤 채용 공고");
+        assertThat(draft.assistantMessage()).doesNotContain("가격");
+    }
+
+    @Test
+    @DisplayName("MCP 결과가 같은 도메인이면 이전 채널을 재사용한다")
     void reusesPreviousConversationFieldsForSameDomain() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(returning(domainDraft(
                 "강남구 아파트 매매 실거래가",
@@ -150,7 +173,7 @@ class ParsedTaskNormalizerTest {
     }
 
     @Test
-    @DisplayName("does not append channel question for unsupported MCP drafts")
+    @DisplayName("지원하지 않는 MCP 초안에는 채널 질문을 덧붙이지 않는다")
     void doesNotAppendConversationFieldsForUnsupportedDrafts() {
         ParsedTaskNormalizer normalizer = new ParsedTaskNormalizer(returning(new DomainNormalizedSubscriptionDraft(
                 "강남구 아파트 전세",
@@ -205,6 +228,23 @@ class ParsedTaskNormalizerTest {
                 condition,
                 "0 9 * * *",
                 "telegram",
+                "api",
+                query,
+                List.of(),
+                0.9,
+                false,
+                ""
+        );
+    }
+
+    private ParsedTask recruitmentTask(String query, String condition) {
+        return new ParsedTask(
+                "create",
+                "채용",
+                query,
+                condition,
+                "",
+                "",
                 "api",
                 query,
                 List.of(),

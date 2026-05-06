@@ -94,7 +94,7 @@ public class ParsedTaskNormalizer {
                 channel,
                 targetAddress,
                 missing,
-                assistantQuestion(missing, domainDraft.assistantMessage()),
+                assistantQuestion(domainName, missing, domainDraft.assistantMessage()),
                 confidence
         );
     }
@@ -113,7 +113,15 @@ public class ParsedTaskNormalizer {
         return null;
     }
 
-    private String assistantQuestion(List<String> missing) {
+    private String assistantQuestion(String domainName, List<String> missing) {
+        if ("recruitment".equals(domainName)) {
+            if (missing.contains("keyword")) {
+                return "어떤 채용 공고를 구독할까요? 예: 백엔드, 데이터, 공공기관 인턴 등";
+            }
+            if (missing.contains("condition")) {
+                return "어떤 채용 공고 변화가 생기면 알림을 받을까요? 예: 새 공고 1건 이상 등록 등";
+            }
+        }
         if (missing.contains("region")) {
             return "어느 지역의 아파트 매매 실거래가를 확인할까요?";
         }
@@ -129,11 +137,11 @@ public class ParsedTaskNormalizer {
         return "";
     }
 
-    private String assistantQuestion(List<String> missing, String mcpQuestion) {
+    private String assistantQuestion(String domainName, List<String> missing, String mcpQuestion) {
         if (!isBlank(mcpQuestion)) {
             return mcpQuestion;
         }
-        return assistantQuestion(missing);
+        return assistantQuestion(domainName, missing);
     }
 
     private boolean containsUnsupported(List<String> missing) {

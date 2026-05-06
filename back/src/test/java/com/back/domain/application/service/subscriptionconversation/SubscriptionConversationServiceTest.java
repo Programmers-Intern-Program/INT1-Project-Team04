@@ -39,7 +39,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-@DisplayName("Application: subscription conversation service")
+@DisplayName("Application: 구독 대화 서비스 테스트")
 class SubscriptionConversationServiceTest {
 
     private final SubscriptionConversationJpaRepository conversationRepository =
@@ -53,7 +53,7 @@ class SubscriptionConversationServiceTest {
             (userId, channel) -> Optional.empty();
 
     @Test
-    @DisplayName("new message parses with authenticated user id and asks missing channel")
+    @DisplayName("새 메시지는 인증 사용자 id로 파싱하고 누락된 채널을 질문한다")
     void newMessageParsesWithAuthenticatedUserId() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
@@ -76,7 +76,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("parser needsConfirmation question is surfaced and continued with parseSessionId")
+    @DisplayName("파서 확인 질문을 표시하고 parseSessionId로 대화를 이어간다")
     void continuesParserConfirmationSession() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
@@ -127,7 +127,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("follow-up parser result keeps previously selected channel and internal check schedule")
+    @DisplayName("후속 파서 결과는 이전 선택 채널과 내부 확인 주기를 유지한다")
     void followUpKeepsPreviousCadenceAndChannel() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
@@ -183,7 +183,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("percent condition answer keeps deal type confirmation before channel")
+    @DisplayName("퍼센트 조건 답변 후에도 채널보다 거래 유형 확인을 먼저 유지한다")
     void percentConditionAnswerKeepsDealTypeBeforeChannel() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
@@ -224,7 +224,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("percent condition answer keeps ambiguous apartment deal type unresolved")
+    @DisplayName("퍼센트 조건 답변은 모호한 아파트 거래 유형을 확정하지 않는다")
     void percentConditionAnswerKeepsAmbiguousApartmentDealTypeUnresolved() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
@@ -266,7 +266,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("percent condition answer keeps the current ambiguous conversation even when MCP tool is not resolved yet")
+    @DisplayName("MCP tool이 아직 없어도 퍼센트 조건 답변은 현재 모호한 대화를 유지한다")
     void percentConditionAnswerKeepsAmbiguousConversationWithoutResolvedTool() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
@@ -325,7 +325,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("needsConfirmation parser result asks the parser question without quick actions")
+    @DisplayName("needsConfirmation 파서 결과는 quick action 없이 파서 질문을 표시한다")
     void asksParserConfirmationQuestion() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(true)));
@@ -344,18 +344,334 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("planned domain does not create subscription")
-    void plannedDomainDoesNotCreateSubscription() {
+    @DisplayName("공고 수 조건이 있는 채용 요청은 확인 단계로 진행한다")
+    void recruitmentRequestWithCountConditionAdvancesToConfirmation() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(new ParsedTask(
                 "create",
                 "채용",
-                "카카오 백엔드 채용공고",
-                "경력 3년 이하",
+                "백엔드 채용 새 공고",
+                "1건 이상 증가",
+                "0 9 * * *",
+                "telegram",
+                "api",
+                "백엔드 채용 공고",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                null,
+                "백엔드 채용 새 공고 뜨면 텔레그램으로 알려줘",
+                null
+        );
+
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().domainLabel()).isEqualTo("채용");
+        assertThat(response.draft().intent()).isEqualTo("job_posting_change");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("dataToolName", "search_public_job")
+                .containsEntry("keyword", "백엔드")
+                .containsEntry("conditionMetric", "COUNT")
+                .containsEntry("conditionUnit", "COUNT");
+        assertThat(response.actions()).extracting(SubscriptionConversationService.ActionOption::type)
+                .contains("CONFIRM_SUBSCRIPTION");
+        assertThat(createSubscriptionUseCase.receivedCommand).isNull();
+    }
+
+    @Test
+    @DisplayName("키워드가 없는 채용 초안은 채널 선택 후 채용 대상을 질문한다")
+    void recruitmentDraftWithoutKeywordAsksRecruitmentTargetAfterSelectingChannel() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "채용 알려줘",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"," +
+                        "\"conditionMetric\":\"COUNT\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"1\"," +
+                        "\"conditionUnit\":\"COUNT\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요.",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("SELECT_CHANNEL", "TELEGRAM_DM")
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("어떤 채용 공고");
+        assertThat(response.assistantMessage()).doesNotContain("가격");
+        assertThat(createSubscriptionUseCase.receivedCommand).isNull();
+    }
+
+    @Test
+    @DisplayName("조건이 없는 채용 초안은 채용 변화 조건을 질문한다")
+    void recruitmentDraftWithoutConditionAsksRecruitmentChangeCondition() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "백엔드 채용",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"," +
+                        "\"keyword\":\"백엔드\"," +
+                        "\"recrut_pbanc_ttl\":\"백엔드\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요.",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("SELECT_CHANNEL", "TELEGRAM_DM")
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("채용 공고 변화");
+        assertThat(response.assistantMessage()).doesNotContain("가격");
+        assertThat(createSubscriptionUseCase.receivedCommand).isNull();
+    }
+
+    @Test
+    @DisplayName("채용 조건 답변은 부동산 가격 파서로 완료하지 않는다")
+    void recruitmentConditionAnswerIsNotCompletedByRealEstatePriceParser() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "백엔드 채용",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"," +
+                        "\"keyword\":\"백엔드\"," +
+                        "\"recrut_pbanc_ttl\":\"백엔드\"" +
+                        "}",
+                "0 0 * * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "어떤 채용 공고 변화가 생기면 알림을 받을까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(new ParsedTask(
+                "create",
+                "채용",
+                "백엔드 채용 새 공고",
+                "1건 이상 증가",
+                "",
+                "",
+                "api",
+                "백엔드 채용 공고",
+                List.of(),
+                0.9,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "5% 상승",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isEqualTo(1);
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "COUNT")
+                .containsEntry("conditionUnit", "COUNT");
+    }
+
+    @Test
+    @DisplayName("0건 채용 키워드 후보가 있으면 사용자 확인을 질문한다")
+    void recruitmentDraftWithZeroResultKeywordSuggestionAsksForConfirmation() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "벡엔드 채용 공고",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"keyword\":\"벡엔드\"," +
+                        "\"recrut_pbanc_ttl\":\"벡엔드\"," +
+                        "\"keywordValidationStatus\":\"ZERO_RESULTS\"," +
+                        "\"suggestedKeyword\":\"백엔드\"," +
+                        "\"conditionMetric\":\"COUNT\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"1\"," +
+                        "\"conditionUnit\":\"COUNT\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "알림을 받을 채널을 선택해 주세요.",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("SELECT_CHANNEL", "TELEGRAM_DM")
+        );
+
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("벡엔드");
+        assertThat(response.assistantMessage()).contains("백엔드");
+        assertThat(response.assistantMessage()).doesNotContain("가격");
+    }
+
+    @Test
+    @DisplayName("긍정 답변은 채용 키워드 후보를 적용한다")
+    void affirmativeAnswerAcceptsRecruitmentKeywordSuggestion() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "벡엔드 채용 공고",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"keyword\":\"벡엔드\"," +
+                        "\"recrut_pbanc_ttl\":\"벡엔드\"," +
+                        "\"keywordValidationStatus\":\"ZERO_RESULTS\"," +
+                        "\"suggestedKeyword\":\"백엔드\"," +
+                        "\"conditionMetric\":\"COUNT\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"1\"," +
+                        "\"conditionUnit\":\"COUNT\"" +
+                        "}",
+                "0 0 * * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "현재 '벡엔드' 검색 결과가 없어요. '백엔드'를 뜻한 걸까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(new ParsedTask(
+                "reject",
+                "기타",
+                "응",
+                "",
+                "",
+                "",
+                "",
+                "응",
+                List.of(),
+                0.1,
+                false,
+                ""
+        )));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "응",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("keyword", "백엔드")
+                .containsEntry("recrut_pbanc_ttl", "백엔드")
+                .doesNotContainKey("keywordValidationStatus")
+                .doesNotContainKey("suggestedKeyword");
+    }
+
+    @Test
+    @DisplayName("기획 상태 도메인은 구독을 생성하지 않는다")
+    void plannedDomainDoesNotCreateSubscription() {
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(new ParsedTask(
+                "create",
+                "법률",
+                "개인정보보호법 개정",
+                "1건 이상 증가",
                 "0 * * * *",
                 "email",
-                "crawl",
-                "카카오 백엔드 채용공고",
+                "api",
+                "개인정보보호법 개정",
                 List.of(),
                 0.9,
                 false,
@@ -366,7 +682,7 @@ class SubscriptionConversationServiceTest {
         SubscriptionConversationService.Response response = service.handle(
                 1L,
                 null,
-                "카카오 채용공고 이메일로 매시간 알려줘",
+                "개인정보보호법 개정되면 이메일로 알려줘",
                 null
         );
 
@@ -378,7 +694,7 @@ class SubscriptionConversationServiceTest {
     // withStoredMcpTool()이 Spring AI 위임으로 제거됨 → toolName은 더 이상 저장되지 않음
 
     @Test
-    @DisplayName("explicit unconnected DM channel asks for connection before confirmation")
+    @DisplayName("연결되지 않은 DM 채널을 명시하면 확인 전에 연결을 요구한다")
     void explicitUnconnectedDmChannelAsksForConnectionBeforeConfirmation() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
@@ -398,7 +714,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("ambiguous apartment change request asks for a deal type instead of becoming ready")
+    @DisplayName("모호한 아파트 변경 요청은 확인 단계 대신 거래 유형을 질문한다")
     void ambiguousApartmentChangeRequestAsksForDealType() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(new ParsedTask(
@@ -434,7 +750,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("generic apartment price request asks for deal type before condition")
+    @DisplayName("일반 아파트 가격 요청은 조건보다 거래 유형을 먼저 질문한다")
     void genericApartmentPriceRequestAsksForDealTypeBeforeCondition() {
         when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         parseTaskUseCase.parseResult = new ParseResult("parse-1", List.of(new ParsedTask(
@@ -467,7 +783,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("pending deal type confirmation accepts short trade answer without AI continuation")
+    @DisplayName("거래 유형 확인 대기는 AI 이어가기 없이 짧은 매매 답변을 수락한다")
     void pendingDealTypeConfirmationAcceptsShortTradeAnswer() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
         savedConversation.updateParsedDraft(
@@ -516,7 +832,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("unsupported draft starts a new parse for the next free text message")
+    @DisplayName("지원하지 않는 초안 뒤의 자유 입력은 새 파싱을 시작한다")
     void unsupportedDraftStartsNewParseForNextMessage() {
         SubscriptionConversationJpaEntity unsupportedConversation = new SubscriptionConversationJpaEntity(1L);
         unsupportedConversation.updateParsedDraft(
@@ -566,7 +882,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("confirmed ready draft creates subscription and saves monitoring config")
+    @DisplayName("확정된 준비 초안은 구독을 생성하고 모니터링 설정을 저장한다")
     void confirmCreatesSubscriptionAndMonitoringConfig() {
         SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
         readyConversation.updateParsedDraft(
@@ -620,7 +936,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("ready draft without condition asks for condition instead of creating subscription")
+    @DisplayName("조건이 없는 준비 초안은 구독 생성 대신 조건을 질문한다")
     void readyDraftWithoutConditionAsksForConditionInsteadOfCreatingSubscription() {
         SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
         readyConversation.updateParsedDraft(
@@ -658,7 +974,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("selecting a connected channel advances the draft to confirmation")
+    @DisplayName("연결된 채널을 선택하면 초안이 확인 단계로 진행한다")
     void selectingConnectedChannelAdvancesToConfirmation() {
         SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
         conversation.updateParsedDraft(
@@ -696,7 +1012,7 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("typed channel answer is handled locally instead of reparsing as a new request")
+    @DisplayName("채널 직접 입력은 새 요청으로 재파싱하지 않고 로컬에서 처리한다")
     void typedChannelAnswerIsHandledLocally() {
         SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
         conversation.updateParsedDraft(
@@ -838,6 +1154,9 @@ class SubscriptionConversationServiceTest {
                         task.confidence()
                 ));
             }
+            if ("recruitment".equals(domainName)) {
+                return Optional.of(recruitmentDraft(query, task, userMessage));
+            }
             if (!"real-estate".equals(domainName)) {
                 return Optional.of(new DomainNormalizedSubscriptionDraft(
                         query,
@@ -886,6 +1205,87 @@ class SubscriptionConversationServiceTest {
                     questionForMissing(missing),
                     task.confidence()
             ));
+        }
+
+        private static DomainNormalizedSubscriptionDraft recruitmentDraft(
+                String query,
+                ParsedTask task,
+                String userMessage
+        ) {
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("dataToolName", "search_public_job");
+            params.put("page_no", "1");
+            params.put("num_of_rows", "20");
+            params.put("ongoing_yn", "Y");
+
+            String keyword = recruitmentKeyword(query, task.target());
+            if (!isBlank(keyword)) {
+                params.put("keyword", keyword);
+                params.put("recrut_pbanc_ttl", keyword);
+            }
+
+            params.putAll(recruitmentConditionParams(task.condition(), userMessage, task.target()));
+
+            List<String> missing = new java.util.ArrayList<>();
+            if (!params.containsKey("keyword")) {
+                missing.add("keyword");
+            }
+            if (StructuredCondition.fromParameters(params).isEmpty()) {
+                missing.add("condition");
+            }
+
+            return new DomainNormalizedSubscriptionDraft(
+                    query,
+                    "recruitment",
+                    "job_posting_change",
+                    "search_public_job",
+                    params,
+                    missing,
+                    recruitmentQuestionForMissing(missing),
+                    task.confidence()
+            );
+        }
+
+        private static String recruitmentKeyword(String query, String target) {
+            String text = !isBlank(query) ? query : target;
+            if (isBlank(text)) {
+                return "";
+            }
+            String keyword = text
+                    .replace("진행중 공고", "")
+                    .replace("새 공고", "")
+                    .replace("신규 공고", "")
+                    .replace("채용", "")
+                    .replace("공고", "")
+                    .trim();
+            if (keyword.startsWith("공공기관 ")) {
+                keyword = keyword.substring("공공기관 ".length()).trim();
+            }
+            return keyword;
+        }
+
+        private static Map<String, String> recruitmentConditionParams(
+                String condition,
+                String userMessage,
+                String target
+        ) {
+            String text = (condition == null ? "" : condition) + " "
+                    + (userMessage == null ? "" : userMessage) + " "
+                    + (target == null ? "" : target);
+            if (!containsAny(text, "새 공고", "신규", "등록", "증가", "늘면", "이상")) {
+                return Map.of();
+            }
+            String threshold = condition == null ? "" : condition.replaceAll("[^0-9.]", "");
+            if (threshold.isBlank()) {
+                threshold = "1";
+            }
+            return Map.of(
+                    "conditionMetric", text.contains("진행중") ? "ONGOING_COUNT" : "COUNT",
+                    "conditionDirection", "UP",
+                    "conditionOperator", "GTE",
+                    "conditionThreshold", threshold,
+                    "conditionUnit", "COUNT"
+            );
         }
 
         private static Map<String, String> conditionParams(String condition) {
@@ -939,6 +1339,16 @@ class SubscriptionConversationServiceTest {
             }
             if (missing.contains("condition")) {
                 return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
+            }
+            return "";
+        }
+
+        private static String recruitmentQuestionForMissing(List<String> missing) {
+            if (missing.contains("keyword")) {
+                return "어떤 채용 공고를 구독할까요? 예: 백엔드, 데이터, 공공기관 인턴 등";
+            }
+            if (missing.contains("condition")) {
+                return "어떤 채용 공고 변화가 생기면 알림을 받을까요? 예: 새 공고 1건 이상 등록 등";
             }
             return "";
         }
