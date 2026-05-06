@@ -32,7 +32,7 @@ dependencyManagement {
 
 dependencies {
     // Rate limiting
-    implementation("com.google.guava:guava:33.4.8-jre")
+    implementation("com.bucket4j:bucket4j-core:8.14.0")
 
     // Web & Core
     implementation("org.springframework.boot:spring-boot-starter-webmvc")

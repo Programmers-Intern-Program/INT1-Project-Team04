@@ -5,7 +5,9 @@ import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.service.SubscriptionContext;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.util.concurrent.RateLimiter;
+import io.github.bucket4j.Bandwidth;
+import io.github.bucket4j.Bucket;
+import java.time.Duration;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -22,7 +24,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     private final ChatClient monitorChatClient;
     private final ObjectMapper objectMapper;
     private final int batchSize;
-    private final RateLimiter rateLimiter;
+    private final Bucket bucket;
 
     // [레버 1] system prompt로 tool 호출 순서/조건 유도
     // [레버 2] MCP tool description에 순서/조건 명시 → Python 담당자 담당
@@ -45,7 +47,12 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         this.monitorChatClient = monitorChatClient;
         this.objectMapper = objectMapper;
         this.batchSize = batchSize;
-        this.rateLimiter = RateLimiter.create((double) rpmLimit / 60);
+        this.bucket = Bucket.builder()
+                .addLimit(Bandwidth.builder()
+                        .capacity(rpmLimit)
+                        .refillGreedy(rpmLimit, Duration.ofMinutes(1))
+                        .build())
+                .build();
     }
 
     @Override
@@ -83,7 +90,13 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     }
 
     private void executeBatch(List<SubscriptionContext> batch, int batchIndex, int totalBatches) {
-        rateLimiter.acquire();
+        try {
+            bucket.asBlocking().consume(1);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[SpringAiMonitorAdapter] 배치 {}/{} 인터럽트 — 스킵", batchIndex, totalBatches);
+            return;
+        }
         try {
             log.info("[SpringAiMonitorAdapter] 배치 {}/{} 실행 - {}건", batchIndex, totalBatches, batch.size());
             String payload = objectMapper.writeValueAsString(batch);
