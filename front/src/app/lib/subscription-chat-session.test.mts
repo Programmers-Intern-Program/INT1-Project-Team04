@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  STALE_CONVERSATION_MESSAGE,
   SUBSCRIPTION_CHAT_SESSION_TTL_MS,
   decodeSubscriptionChatSession,
   encodeSubscriptionChatSession,
+  isStaleConversationError,
   type SubscriptionChatSessionSnapshot,
 } from "./subscription-chat-session.ts";
 
@@ -55,5 +57,25 @@ describe("subscription chat session persistence", () => {
       null,
     );
     assert.equal(decodeSubscriptionChatSession("{", 1_000), null);
+  });
+
+  it("detects stale conversation errors only when an old conversation id was sent", () => {
+    assert.equal(
+      isStaleConversationError({ code: "SESSION_NOT_FOUND", message: "세션을 찾을 수 없습니다." }, "conversation-1"),
+      true,
+    );
+    assert.equal(
+      isStaleConversationError({ code: "INVALID_REQUEST", message: "요청 값이 올바르지 않습니다." }, "conversation-1"),
+      true,
+    );
+    assert.equal(
+      isStaleConversationError({ code: "INVALID_REQUEST", message: "요청 값이 올바르지 않습니다." }, null),
+      false,
+    );
+    assert.equal(
+      isStaleConversationError({ code: "INSUFFICIENT_TOKEN", message: "토큰이 부족합니다." }, "conversation-1"),
+      false,
+    );
+    assert.equal(STALE_CONVERSATION_MESSAGE, "이전 대화가 만료되어 새로 시작할게요.");
   });
 });
