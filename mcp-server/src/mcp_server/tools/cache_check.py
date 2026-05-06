@@ -216,6 +216,7 @@ def _format_bill_info(content: str, cached_at: datetime, params: dict) -> dict[s
 def _format_public_job(content: str, cached_at: datetime, params: dict) -> dict[str, Any]:
     records = normalize_public_job(content)
     filtered = records
+    # 채용 캐시는 bulk 원천 데이터라 구독 조건 필터를 formatter에서 재적용한다.
     ongoing_yn = _optional_text(params.get("ongoing_yn") or params.get("ongoingYn"))
     keyword = _optional_text(params.get("recrut_pbanc_ttl") or params.get("recrutPbancTtl"))
     if ongoing_yn == "Y":
@@ -271,6 +272,7 @@ def _format_worknet_job(content: str, cached_at: datetime, params: dict) -> dict
     try:
         records = normalize_worknet_job(content)
     except WorknetPermissionDeniedError:
+        # 권한 거부 캐시는 Worknet source만 제외할 수 있도록 structured에도 표시한다.
         return {
             "text": "워크넷 채용공고: 사업자/기관 회원 권한 필요 (캐시된 권한 거부 응답).",
             "structured": {
@@ -296,6 +298,7 @@ def _format_worknet_job(content: str, cached_at: datetime, params: dict) -> dict
         }
 
     filtered = records
+    # Worknet도 API 호출은 wide fetch이고, 구독 keyword는 캐시 읽기 단계에서 적용한다.
     keyword = _optional_text(params.get("keyword"))
     if keyword:
         filtered = [
