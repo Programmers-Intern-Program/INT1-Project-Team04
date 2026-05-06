@@ -74,6 +74,99 @@ def extract_current_summary(current: dict[str, Any]) -> dict[str, Any]:
     raise ValueError("current.structured 또는 current.structured.summary 가 필요합니다.")
 
 
+def normalize_current_response(current: dict[str, Any]) -> dict[str, Any]:
+    """current.sources 계약을 단일 MCP 응답으로 병합해 AI 임의 합산을 막는다."""
+    sources = current.get("sources")
+    if not isinstance(sources, list):
+        return current
+
+    merged_postings: list[dict[str, Any]] = []
+    merged_texts: list[str] = []
+    total_count = 0
+    total_ongoing_count = 0
+    skipped_count = 0
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        if is_permission_denied_source(source):
+            skipped_count += 1
+            continue
+
+        structured = source.get("structured")
+        structured = structured if isinstance(structured, dict) else {}
+        summary = structured.get("summary")
+        summary = summary if isinstance(summary, dict) else {}
+        postings = structured.get("postings")
+        postings = [posting for posting in postings if isinstance(posting, dict)] if isinstance(postings, list) else []
+
+        total_count += summary_count(summary, "count", len(postings))
+        total_ongoing_count += summary_count(
+            summary,
+            "ongoing_count",
+            sum(1 for posting in postings if is_ongoing_posting(posting)),
+        )
+        merged_postings.extend(postings)
+
+        text = source.get("text")
+        if isinstance(text, str) and text.strip():
+            merged_texts.append(text.strip())
+
+    return {
+        "text": "\n".join(merged_texts),
+        "structured": {
+            "summary": {
+                "count": total_count,
+                "ongoing_count": total_ongoing_count,
+            },
+            "postings": merged_postings,
+            "postings_truncated": any_source_truncated(sources),
+        },
+        "source_url": None,
+        "metadata": {
+            "tool_name": "merged_recruitment_sources",
+            "source_count": len(sources),
+            "skipped_source_count": skipped_count,
+        },
+    }
+
+
+def is_permission_denied_source(source: dict[str, Any]) -> bool:
+    structured = source.get("structured")
+    metadata = source.get("metadata")
+    return (
+        isinstance(structured, dict)
+        and structured.get("permission_denied") is True
+    ) or (
+        isinstance(metadata, dict)
+        and metadata.get("api_status") == "permission_denied"
+    )
+
+
+def summary_count(summary: dict[str, Any], field: str, default: int) -> int:
+    value = summary.get(field)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
+def any_source_truncated(sources: list[Any]) -> bool:
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        structured = source.get("structured")
+        if isinstance(structured, dict) and structured.get("postings_truncated") is True:
+            return True
+    return False
+
+
 def enrich_summary_with_posting_ids(
     summary: dict[str, Any],
     current: dict[str, Any],
@@ -227,11 +320,12 @@ class SubscriptionChangeService:
     async def compare(self, input_model: SubscriptionChangeInput) -> SubscriptionChangeResult:
         now = datetime.now(UTC)
         params_hash = stable_params_hash(input_model.params)
+        current = normalize_current_response(input_model.current)
         current_summary = enrich_summary_with_posting_ids(
-            extract_current_summary(input_model.current),
-            input_model.current,
+            extract_current_summary(current),
+            current,
         )
-        current_content = input_model.current.get("text")
+        current_content = current.get("text")
         current_content = current_content if isinstance(current_content, str) else None
 
         async with get_session() as session:
@@ -290,7 +384,7 @@ class SubscriptionChangeService:
             briefing_postings_by_source = build_briefing_postings_by_source(
                 comparison_summary,
                 current_summary,
-                input_model.current,
+                current,
             )
             condition_satisfied, requires_ai_analysis, condition_reason = ai_analysis_gate(
                 input_model.params,

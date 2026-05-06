@@ -100,6 +100,52 @@ def _posting(posting_id: str, *, is_ongoing: bool = True) -> dict:
     }
 
 
+def _worknet_posting(posting_id: str, title: str | None = None) -> dict:
+    return {
+        "wanted_auth_no": posting_id,
+        "title": title or f"{posting_id} 백엔드 워크넷 채용",
+        "info_url": f"https://work.example/jobs/{posting_id}",
+    }
+
+
+def _recruitment_source(
+    tool_name: str,
+    postings: list[dict],
+    *,
+    ongoing_count: int | None = None,
+) -> dict:
+    summary = {"count": len(postings)}
+    if ongoing_count is not None:
+        summary["ongoing_count"] = ongoing_count
+    return {
+        "text": f"{tool_name} {len(postings)}건",
+        "structured": {
+            "summary": summary,
+            "postings": postings,
+        },
+        "metadata": {"tool_name": tool_name},
+    }
+
+
+def _multi_source_recruitment_input(sources: list[dict]) -> SubscriptionChangeInput:
+    return SubscriptionChangeInput.model_validate(
+        {
+            "subscriptionId": "job-42",
+            "domain": "recruitment",
+            "query": "백엔드 채용 공고",
+            "params": {
+                "keyword": "백엔드",
+                "conditionMetric": "COUNT",
+                "conditionDirection": "UP",
+                "conditionOperator": "GTE",
+                "conditionThreshold": "1",
+                "conditionUnit": "COUNT",
+            },
+            "current": {"sources": sources},
+        }
+    )
+
+
 def test_stable_params_hash_ignores_key_order() -> None:
     left = stable_params_hash({"region": "강남구", "condition": "5% 상승"})
     right = stable_params_hash({"condition": "5% 상승", "region": "강남구"})
@@ -399,6 +445,103 @@ async def test_recruitment_detects_new_worknet_posting_ids_when_count_is_unchang
             "posting_id": "worknet_job:K120032605020002",
             "title": "서버 개발자",
             "url": "https://work.example/jobs/K120032605020002",
+        }
+    ]
+
+
+async def test_recruitment_merges_public_and_worknet_sources_for_change_compare(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(
+        _multi_source_recruitment_input([
+            _recruitment_source("search_public_job", [_posting("A")], ongoing_count=1),
+            _recruitment_source("search_worknet_job", []),
+        ])
+    )
+    result = await service.compare(
+        _multi_source_recruitment_input([
+            _recruitment_source(
+                "search_public_job",
+                [_posting("A"), _posting("P1")],
+                ongoing_count=2,
+            ),
+            _recruitment_source(
+                "search_worknet_job",
+                [_worknet_posting("W1", "백엔드 워크넷 채용")],
+            ),
+        ])
+    )
+
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.current_summary["count"] == 3
+    assert result.current_summary["ongoing_count"] == 3
+    assert result.diffs[0].field == "added_count"
+    assert result.diffs[0].delta == 2
+    assert [
+        posting.model_dump() for posting in result.briefing_postings_by_source["public_job"]
+    ] == [
+        {
+            "posting_id": "public_job:P1",
+            "title": "P1 백엔드 개발자",
+            "url": "https://public.example/jobs/P1",
+        }
+    ]
+    assert [
+        posting.model_dump() for posting in result.briefing_postings_by_source["worknet_job"]
+    ] == [
+        {
+            "posting_id": "worknet_job:W1",
+            "title": "백엔드 워크넷 채용",
+            "url": "https://work.example/jobs/W1",
+        }
+    ]
+
+
+async def test_recruitment_multi_source_skips_worknet_permission_denied(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(
+        _multi_source_recruitment_input([
+            _recruitment_source("search_public_job", [_posting("A")], ongoing_count=1),
+        ])
+    )
+    result = await service.compare(
+        _multi_source_recruitment_input([
+            _recruitment_source(
+                "search_public_job",
+                [_posting("A"), _posting("B")],
+                ongoing_count=2,
+            ),
+            {
+                "text": "워크넷 권한 거부",
+                "structured": {
+                    "summary": {"count": 0},
+                    "postings": [],
+                    "permission_denied": True,
+                },
+                "metadata": {
+                    "tool_name": "search_worknet_job",
+                    "api_status": "permission_denied",
+                },
+            },
+        ])
+    )
+
+    assert result.changed is True
+    assert result.current_summary["count"] == 2
+    assert result.briefing_postings_by_source["worknet_job"] == []
+    assert [
+        posting.model_dump() for posting in result.briefing_postings_by_source["public_job"]
+    ] == [
+        {
+            "posting_id": "public_job:B",
+            "title": "B 백엔드 개발자",
+            "url": "https://public.example/jobs/B",
         }
     ]
 

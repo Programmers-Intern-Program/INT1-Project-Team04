@@ -172,6 +172,9 @@ target 작성 규칙:
 - search_worknet_job 또는 get_cached_data(search_worknet_job) 응답이 structured.permission_denied=true 또는 metadata.api_status="permission_denied"이면 Worknet 결과만 건너뛰세요. 이 경우 공공채용 등 사용 가능한 다른 채용 데이터가 있으면 전체 채용 구독 실행은 계속 진행하세요.
 - 데이터 조회 실패 시 해당 구독은 건너뛰고 compare_subscription_change와 send_notification을 호출하지 마세요.
 - compare_subscription_change에는 데이터 도구 응답과 구독의 params/condition을 기준으로 변화 비교에 필요한 값을 전달하세요.
+- 채용 도메인에서 공공채용과 워크넷을 모두 조회한 경우, 사용 가능한 각 도구 응답을 current.sources 배열에 담아 compare_subscription_change에 전달하세요.
+- current.sources는 MCP가 deterministic하게 count/postings를 병합하기 위한 계약입니다. AI가 공공채용/워크넷 count나 postings를 직접 합산해 새 current를 만들지 마세요.
+- Worknet 권한 거부 응답은 current.sources에 넣지 않아도 됩니다. 포함된 경우에도 MCP는 권한 거부 source를 비교 대상에서 제외합니다.
 - compare_subscription_change 응답의 structured.diffs와 structured.briefing_facts를 조건 판단과 AI 브리핑 작성의 근거로 사용하세요.
 - 원본 데이터만 보고 알림 여부를 결정하지 말고, 반드시 compare_subscription_change 결과를 기준으로 판단하세요.
 - MCP가 먼저 코드로 diff와 명확한 조건을 판정합니다. AI 분석은 structured.requires_ai_analysis=true인 경우에만 수행하세요.
