@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from mcp_server.db.models import SubscriptionSnapshotState
 from mcp_server.db.session import get_session
 from mcp_server.subscriptions.change_models import (
+    BriefingPosting,
     SubscriptionChangeInput,
     SubscriptionChangeResult,
     SummaryDiff,
@@ -38,6 +39,9 @@ POSTING_ID_KEY_GROUPS = (
     ("worknet_job", ("wanted_auth_no", "wantedAuthNo")),
 )
 POSTING_ONGOING_KEYS = ("is_ongoing", "isOngoing", "ongoing_yn", "ongoingYn")
+BRIEFING_POSTING_SOURCES = ("public_job", "worknet_job")
+POSTING_TITLE_KEYS = ("title", "wantedTitle", "recrutPbancTtl", "recrut_pbanc_ttl")
+POSTING_URL_KEYS = ("src_url", "srcUrl", "info_url", "wantedInfoUrl")
 
 # conditionMetric 과 current summary 필드를 분리해 도메인별 비교 대상이 섞이지 않게 한다.
 METRIC_SUMMARY_KEYS = {
@@ -121,6 +125,13 @@ def posting_identity(posting: dict[str, Any]) -> str | None:
     return None
 
 
+def posting_source(identity: str) -> str | None:
+    source, separator, _ = identity.partition(":")
+    if not separator or source not in BRIEFING_POSTING_SOURCES:
+        return None
+    return source
+
+
 def normalize_posting_id_value(value: Any) -> str | None:
     if value is None:
         return None
@@ -140,6 +151,74 @@ def is_ongoing_posting(posting: dict[str, Any]) -> bool:
             return True
         return str(value).strip().upper() != "N"
     return True
+
+
+def empty_briefing_postings_by_source() -> dict[str, list[BriefingPosting]]:
+    return {source: [] for source in BRIEFING_POSTING_SOURCES}
+
+
+def build_briefing_postings_by_source(
+    baseline_summary: dict[str, Any],
+    current_summary: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, list[BriefingPosting]]:
+    """신규 채용 공고 ID를 현재 postings에서 찾아 AI 브리핑용 제목/링크로 묶는다."""
+    result = empty_briefing_postings_by_source()
+    baseline_ids = summary_id_set(baseline_summary, POSTING_IDS_FIELD)
+    current_ids = summary_id_set(current_summary, POSTING_IDS_FIELD)
+    if baseline_ids is None or current_ids is None:
+        return result
+
+    added_ids = current_ids - baseline_ids
+    if not added_ids:
+        return result
+
+    structured = current.get("structured")
+    if not isinstance(structured, dict):
+        return result
+    postings = structured.get("postings")
+    if not isinstance(postings, list):
+        return result
+
+    for posting in postings:
+        if not isinstance(posting, dict):
+            continue
+        identity = posting_identity(posting)
+        if identity not in added_ids:
+            continue
+        source = posting_source(identity)
+        if source is None:
+            continue
+        result[source].append(
+            BriefingPosting(
+                posting_id=identity,
+                title=posting_title(posting),
+                url=posting_url(posting),
+            )
+        )
+    return result
+
+
+def posting_title(posting: dict[str, Any]) -> str:
+    for key in POSTING_TITLE_KEYS:
+        value = posting.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return "(제목 없음)"
+
+
+def posting_url(posting: dict[str, Any]) -> str | None:
+    for key in POSTING_URL_KEYS:
+        value = posting.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
 
 
 class SubscriptionChangeService:
@@ -200,6 +279,7 @@ class SubscriptionChangeService:
                         current_summary=current_summary,
                         diffs=[],
                         briefing_facts=[],
+                        briefing_postings_by_source=empty_briefing_postings_by_source(),
                         condition_satisfied=None,
                         requires_ai_analysis=False,
                         condition_reason="baseline initialized",
@@ -207,6 +287,11 @@ class SubscriptionChangeService:
 
             baseline_summary = row.baseline_summary
             diffs = summary_diffs(baseline_summary, current_summary)
+            briefing_postings_by_source = build_briefing_postings_by_source(
+                baseline_summary,
+                current_summary,
+                input_model.current,
+            )
             condition_satisfied, requires_ai_analysis, condition_reason = ai_analysis_gate(
                 input_model.params,
                 diffs,
@@ -226,6 +311,7 @@ class SubscriptionChangeService:
             current_summary=current_summary,
             diffs=diffs,
             briefing_facts=_briefing_facts(diffs),
+            briefing_postings_by_source=briefing_postings_by_source,
             condition_satisfied=condition_satisfied,
             requires_ai_analysis=requires_ai_analysis,
             condition_reason=condition_reason,

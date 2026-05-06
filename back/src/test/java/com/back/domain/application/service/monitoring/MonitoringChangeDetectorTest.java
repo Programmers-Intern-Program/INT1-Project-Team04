@@ -37,6 +37,48 @@ class MonitoringChangeDetectorTest {
     }
 
     @Test
+    @DisplayName("Application: 채용 공고 수가 조건 이상 증가하면 알림 대상으로 판단한다")
+    void detectsRecruitmentCountIncrease() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"count\":10,\"ongoing_count\":4}");
+        JsonNode current = objectMapper.readTree("{\"count\":11,\"ongoing_count\":4}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "COUNT",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "1",
+                "conditionUnit", "COUNT"
+        ));
+
+        assertThat(decision.triggered()).isTrue();
+        assertThat(decision.metricKey()).isEqualTo("count");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("10"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("11"));
+        assertThat(decision.changeValue()).isEqualByComparingTo(new BigDecimal("1"));
+    }
+
+    @Test
+    @DisplayName("Application: 진행중 채용 공고 수가 조건 이상 증가하면 알림 대상으로 판단한다")
+    void detectsRecruitmentOngoingCountIncrease() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"count\":10,\"ongoing_count\":2}");
+        JsonNode current = objectMapper.readTree("{\"count\":10,\"ongoing_count\":3}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "ONGOING_COUNT",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "1",
+                "conditionUnit", "COUNT"
+        ));
+
+        assertThat(decision.triggered()).isTrue();
+        assertThat(decision.metricKey()).isEqualTo("ongoing_count");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("2"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("3"));
+        assertThat(decision.changeValue()).isEqualByComparingTo(new BigDecimal("1"));
+    }
+
+    @Test
     @DisplayName("Application: 가격 필드가 없으면 거래 건수 변화만으로 가격 조건을 트리거하지 않는다")
     void ignoresCountChangeForAveragePriceCondition() throws Exception {
         JsonNode previous = objectMapper.readTree("{\"count\":10}");

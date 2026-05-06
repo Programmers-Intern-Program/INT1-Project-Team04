@@ -96,6 +96,7 @@ def _posting(posting_id: str, *, is_ongoing: bool = True) -> dict:
         "pblnt_sn": posting_id,
         "title": f"{posting_id} 백엔드 개발자",
         "is_ongoing": is_ongoing,
+        "src_url": f"https://public.example/jobs/{posting_id}",
     }
 
 
@@ -281,6 +282,15 @@ async def test_recruitment_detects_new_posting_ids_when_count_is_unchanged(
     assert result.condition_reason == "condition satisfied"
     assert result.diffs[0].field == "added_count"
     assert result.diffs[0].delta == 1
+    assert [
+        posting.model_dump() for posting in result.briefing_postings_by_source["public_job"]
+    ] == [
+        {
+            "posting_id": "public_job:C",
+            "title": "C 백엔드 개발자",
+            "url": "https://public.example/jobs/C",
+        }
+    ]
 
 
 async def test_recruitment_detects_new_ongoing_posting_ids_when_ongoing_count_is_unchanged(
@@ -332,7 +342,11 @@ async def test_recruitment_detects_new_worknet_posting_ids_when_count_is_unchang
             count=1,
             ongoing_count=1,
             metric="COUNT",
-            postings=[{"wanted_auth_no": "K120032605020002", "title": "서버 개발자"}],
+            postings=[{
+                "wanted_auth_no": "K120032605020002",
+                "title": "서버 개발자",
+                "info_url": "https://work.example/jobs/K120032605020002",
+            }],
         )
     )
 
@@ -343,6 +357,15 @@ async def test_recruitment_detects_new_worknet_posting_ids_when_count_is_unchang
     assert result.condition_reason == "condition satisfied"
     assert result.diffs[0].field == "added_count"
     assert result.diffs[0].delta == 1
+    assert [
+        posting.model_dump() for posting in result.briefing_postings_by_source["worknet_job"]
+    ] == [
+        {
+            "posting_id": "worknet_job:K120032605020002",
+            "title": "서버 개발자",
+            "url": "https://work.example/jobs/K120032605020002",
+        }
+    ]
 
 
 async def test_recruitment_ignores_unconfirmed_posting_id_fallback_keys(

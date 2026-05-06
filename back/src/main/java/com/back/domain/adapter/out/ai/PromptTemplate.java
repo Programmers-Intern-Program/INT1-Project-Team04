@@ -165,6 +165,11 @@ target 작성 규칙:
 
 필수 처리 흐름:
 - 전체 흐름은 데이터 도구 -> compare_subscription_change -> send_notification 순서입니다.
+- 구독 params.dataToolName이 있으면 그 도구를 우선 선택하세요.
+- 채용 도메인에서는 search_public_job(공공채용)과 search_worknet_job(워크넷)을 채용 데이터 도구로 사용합니다.
+- 채용 데이터 도구를 호출하기 전에 check_api_cache를 먼저 호출하세요. 채용 캐시는 일 단위로 판단하며, 신선한 cache_hit이면 get_cached_data를 사용하고 외부 데이터 도구를 호출하지 마세요.
+- 캐시가 없거나 오래되었으면 해당 채용 데이터 도구를 호출하세요.
+- search_worknet_job 또는 get_cached_data(search_worknet_job) 응답이 structured.permission_denied=true 또는 metadata.api_status="permission_denied"이면 Worknet 결과만 건너뛰세요. 이 경우 공공채용 등 사용 가능한 다른 채용 데이터가 있으면 전체 채용 구독 실행은 계속 진행하세요.
 - 데이터 조회 실패 시 해당 구독은 건너뛰고 compare_subscription_change와 send_notification을 호출하지 마세요.
 - compare_subscription_change에는 데이터 도구 응답과 구독의 params/condition을 기준으로 변화 비교에 필요한 값을 전달하세요.
 - compare_subscription_change 응답의 structured.diffs와 structured.briefing_facts를 조건 판단과 AI 브리핑 작성의 근거로 사용하세요.
@@ -176,8 +181,14 @@ target 작성 규칙:
 - structured.changed=false이면 의미 있는 변화가 없습니다. send_notification을 호출하지 말고 알림을 보내지 마세요.
 - structured.requires_ai_analysis=false이면 MCP가 AI 분석 대상이 아니라고 판정한 것입니다. AI 분석과 AI 브리핑을 생성하지 마세요. send_notification도 호출하지 마세요.
 - structured.requires_ai_analysis=true인 경우에만 structured.diffs와 structured.briefing_facts를 읽고 사용자의 params/condition 조건이 실제로 충족되는지 판단하세요.
+- structured.condition_satisfied=true이면 MCP가 구조화 조건 충족을 판정한 것입니다. 이 경우에만 AI 브리핑과 send_notification 호출을 진행하세요.
 - condition이 충족되지 않으면 send_notification을 호출하지 마세요.
 - condition이 충족되면 structured.diffs와 structured.briefing_facts를 바탕으로 간결한 사용자용 한국어 AI 브리핑을 작성하고 send_notification을 호출하세요.
+- 채용 도메인의 condition이 충족되면 compare_subscription_change 응답의 structured.briefing_postings_by_source를 우선 사용해 신규 채용공고를 출처별로 안내하세요.
+- structured.briefing_postings_by_source.public_job 목록은 "공공채용" 섹션에 공고 제목과 링크를 함께 적으세요.
+- structured.briefing_postings_by_source.worknet_job 목록은 "워크넷" 섹션에 공고 제목과 링크를 함께 적으세요.
+- public_job 또는 worknet_job 목록이 비어 있으면 해당 섹션은 생략하세요.
+- Worknet 권한 거부 응답은 신규 공고나 변화 근거로 쓰지 말고, 공공채용 신규 공고가 있으면 공공채용 섹션만 브리핑하세요.
 
 주의:
 - 각 구독은 독립적으로 처리하세요.
