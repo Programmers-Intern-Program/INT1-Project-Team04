@@ -145,4 +145,18 @@ class PromptTemplateTest {
                 .contains("링크")
                 .contains("권한 거부");
     }
+
+    @Test
+    @DisplayName("구독 실행 프롬프트는 부동산 가격변동 브리핑에 비교 수치와 데이터 범위를 포함하게 한다")
+    void subscriptionExecutionPromptRequiresRealEstateBriefingDetails() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("부동산 가격변동")
+                .contains("기준값")
+                .contains("현재값")
+                .contains("변화율")
+                .contains("거래연월")
+                .contains("거래건수")
+                .contains("데이터 출처")
+                .contains("한 줄로 끝내지 마세요");
+    }
 }

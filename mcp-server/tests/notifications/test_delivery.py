@@ -319,3 +319,57 @@ async def test_email_html_message_is_sent_as_html_alternative(monkeypatch) -> No
         preferencelist=("html",)
     ).get_content()
     assert "<!doctype html>" not in message.get_body(preferencelist=("plain",)).get_content()
+
+
+async def test_email_plain_text_change_notification_uses_html_template(monkeypatch) -> None:
+    sent_messages: list[Any] = []
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, timeout: float) -> None:
+            pass
+
+        def __enter__(self) -> FakeSMTP:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            pass
+
+        def starttls(self) -> None:
+            pass
+
+        def login(self, username: str, password: str) -> None:
+            pass
+
+        def send_message(self, message) -> None:
+            sent_messages.append(message)
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+
+    service = NotificationDeliveryService(_settings(
+        notification_email_enabled=True,
+        notification_email_from="noreply@example.com",
+        notification_email_host="smtp.example.com",
+    ))
+
+    result = await service.send(NotificationRequest(
+        channel=NotificationChannel.EMAIL,
+        target="user@example.com",
+        title="강남구 아파트 매매가 5% 이상 상승 조건 충족",
+        message="강남구 아파트 매매 평균 가격이 170.97% 상승했습니다.\n기준값: 10억원\n현재값: 27억969만원",
+    ))
+
+    assert result.sent is True
+    assert len(sent_messages) == 1
+    message = sent_messages[0]
+    assert message.is_multipart()
+
+    html_body = message.get_body(preferencelist=("html",)).get_content()
+    assert "<!doctype html>" in html_body
+    assert "AI 변화 브리핑" in html_body
+    assert "강남구 아파트 매매가 5% 이상 상승 조건 충족" in html_body
+    assert "기준값: 10억원" in html_body
+    assert "현재값: 27억969만원" in html_body
+
+    plain_body = message.get_body(preferencelist=("plain",)).get_content()
+    assert "강남구 아파트 매매 평균 가격이 170.97% 상승했습니다." in plain_body
+    assert "<!doctype html>" not in plain_body

@@ -15,7 +15,7 @@ import asyncio
 import re
 import smtplib
 from email.message import EmailMessage
-from html import unescape
+from html import escape, unescape
 from html.parser import HTMLParser
 from typing import Any
 
@@ -196,7 +196,7 @@ class NotificationDeliveryService:
         message["From"] = self._settings.notification_email_from or ""
         message["To"] = request.target
         message["Subject"] = request.title or "구독 조건이 충족되었습니다"
-        _set_email_body(message, request.message)
+        _set_email_body(message, request.message, request.title)
 
         with smtplib.SMTP(
             self._settings.notification_email_host or "",
@@ -275,13 +275,41 @@ def _notification_text(request: NotificationRequest) -> str:
     return request.message
 
 
-def _set_email_body(message: EmailMessage, body: str) -> None:
+def _set_email_body(message: EmailMessage, body: str, title: str | None = None) -> None:
     """HTML 알림은 text/html 파트를 포함해 메일 클라이언트가 렌더링할 수 있게 만든다."""
     if _is_html_body(body):
         message.set_content(_html_to_plain_text(body))
         message.add_alternative(body, subtype="html")
         return
     message.set_content(body)
+    message.add_alternative(_email_notification_html(title, body), subtype="html")
+
+
+def _email_notification_html(title: str | None, body: str) -> str:
+    """AI가 plain text로 만든 변화 브리핑도 서비스 메일 양식으로 감싼다."""
+    safe_title = escape(title or "구독 조건이 충족되었습니다")
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines:
+        lines = ["구독 조건에 맞는 변화가 감지되었습니다."]
+    paragraphs = "\n".join(
+        f"""                      <p style="margin:0 0 8px;color:#4d4033;font-size:14px;line-height:1.65;font-weight:700;">{escape(line)}</p>"""
+        for line in lines
+    )
+
+    return f"""
+            <!doctype html>
+            <html lang="ko">
+            <body style="margin:0;background:#f7f2e8;color:#1c1917;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+              <div style="max-width:520px;margin:0 auto;padding:20px 14px;">
+                <div style="background:#fffdf7;border:1px solid #e6d9c3;border-radius:20px;padding:22px;box-shadow:0 12px 32px rgba(61,46,26,0.08);">
+                  <span style="display:inline-block;background:#0f7a4f;color:#ffffff;border-radius:999px;padding:7px 12px;font-size:12px;line-height:1;font-weight:800;">AI 변화 브리핑</span>
+                  <h1 style="margin:14px 0 14px;font-size:22px;line-height:1.35;color:#211a12;font-weight:900;">{safe_title}</h1>
+{paragraphs}
+                </div>
+              </div>
+            </body>
+            </html>
+            """.strip()
 
 
 def _is_html_body(value: str) -> bool:

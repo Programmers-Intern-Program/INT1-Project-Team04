@@ -112,9 +112,8 @@ class CreateSubscriptionServiceTest {
         assertThat(saveDeliveryPort.saved.recipient()).isEqualTo("123456789");
         assertThat(saveDeliveryPort.saved.subscriptionId()).isEqualTo("sub-1");
         assertThat(saveDeliveryPort.saved.userId()).isEqualTo(user.id());
-        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정이 완료됐어요");
+        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정 완료");
         assertThat(saveDeliveryPort.saved.message()).contains(
-                "알림 설정 완료",
                 "요청: 강남구 아파트 실거래가",
                 "알림 방식: 변화 감지 시",
                 "변화가 감지되면 이 채널로 핵심만 먼저 알려드릴게요."
@@ -159,12 +158,13 @@ class CreateSubscriptionServiceTest {
 
         assertThat(saveDeliveryPort.saved.channel()).isEqualTo(NotificationChannel.TELEGRAM_DM);
         assertThat(saveDeliveryPort.saved.recipient()).isEqualTo("123456789");
-        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정이 완료됐어요");
+        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정 완료");
         assertThat(saveDeliveryPort.saved.message()).contains(
                 "요청: 백엔드 채용 새 공고",
                 "감시 영역: 채용",
                 "알림 방식: 변화 감지 시"
         );
+        assertThat(saveDeliveryPort.saved.message()).doesNotContain("알림 설정 완료");
         assertThat(saveDeliveryPort.saved.status()).isEqualTo(NotificationDeliveryStatus.PENDING);
     }
 
@@ -196,9 +196,9 @@ class CreateSubscriptionServiceTest {
         ));
 
         assertThat(saveDeliveryPort.saved.channel()).isEqualTo(NotificationChannel.DISCORD_DM);
-        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정이 완료됐어요");
+        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정 완료");
         assertThat(saveDeliveryPort.saved.message()).contains(
-                "**알림 설정 완료**",
+                "이제부터 요청하신 변화를 지켜볼게요.",
                 "**요청**",
                 "`강남구 아파트 실거래가`",
                 "**감시 영역**",
@@ -206,7 +206,7 @@ class CreateSubscriptionServiceTest {
                 "**알림 방식**",
                 "변화 감지 시"
         );
-        assertThat(saveDeliveryPort.saved.message()).doesNotContain("real-estate", "0 0 * * * *", "<html");
+        assertThat(saveDeliveryPort.saved.message()).doesNotContain("**알림 설정 완료**", "real-estate", "0 0 * * * *", "<html");
     }
 
     @Test
@@ -237,7 +237,7 @@ class CreateSubscriptionServiceTest {
         ));
 
         assertThat(saveDeliveryPort.saved.channel()).isEqualTo(NotificationChannel.EMAIL);
-        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정이 완료됐어요");
+        assertThat(saveDeliveryPort.saved.title()).isEqualTo("알림 설정 완료");
         assertThat(saveDeliveryPort.saved.message()).startsWith("<!doctype html>");
         assertThat(saveDeliveryPort.saved.message()).contains(
                 "<h1",
@@ -245,7 +245,7 @@ class CreateSubscriptionServiceTest {
                 "알림 설정 완료</span>",
                 "font-size:22px",
                 "role=\"presentation\"",
-                "알림 설정이 완료됐어요",
+                "요청하신 알림을 시작했어요",
                 "강남구 아파트 실거래가",
                 "부동산",
                 "변화 감지 시",
