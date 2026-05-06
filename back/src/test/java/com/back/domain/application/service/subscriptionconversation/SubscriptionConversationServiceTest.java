@@ -543,6 +543,99 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("채용 대상과 건수 조건 답변은 AI 이어가기 없이 초안을 보완한다")
+    void recruitmentKeywordAndCountConditionAnswerCompletesLocally() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "채용 알림",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "어떤 종류의 채용 공고를 모니터링하시겠어요? 그리고 어떤 조건일 때 알림을 받으시겠어요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "백엔드 전체 5건 이상 변동이 생길때",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("채널");
+        assertThat(conversation.getDraftQuery()).isEqualTo("백엔드 채용 공고");
+        assertThat(conversation.getDraftMonitoringParams())
+                .contains("\"keyword\":\"백엔드\"")
+                .contains("\"recrut_pbanc_ttl\":\"백엔드\"")
+                .contains("\"conditionMetric\":\"COUNT\"")
+                .contains("\"conditionDirection\":\"ANY\"")
+                .contains("\"conditionThreshold\":\"5\"")
+                .contains("\"conditionUnit\":\"COUNT\"");
+    }
+
+    @Test
+    @DisplayName("채용 조건만 답하면 조건만 보완하고 대상 키워드를 계속 질문한다")
+    void recruitmentConditionOnlyAnswerDoesNotInventKeyword() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "채용 알림",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "어떤 종류의 채용 공고를 모니터링하시겠어요? 그리고 어떤 조건일 때 알림을 받으시겠어요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "새 공고가 1건 이상 등록되면",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("어떤 채용 공고");
+        assertThat(conversation.getDraftMonitoringParams())
+                .doesNotContain("\"keyword\"")
+                .contains("\"conditionMetric\":\"COUNT\"")
+                .contains("\"conditionDirection\":\"UP\"")
+                .contains("\"conditionThreshold\":\"1\"");
+    }
+
+    @Test
     @DisplayName("0건 채용 키워드 후보가 있으면 사용자 확인을 질문한다")
     void recruitmentDraftWithZeroResultKeywordSuggestionAsksForConfirmation() {
         SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
