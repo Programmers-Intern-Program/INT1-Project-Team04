@@ -591,6 +591,57 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("채용 조건 질문 뒤 키워드만 답하면 기본 조건을 확정하지 않고 조건을 다시 질문한다")
+    void recruitmentKeywordOnlyAnswerAfterConditionQuestionAsksConditionAgain() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "채용 알림",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"," +
+                        "\"conditionMetric\":\"COUNT\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"1\"," +
+                        "\"conditionUnit\":\"COUNT\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "어떤 종류의 채용 공고를 모니터링할까요? 또한, 어떤 조건으로 알림을 받을까요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "간호사",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(response.assistantMessage()).contains("채용 공고 변화");
+        assertThat(response.assistantMessage()).doesNotContain("채널");
+        assertThat(conversation.getDraftMonitoringParams())
+                .contains("\"keyword\":\"간호사\"")
+                .contains("\"recrut_pbanc_ttl\":\"간호사\"")
+                .doesNotContain("\"conditionMetric\"")
+                .doesNotContain("\"conditionThreshold\"");
+    }
+
+    @Test
     @DisplayName("채용 조건만 답하면 조건만 보완하고 대상 키워드를 계속 질문한다")
     void recruitmentConditionOnlyAnswerDoesNotInventKeyword() {
         SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);

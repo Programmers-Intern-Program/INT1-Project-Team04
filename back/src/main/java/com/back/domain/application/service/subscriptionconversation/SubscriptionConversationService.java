@@ -504,8 +504,9 @@ public class SubscriptionConversationService {
             String message,
             List<String> missing
     ) {
+        boolean askedRecruitmentCondition = askedRecruitmentCondition(conversation);
         if (!isRecruitmentDraft(conversation)
-                || (!missing.contains("keyword") && !missing.contains("condition"))) {
+                || (!missing.contains("keyword") && !missing.contains("condition") && !askedRecruitmentCondition)) {
             return null;
         }
 
@@ -525,13 +526,19 @@ public class SubscriptionConversationService {
             }
         }
 
-        if (missing.contains("condition")) {
+        Optional<Map<String, String>> condition = Optional.empty();
+        if (missing.contains("condition") || askedRecruitmentCondition) {
             // 채용 조건은 가격 조건과 달리 공고 수 delta 기준 COUNT 파라미터로 저장한다.
-            Optional<Map<String, String>> condition = parseRecruitmentConditionAnswer(message);
+            condition = parseRecruitmentConditionAnswer(message);
             if (condition.isPresent()) {
                 params.putAll(condition.get());
                 updated = true;
             }
+        }
+
+        if (keyword.isPresent() && askedRecruitmentCondition && condition.isEmpty()) {
+            // 조건을 함께 물은 턴에서는 대상만 답한 값을 기존 기본 조건 확정으로 취급하지 않는다.
+            clearRecruitmentCondition(params);
         }
 
         if (!updated) {
@@ -546,6 +553,14 @@ public class SubscriptionConversationService {
                 isBlank(queryKeyword) ? conversation.getDraftQuery() : queryKeyword + " 채용 공고"
         );
         return completeOrAsk(conversation);
+    }
+
+    private boolean askedRecruitmentCondition(SubscriptionConversationJpaEntity conversation) {
+        if (!isRecruitmentDraft(conversation)) {
+            return false;
+        }
+        String message = conversation.getLastAssistantMessage();
+        return containsAny(message, "어떤 조건", "조건으로", "조건일 때", "채용 공고 변화");
     }
 
     private Optional<String> parseRecruitmentKeywordAnswer(String value) {
@@ -1002,6 +1017,15 @@ public class SubscriptionConversationService {
         params.remove(KEYWORD_VALIDATION_STATUS);
         params.remove(KEYWORD_ORIGINAL);
         params.remove(SUGGESTED_KEYWORD);
+    }
+
+    private void clearRecruitmentCondition(Map<String, String> params) {
+        params.remove("condition");
+        params.remove("conditionMetric");
+        params.remove("conditionDirection");
+        params.remove("conditionOperator");
+        params.remove("conditionThreshold");
+        params.remove("conditionUnit");
     }
 
     private Optional<Boolean> parseKeywordConfirmationAnswer(String value) {
