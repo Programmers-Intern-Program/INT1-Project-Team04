@@ -9,6 +9,7 @@ import {
   isStaleConversationError,
   parsePendingChannelSelection,
   pendingChannelSelectionForAction,
+  shouldClearPendingChannelForResponse,
   type SubscriptionChatSessionSnapshot,
 } from "./subscription-chat-session.ts";
 
@@ -113,6 +114,23 @@ describe("subscription chat session persistence", () => {
     assert.equal(
       parsePendingChannelSelection(JSON.stringify({ conversationId: "conversation-1", channel: "SMS" })),
       null,
+    );
+  });
+
+  it("clears pending channel when a new needs-input conversation replaces it", () => {
+    assert.equal(
+      shouldClearPendingChannelForResponse(
+        { conversationId: "conversation-1", channel: "EMAIL" },
+        { conversationId: "conversation-2", status: "NEEDS_INPUT" },
+      ),
+      true,
+    );
+    assert.equal(
+      shouldClearPendingChannelForResponse(
+        { conversationId: "conversation-1", channel: "EMAIL" },
+        { conversationId: "conversation-1", status: "NEEDS_INPUT" },
+      ),
+      false,
     );
   });
 });

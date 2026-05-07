@@ -20,6 +20,7 @@ import {
   isStaleConversationError,
   parsePendingChannelSelection,
   pendingChannelSelectionForAction,
+  shouldClearPendingChannelForResponse,
   type ChatMessage,
   type DebugJsonSnapshot,
   type SubscriptionChatSessionSnapshot,
@@ -139,7 +140,7 @@ export function SubscriptionChat({
       if (response.status === "CREATED") {
         await reloadSubscriptions();
       }
-      if (response.status !== "NEEDS_INPUT") {
+      if (shouldClearPendingChannelForResponse(readPendingChannel(), response)) {
         sessionStorage.removeItem(PENDING_CHANNEL_KEY);
       }
     },

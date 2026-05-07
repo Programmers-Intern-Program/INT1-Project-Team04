@@ -89,6 +89,16 @@ export function parsePendingChannelSelection(raw: string | null): PendingChannel
   }
 }
 
+export function shouldClearPendingChannelForResponse(
+  pending: PendingChannelSelection | null,
+  response: Pick<ConversationResponse, "conversationId" | "status">,
+): boolean {
+  return (
+    pending !== null &&
+    (response.status !== "NEEDS_INPUT" || response.conversationId !== pending.conversationId)
+  );
+}
+
 export function encodeSubscriptionChatSession(
   snapshot: SubscriptionChatSessionSnapshot,
   now = Date.now(),
