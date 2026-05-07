@@ -9,8 +9,11 @@
 - param-keyed tool (부동산·의안):  tool_name + 핵심 params 조합당 1행.
 """
 
+import logging
 from datetime import date, datetime
 from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from mcp_server.domains.auction.normalizer import normalize_g2b_bid
 from mcp_server.domains.jobs.errors import WorknetPermissionDeniedError
@@ -40,59 +43,22 @@ _MAX_RESULTS = 20
 @mcp.tool()
 @traced("check_api_cache")
 async def check_api_cache(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """fetch tool 호출 전 반드시 이 tool을 먼저 호출해 캐시 상태를 확인하라.
+    """search_* 호출 전 반드시 먼저 이 tool을 호출하라.
 
-    반환된 cache_hit + last_fetched_at + tool_name(도메인 맥락)으로 fetch 필요 여부를 판단.
-    - cache_hit: false  → search_* fetch tool 호출 필요
-    - cache_hit: true, 신선 → get_cached_data(tool_name, params) 호출 (외부 API 미호출)
-    - cache_hit: true, stale → search_* fetch tool 호출 필요
+    캐시 상태를 조회해 사실(fact)만 반환한다. 신선도 판단은 AI가 한다.
 
-    freshness 기준은 도메인 특성에 따라 직접 판단할 것.
-    법률=주 단위, 채용=일 단위, 경매=시간 단위, 부동산·의안=월/대수 단위 등.
+    반환값:
+      - step: 항상 1
+      - last_fetched_at: 마지막 fetch 시각 ISO 문자열. 캐시 없으면 null.
+      - cached_data: 포맷된 캐시 데이터. 캐시 없거나 미지원 tool이면 null.
 
-    **param-keyed tool (부동산·의안)은 params 필수:**
-    - 부동산 6종: {"lawd_cd": "11680", "deal_ymd": "202403"}
-    - search_bill_info: {"age": 22}
-    params 없이 호출하면 cache_hit: false + 안내 메시지 반환.
+    AI 행동 규칙:
+      last_fetched_at가 null  → search_* 호출(Step 2). 종료. 알림 없음.
+      last_fetched_at가 있음  → 도메인 특성으로 신선도 판단.
+        신선: cached_data 사용. 종료.
+        stale: cached_data = baseline. search_*(Step 2) → 비교 후 알림(Step 3).
 
-    Args:
-        tool_name: 예: "search_law_info", "search_house_price".
-        params: param-keyed tool 전용. 부동산은 lawd_cd+deal_ymd, 의안은 age 필요.
-    """
-    if tool_name in _PARAM_KEY_FIELDS and not params:
-        required = list(_PARAM_KEY_FIELDS[tool_name])
-        return {
-            "cache_hit": False,
-            "last_fetched_at": None,
-            "tool_name": tool_name,
-            "message": f"{tool_name}은 params 필수: {required} (소문자 허용)",
-        }
-
-    cached_at: datetime | None = await api_source_service.peek_cached_at(tool_name, params)
-
-    if cached_at is None:
-        return {"cache_hit": False, "last_fetched_at": None, "tool_name": tool_name}
-
-    return {
-        "cache_hit": True,
-        "last_fetched_at": cached_at.isoformat(),
-        "tool_name": tool_name,
-    }
-
-
-# ─────────────────────────────────────────────
-# 도구 2: get_cached_data
-# ─────────────────────────────────────────────
-
-
-@mcp.tool()
-@traced("get_cached_data")
-async def get_cached_data(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """check_api_cache 결과가 cache_hit: true이고 신선하다고 판단할 때만 호출.
-
-    캐시에서 데이터를 직접 읽어 정규화된 결과를 반환한다. 외부 API를 호출하지 않는다.
-    응답 포맷은 fetch tool과 동일 (text, structured, source_url, metadata).
-    metadata.cache_used: true 로 캐시 응답임을 표시.
+    신선도 기준: 법령·의안=주 단위 / 채용=일 단위 / 경매=시간 단위 / 부동산=월 단위.
 
     **param-keyed tool (부동산·의안)은 params 필수:**
     - 부동산 6종: {"lawd_cd": "11680", "deal_ymd": "202403"}
@@ -101,6 +67,53 @@ async def get_cached_data(tool_name: str, params: dict[str, Any] | None = None) 
     Args:
         tool_name: 예: "search_law_info", "search_house_price".
         params: param-keyed tool 전용.
+    """
+    if tool_name in _PARAM_KEY_FIELDS and not params:
+        required = list(_PARAM_KEY_FIELDS[tool_name])
+        return {
+            "step": 1,
+            "last_fetched_at": None,
+            "cached_data": None,
+            "message": f"{tool_name}은 params 필수: {required} (소문자 허용)",
+        }
+
+    cached_at: datetime | None = await api_source_service.peek_cached_at(tool_name, params)
+
+    if cached_at is None:
+        return {"step": 1, "last_fetched_at": None, "cached_data": None}
+
+    result = await api_source_service.peek_cached_content(tool_name, params)
+    if result is None:
+        return {"step": 1, "last_fetched_at": cached_at.isoformat(), "cached_data": None}
+
+    content, content_cached_at = result
+    formatter = _FORMATTER_REGISTRY.get(tool_name)
+    if formatter is None:
+        return {
+            "step": 1,
+            "last_fetched_at": cached_at.isoformat(),
+            "cached_data": None,
+            "message": f"{tool_name}은 cached_data 미지원 도구입니다.",
+        }
+
+    cached_data = formatter(content, content_cached_at, params or {})
+    return {
+        "step": 1,
+        "last_fetched_at": cached_at.isoformat(),
+        "cached_data": cached_data,
+    }
+
+
+# ─────────────────────────────────────────────
+# 도구 2: get_cached_data
+# ─────────────────────────────────────────────
+
+
+@traced("get_cached_data")
+async def get_cached_data(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """캐시에서 데이터를 직접 읽어 반환한다. MCP tool로 노출하지 않음.
+
+    check_api_cache 내부에서만 사용. 외부 AI는 check_api_cache를 통해 cached_data를 받는다.
     """
     if tool_name in _PARAM_KEY_FIELDS and not params:
         required = list(_PARAM_KEY_FIELDS[tool_name])
@@ -510,4 +523,13 @@ _FORMATTER_REGISTRY: dict[str, Callable[[str, datetime, dict], dict[str, Any]]] 
     "search_rh_trade":    _make_real_estate_formatter(normalize_rh_trade,   "search_rh_trade",    "연립다세대 매매",   is_trade=True),
 }
 
-__all__ = ["check_api_cache", "get_cached_data"]
+_SEARCH_TOOLS = {
+    "search_law_info", "search_bill_info", "search_public_job", "search_worknet_job",
+    "search_g2b_bid", "search_house_price", "search_apt_rent", "search_offi_trade",
+    "search_offi_rent", "search_rh_trade", "search_rh_rent",
+}
+_missing_formatters = _SEARCH_TOOLS - _FORMATTER_REGISTRY.keys()
+if _missing_formatters:
+    logger.warning("_FORMATTER_REGISTRY 미등록 tool: %s — cached_data가 null로 반환됩니다.", _missing_formatters)
+
+__all__ = ["check_api_cache"]
