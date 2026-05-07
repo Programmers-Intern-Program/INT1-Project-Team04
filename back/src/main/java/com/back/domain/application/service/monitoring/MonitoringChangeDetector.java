@@ -66,6 +66,8 @@ public class MonitoringChangeDetector {
                     .filter(key -> hasComparableMetric(previousSummary, currentSummary, key))
                     .findFirst()
                     .orElse(null);
+            case AVG_DEPOSIT -> comparableMetricKey(previousSummary, currentSummary, "avg_deposit");
+            case AVG_MONTHLY_RENT -> comparableMetricKey(previousSummary, currentSummary, "avg_monthly_rent");
             case COUNT -> comparableMetricKey(previousSummary, currentSummary, "count");
             case ONGOING_COUNT -> comparableMetricKey(previousSummary, currentSummary, "ongoing_count");
         };

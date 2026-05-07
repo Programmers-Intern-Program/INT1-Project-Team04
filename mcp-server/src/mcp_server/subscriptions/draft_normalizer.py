@@ -267,7 +267,7 @@ def normalize_subscription_draft(
 
     # condition 은 비교/알림 트리거에 필요한 구조화 파라미터로 변환한다.
     # 이전 초안에 이미 구조화 조건이 있으면 후속 턴에서 재사용한다.
-    condition = _parse_condition(task.condition)
+    condition = _parse_condition(task.condition, text)
     if condition is None and can_reuse_previous and previous is not None:
         condition = _condition_from_parameters(previous.monitoring_params)
     if condition is None:
@@ -536,7 +536,7 @@ def _extract_alias_region(query: str | None, target: str | None) -> str | None:
 # 조건 정규화
 # ─────────────────────────────────────────────
 
-def _parse_condition(raw: str | None) -> dict[str, str] | None:
+def _parse_condition(raw: str | None, metric_context: str | None = None) -> dict[str, str] | None:
     """자연어 조건을 백엔드 MonitoringChangeDetector 가 읽는 파라미터 맵으로 변환한다."""
     text = (raw or "").strip()
     if not text:
@@ -547,7 +547,7 @@ def _parse_condition(raw: str | None) -> dict[str, str] | None:
 
     threshold = Decimal(match.group(1)).normalize()
     return {
-        "conditionMetric": "AVG_PRICE",
+        "conditionMetric": _condition_metric(_joined_text(metric_context, text)),
         "conditionDirection": _condition_direction(text),
         "conditionOperator": _condition_operator(text),
         "conditionThreshold": format(threshold, "f"),
@@ -578,6 +578,15 @@ def _condition_direction(text: str) -> str:
     if any(word in text for word in ["상승", "오르", "올라"]):
         return "UP"
     return "ANY"
+
+
+def _condition_metric(text: str) -> str:
+    monthly_text = text.replace("전월세", "")
+    if "월세" in monthly_text:
+        return "AVG_MONTHLY_RENT"
+    if any(word in text for word in ["보증금", "전세", "전월세"]):
+        return "AVG_DEPOSIT"
+    return "AVG_PRICE"
 
 
 def _condition_operator(text: str) -> str:

@@ -35,10 +35,11 @@ public record StructuredCondition(
 
         BigDecimal threshold = new BigDecimal(matcher.group(1)).stripTrailingZeros();
         Unit unit = Unit.from(matcher.group(2));
+        Metric metric = Metric.from(text);
         Direction direction = Direction.from(text);
         Operator operator = Operator.from(text);
         return Optional.of(new StructuredCondition(
-                Metric.AVG_PRICE,
+                metric,
                 direction,
                 operator,
                 threshold,
@@ -87,8 +88,20 @@ public record StructuredCondition(
 
     public enum Metric {
         AVG_PRICE,
+        AVG_DEPOSIT,
+        AVG_MONTHLY_RENT,
         COUNT,
-        ONGOING_COUNT
+        ONGOING_COUNT;
+
+        private static Metric from(String text) {
+            if (text.replace("전월세", "").contains("월세")) {
+                return AVG_MONTHLY_RENT;
+            }
+            if (text.contains("보증금") || text.contains("전세") || text.contains("전월세")) {
+                return AVG_DEPOSIT;
+            }
+            return AVG_PRICE;
+        }
     }
 
     public enum Direction {

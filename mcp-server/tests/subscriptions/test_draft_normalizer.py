@@ -213,7 +213,14 @@ def test_recruitment_request_without_target_or_condition_asks_for_more_details()
 
 
 @pytest.mark.parametrize(
-    ("user_message", "query", "target", "expected_intent", "expected_tool_name"),
+    (
+        "user_message",
+        "query",
+        "target",
+        "expected_intent",
+        "expected_tool_name",
+        "expected_condition_metric",
+    ),
     [
         (
             "강남구 아파트 전월세 보증금 5% 이상 상승하면 알려줘",
@@ -221,6 +228,7 @@ def test_recruitment_request_without_target_or_condition_asks_for_more_details()
             "강남구 아파트 전월세",
             "apartment_rent_price",
             "search_apt_rent",
+            "AVG_DEPOSIT",
         ),
         (
             "강남구 오피스텔 매매 실거래가 5% 이상 상승하면 알려줘",
@@ -228,6 +236,7 @@ def test_recruitment_request_without_target_or_condition_asks_for_more_details()
             "강남구 오피스텔 매매 실거래가",
             "officetel_trade_price",
             "search_offi_trade",
+            "AVG_PRICE",
         ),
         (
             "강남구 오피스텔 전월세 보증금 5% 이상 상승하면 알려줘",
@@ -235,6 +244,7 @@ def test_recruitment_request_without_target_or_condition_asks_for_more_details()
             "강남구 오피스텔 전월세",
             "officetel_rent_price",
             "search_offi_rent",
+            "AVG_DEPOSIT",
         ),
         (
             "강남구 연립다세대 매매 실거래가 5% 이상 상승하면 알려줘",
@@ -242,6 +252,7 @@ def test_recruitment_request_without_target_or_condition_asks_for_more_details()
             "강남구 연립다세대 매매 실거래가",
             "row_house_trade_price",
             "search_rh_trade",
+            "AVG_PRICE",
         ),
         (
             "강남구 연립다세대 전월세 보증금 5% 이상 상승하면 알려줘",
@@ -249,6 +260,7 @@ def test_recruitment_request_without_target_or_condition_asks_for_more_details()
             "강남구 연립다세대 전월세",
             "row_house_rent_price",
             "search_rh_rent",
+            "AVG_DEPOSIT",
         ),
     ],
 )
@@ -258,6 +270,7 @@ def test_supported_real_estate_capabilities_return_matching_tool_contract(
     target: str,
     expected_intent: str,
     expected_tool_name: str,
+    expected_condition_metric: str,
 ) -> None:
     result = normalize_subscription_draft(
         SubscriptionDraftNormalizationInput(
@@ -278,7 +291,7 @@ def test_supported_real_estate_capabilities_return_matching_tool_contract(
     assert result.tool_name == expected_tool_name
     assert result.parameters["region"] == "강남구"
     assert result.parameters["dealYmdPolicy"] == "LATEST_AVAILABLE_MONTH"
-    assert result.parameters["conditionMetric"] == "AVG_PRICE"
+    assert result.parameters["conditionMetric"] == expected_condition_metric
     assert result.parameters["conditionDirection"] == "UP"
     assert result.parameters["conditionOperator"] == "GTE"
     assert result.parameters["conditionThreshold"] == "5"
@@ -330,3 +343,25 @@ def test_inferred_target_price_does_not_resolve_ambiguous_change() -> None:
     assert result.tool_name is None
     assert result.parameters["region"] == "강남구"
     assert result.missing_fields == ["dealType"]
+
+
+def test_rent_monthly_condition_uses_monthly_rent_metric() -> None:
+    result = normalize_subscription_draft(
+        SubscriptionDraftNormalizationInput(
+            userMessage="강남구 오피스텔 월세 5만원 이상 상승하면 알려줘",
+            task=ParsedTaskDraft(
+                intent="create",
+                domainName="부동산",
+                query="강남구 오피스텔 월세",
+                condition="5만원 이상 상승",
+                target="강남구 오피스텔 월세",
+                confidence=0.9,
+            ),
+        )
+    )
+
+    assert result.intent == "officetel_rent_price"
+    assert result.tool_name == "search_offi_rent"
+    assert result.parameters["conditionMetric"] == "AVG_MONTHLY_RENT"
+    assert result.parameters["conditionThreshold"] == "5"
+    assert result.parameters["conditionUnit"] == "MANWON"
