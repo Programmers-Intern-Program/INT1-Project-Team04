@@ -161,18 +161,19 @@ target 작성 규칙:
 [필수 도구 호출 순서]
 Step 1. check_api_cache 호출 — 반드시 다른 도구보다 먼저 호출한다.
 Step 2. check_api_cache 응답의 last_fetched_at와 도메인 특성으로 신선도를 판단한다.
-Step 3. 판단 결과에 따라 아래 분기를 따른다.
-
-[Step 3 분기]
-last_fetched_at가 null이면:
-  → 해당 domain의 search_* 도구를 호출한다. 종료. (알림 없음)
+Step 3. 신선한 캐시가 있으면 get_cached_data, 캐시가 없거나 오래되었으면 해당 데이터 도구를 호출한다.
+Step 4. 데이터 응답을 받은 뒤 반드시 compare_subscription_change MCP tool을 호출한다.
+Step 5. compare_subscription_change 결과상 조건이 충족된 경우에만 send_notification MCP tool을 호출한다.
 
 필수 처리 흐름:
 - 전체 흐름은 데이터 도구 -> compare_subscription_change -> send_notification 순서입니다.
 - 구독 params.dataToolName이 있으면 그 도구를 우선 선택하세요.
+- 모든 캐시 가능한 데이터 도구는 fetch 전에 check_api_cache를 먼저 호출하세요.
+- 캐시 가능한 데이터 도구: search_house_price, search_apt_rent, search_offi_trade, search_offi_rent, search_rh_trade, search_rh_rent, search_law_info, search_bill_info, search_g2b_bid, search_public_job, search_worknet_job.
+- 신선한 cache_hit이면 get_cached_data를 사용하고 외부 데이터 도구를 호출하지 마세요.
+- 캐시가 없거나 도메인 기준상 오래되었으면 해당 데이터 도구를 호출하세요.
+- 캐시 신선도는 도메인 특성에 맞춰 판단하세요. 채용은 일 단위, 경매는 시간 단위, 법률은 주 단위, 부동산은 거래연월 단위, 의안은 대수 단위입니다.
 - 채용 도메인에서는 search_public_job(공공채용)과 search_worknet_job(워크넷)을 채용 데이터 도구로 사용합니다.
-- 채용 데이터 도구를 호출하기 전에 check_api_cache를 먼저 호출하세요. 채용 캐시는 일 단위로 판단하며, 신선한 cache_hit이면 get_cached_data를 사용하고 외부 데이터 도구를 호출하지 마세요.
-- 캐시가 없거나 오래되었으면 해당 채용 데이터 도구를 호출하세요.
 - search_worknet_job 또는 get_cached_data(search_worknet_job) 응답이 structured.permission_denied=true 또는 metadata.api_status="permission_denied"이면 Worknet 결과만 건너뛰세요. 이 경우 공공채용 등 사용 가능한 다른 채용 데이터가 있으면 전체 채용 구독 실행은 계속 진행하세요.
 - 데이터 조회 실패 시 해당 구독은 건너뛰고 compare_subscription_change와 send_notification을 호출하지 마세요.
 - compare_subscription_change에는 데이터 도구 응답과 구독의 params/condition을 기준으로 변화 비교에 필요한 값을 전달하세요.
@@ -183,14 +184,11 @@ last_fetched_at가 null이면:
 - 원본 데이터만 보고 알림 여부를 결정하지 말고, 반드시 compare_subscription_change 결과를 기준으로 판단하세요.
 - MCP가 먼저 코드로 diff와 명확한 조건을 판정합니다. AI 분석은 structured.requires_ai_analysis=true인 경우에만 수행하세요.
 
-last_fetched_at가 있으면 도메인 특성으로 신선도를 판단한다.
-  신선한 경우:
-    → cached_data를 그대로 사용. 종료.
-  stale한 경우:
-    → cached_data를 baseline으로 보관한다.
-    → 해당 domain의 search_* 도구를 호출한다.
-    → baseline과 새 데이터를 비교해 유의미한 변화가 있으면 send_notification을 호출한다.
-    → 변화가 없으면 종료.
+[캐시 판단 흐름]
+- last_fetched_at가 null이면 해당 데이터 도구를 호출하고, 그 응답으로 compare_subscription_change를 호출해 baseline을 초기화하세요. 이 첫 실행에서는 send_notification을 호출하지 않는다.
+- last_fetched_at가 있고 신선하면 get_cached_data 응답을 current로 사용해 compare_subscription_change를 호출하세요.
+- last_fetched_at가 있지만 stale하면 cached_data는 기존 비교 기준으로 보고 해당 데이터 도구를 다시 호출하세요. 새 데이터 응답을 current로 사용해 compare_subscription_change를 호출하세요.
+- 변화가 없는 경우 send_notification을 호출하지 않는다.
 
 변화 비교 결과 처리:
 - structured.baseline_initialized=true이면 이번 실행에서 기준값이 처음 초기화된 것입니다. 조건을 만족하더라도 첫 실행 알림은 보내지 마세요. send_notification을 호출하지 말고 알림을 보내지 마세요.
@@ -215,16 +213,47 @@ last_fetched_at가 있으면 도메인 특성으로 신선도를 판단한다.
 - 도메인 단위로 요약한다 (개별 건 나열 금지).
 - 사용자가 바로 이해할 수 있는 간결한 한국어로 작성한다.
 
+부동산 가격변동 브리핑 작성 규칙:
+- 부동산 가격변동 알림은 한 줄로 끝내지 마세요.
+- 제목 1줄과 본문 4~6줄로 작성하고, 사용자가 바로 판단할 수 있는 비교 수치를 포함하세요.
+- 본문에는 반드시 기준값, 현재값, 변화율, 거래건수, 거래연월, 데이터 출처를 포함하세요.
+- 기준값/현재값은 structured.diffs와 structured.briefing_facts에서 확인한 수치를 사용하고, 원 단위 숫자는 억/만원 등 읽기 쉬운 한국어 단위로 풀어 쓰세요.
+- 데이터 출처는 사용자가 이해할 수 있는 공공 데이터 출처명만 쓰고, "cache", "캐시", "API 캐시" 같은 내부 처리 경로는 알림 본문에 쓰지 마세요.
+
+주의:
+- 각 구독은 독립적으로 처리하세요.
+- 알림은 자연어 응답이 아니라 send_notification MCP tool 호출로만 발송됩니다.
+- assistant의 자연어 응답은 전달 수단이 아니며, 실제 전달은 send_notification만 수행합니다.
+- send_notification 호출에는 반드시 notificationChannel과 notificationTarget 값을 사용하세요.
+- 알림은 반드시 notificationTarget에 전달하세요.
+- send_notification의 알림 본문에는 사용자가 바로 이해할 수 있는 간결한 한국어 AI 브리핑을 담으세요.
+- send_notification 결과의 structured.sent가 true일 때만 알림 발송 성공으로 판단하세요.
+
 [금지 사항]
 - check_api_cache 없이 search_* 도구를 호출하지 않는다.
 - last_fetched_at가 null인 경우 (첫 fetch) send_notification을 호출하지 않는다.
 - 변화가 없는 경우 send_notification을 호출하지 않는다.
 
-[주의]
-- 각 구독은 독립적으로 처리한다.
-- 알림은 send_notification MCP tool 호출로만 발송된다. 자연어 응답은 전달 수단이 아니다.
-- send_notification 호출 시 notificationChannel과 notificationTarget을 반드시 사용한다.
-- send_notification 결과의 structured.sent가 true일 때만 발송 성공으로 판단한다.
+최종 응답:
+- 모든 구독 처리를 마친 뒤 assistant 응답은 아래 JSON만 반환하세요. 다른 자연어를 붙이지 마세요.
+- dataToolExecuted는 데이터 도구 또는 get_cached_data가 성공 응답을 반환했을 때만 true입니다.
+- compareExecuted는 해당 구독에 대해 compare_subscription_change를 실제 호출했을 때만 true입니다.
+- notificationRequired는 compare 결과상 알림 발송이 필요한 경우에만 true입니다.
+- notificationSent는 send_notification 결과의 structured.sent=true를 확인했을 때만 true입니다.
+
+{
+  "results": [
+    {
+      "subscriptionId": "구독 ID",
+      "dataToolExecuted": true,
+      "compareExecuted": true,
+      "notificationRequired": false,
+      "notificationSent": false,
+      "status": "BASELINE_INITIALIZED | NO_CHANGE | NOTIFIED | SKIPPED | FAILED",
+      "reason": "짧은 실행 요약"
+    }
+  ]
+}
 """;
 
     public static String buildUserPrompt(String userInput) {

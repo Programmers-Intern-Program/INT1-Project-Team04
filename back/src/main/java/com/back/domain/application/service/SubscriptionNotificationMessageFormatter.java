@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 public class SubscriptionNotificationMessageFormatter {
 
     public String startedTitle() {
-        return "알림 설정이 완료됐어요";
+        return "알림 설정 완료";
     }
 
     public String cancelledTitle() {
@@ -88,8 +88,6 @@ public class SubscriptionNotificationMessageFormatter {
             Schedule schedule
     ) {
         return """
-                알림 설정 완료
-
                 요청: %s
                 감시 영역: %s
                 알림 방식: %s
@@ -128,7 +126,6 @@ public class SubscriptionNotificationMessageFormatter {
             Schedule schedule
     ) {
         return """
-                **알림 설정 완료**
                 이제부터 요청하신 변화를 지켜볼게요.
 
                 **요청**
@@ -181,7 +178,7 @@ public class SubscriptionNotificationMessageFormatter {
     ) {
         return formatEmailSubscriptionMessage(
                 "알림 설정 완료",
-                startedTitle(),
+                "요청하신 알림을 시작했어요",
                 "#0f7a4f",
                 query(subscription),
                 domainName(domain),

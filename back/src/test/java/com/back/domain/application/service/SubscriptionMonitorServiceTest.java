@@ -25,15 +25,7 @@ class SubscriptionMonitorServiceTest {
     void realEstateContextAddsLatestAvailableDealYmd() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
-        Subscription subscription = new Subscription(
-                "sub-1",
-                user,
-                domain,
-                "강남구 아파트 매매",
-                "apartment_trade_price",
-                true,
-                LocalDateTime.now()
-        );
+        Subscription subscription = subscription("sub-1", user, domain);
         Schedule dueSchedule = new Schedule(
                 "schedule-1",
                 subscription,
@@ -66,26 +58,89 @@ class SubscriptionMonitorServiceTest {
         assertThat(saveSchedulePort.savedSchedule).isNotNull();
     }
 
+    @Test
+    @DisplayName("실행 실패 구독은 스케줄을 갱신하지 않고 성공 구독만 갱신한다")
+    void advancesOnlySuccessfullyExecutedSubscriptionSchedules() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Schedule successSchedule = new Schedule(
+                "schedule-success",
+                subscription("sub-success", user, domain),
+                "0 0 9 * * *",
+                null,
+                LocalDateTime.now().minusMinutes(1)
+        );
+        Schedule failedSchedule = new Schedule(
+                "schedule-failed",
+                subscription("sub-failed", user, domain),
+                "0 0 9 * * *",
+                null,
+                LocalDateTime.now().minusMinutes(1)
+        );
+        CapturingSubscriptionExecutionPort executionPort =
+                new CapturingSubscriptionExecutionPort("sub-failed");
+        CapturingSaveSchedulePort saveSchedulePort = new CapturingSaveSchedulePort();
+        SubscriptionMonitorService service = new SubscriptionMonitorService(
+                now -> List.of(successSchedule, failedSchedule),
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
+                (userId, channel) -> Optional.empty(),
+                saveSchedulePort,
+                executionPort
+        );
+
+        service.runAll();
+
+        assertThat(saveSchedulePort.savedSchedules)
+                .extracting(schedule -> schedule.subscription().id())
+                .containsExactly("sub-success");
+    }
+
     private static String latestAvailableDealYmd() {
         return LocalDateTime.now().minusMonths(1).format(DateTimeFormatter.ofPattern("yyyyMM"));
     }
 
+    private static Subscription subscription(String id, User user, Domain domain) {
+        return new Subscription(
+                id,
+                user,
+                domain,
+                "강남구 아파트 매매",
+                "apartment_trade_price",
+                true,
+                LocalDateTime.now()
+        );
+    }
+
     private static class CapturingSubscriptionExecutionPort implements RunSubscriptionExecutionPort {
         private final List<SubscriptionContext> contexts = new ArrayList<>();
+        private final List<String> failedSubscriptionIds;
+
+        CapturingSubscriptionExecutionPort(String... failedSubscriptionIds) {
+            this.failedSubscriptionIds = List.of(failedSubscriptionIds);
+        }
 
         @Override
         public void execute(List<SubscriptionContext> subscriptions) {
             contexts.clear();
             contexts.addAll(subscriptions);
+            boolean hasFailedSubscription = subscriptions.stream()
+                    .map(SubscriptionContext::subscriptionId)
+                    .anyMatch(failedSubscriptionIds::contains);
+            if (hasFailedSubscription) {
+                throw new RuntimeException("execution failed");
+            }
         }
     }
 
     private static class CapturingSaveSchedulePort implements SaveSchedulePort {
+        private final List<Schedule> savedSchedules = new ArrayList<>();
         private Schedule savedSchedule;
 
         @Override
         public Schedule save(Schedule schedule) {
             savedSchedule = schedule;
+            savedSchedules.add(schedule);
             return schedule;
         }
     }

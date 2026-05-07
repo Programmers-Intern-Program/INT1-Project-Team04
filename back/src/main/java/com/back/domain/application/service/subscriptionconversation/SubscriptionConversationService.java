@@ -12,9 +12,11 @@ import com.back.domain.application.port.in.ParseTaskUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
+import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
+import com.back.domain.application.service.SubscriptionContext;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.mcp.McpTool;
 import com.back.domain.model.notification.NotificationChannel;
@@ -26,8 +28,11 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -52,6 +57,7 @@ public class SubscriptionConversationService {
     private static final String KEYWORD_ORIGINAL = "keywordOriginal";
     private static final String DEFAULT_INTERNAL_CHECK_CRON = "0 0 * * * *";
     private static final Pattern RECRUITMENT_COUNT_THRESHOLD = Pattern.compile("(\\d+(?:\\.\\d+)?)\\s*(?:건|개)");
+    private static final DateTimeFormatter DEAL_YMD_FORMATTER = DateTimeFormatter.ofPattern("yyyyMM");
     private static final TypeReference<Map<String, String>> STRING_MAP = new TypeReference<>() {
     };
 
@@ -64,6 +70,7 @@ public class SubscriptionConversationService {
     private final SubscriptionConversationJpaRepository conversationRepository;
     private final SubscriptionMonitoringConfigJpaRepository monitoringConfigRepository;
     private final ObjectMapper objectMapper;
+    private final RunSubscriptionExecutionPort runSubscriptionExecutionPort;
 
     public Response handle(Long userId, String conversationId, String message, ActionRequest action) {
         if (action != null) {
@@ -293,6 +300,7 @@ public class SubscriptionConversationService {
                 conversation.getDraftIntent(),
                 conversation.getDraftMonitoringParams()
         ));
+        initializeBaseline(userId, conversation, result);
         conversation.updateStatus(SubscriptionConversationStatus.CREATED, "알림을 시작했어요.");
         conversationRepository.save(conversation);
 
@@ -304,6 +312,46 @@ public class SubscriptionConversationService {
                 List.of(),
                 new CreatedSubscription(result.id(), result.nextRun())
         );
+    }
+
+    private void initializeBaseline(
+            Long userId,
+            SubscriptionConversationJpaEntity conversation,
+            SubscriptionResult result
+    ) {
+        runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
+                result.id(),
+                conversation.getDraftDomainName(),
+                result.query(),
+                baselineParams(conversation),
+                conversation.getDraftNotificationChannel() != null
+                        ? conversation.getDraftNotificationChannel().name()
+                        : null,
+                notificationTarget(userId, conversation)
+        )));
+    }
+
+    private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {
+        Map<String, Object> params = new LinkedHashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
+        if ("LATEST_AVAILABLE_MONTH".equals(String.valueOf(params.get("dealYmdPolicy")))
+                && !params.containsKey("deal_ymd")
+                && !params.containsKey("dealYmd")) {
+            params.put("deal_ymd", LocalDateTime.now().minusMonths(1).format(DEAL_YMD_FORMATTER));
+        }
+        return params;
+    }
+
+    private String notificationTarget(Long userId, SubscriptionConversationJpaEntity conversation) {
+        NotificationChannel channel = conversation.getDraftNotificationChannel();
+        if (channel == null) {
+            return null;
+        }
+        if (!isBlank(conversation.getDraftNotificationTargetAddress())) {
+            return conversation.getDraftNotificationTargetAddress().trim();
+        }
+        return loadNotificationEndpointPort.loadEnabledByUserIdAndChannel(userId, channel)
+                .map(NotificationEndpoint::targetAddress)
+                .orElse(null);
     }
 
     private Response cancel(SubscriptionConversationJpaEntity conversation) {

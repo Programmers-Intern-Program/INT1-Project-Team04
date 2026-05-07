@@ -15,7 +15,7 @@ import asyncio
 import re
 import smtplib
 from email.message import EmailMessage
-from html import unescape
+from html import escape, unescape
 from html.parser import HTMLParser
 from typing import Any
 
@@ -29,6 +29,7 @@ from mcp_server.notifications.models import (
 )
 
 _HTTP_TIMEOUT_SECONDS = 10.0
+_URL_PATTERN = re.compile(r"https?://[^\s<]+|www\.[^\s<]+")
 
 
 class NotificationDeliveryService:
@@ -196,7 +197,7 @@ class NotificationDeliveryService:
         message["From"] = self._settings.notification_email_from or ""
         message["To"] = request.target
         message["Subject"] = request.title or "구독 조건이 충족되었습니다"
-        _set_email_body(message, request.message)
+        _set_email_body(message, request.message, request.title)
 
         with smtplib.SMTP(
             self._settings.notification_email_host or "",
@@ -275,13 +276,167 @@ def _notification_text(request: NotificationRequest) -> str:
     return request.message
 
 
-def _set_email_body(message: EmailMessage, body: str) -> None:
+def _set_email_body(message: EmailMessage, body: str, title: str | None = None) -> None:
     """HTML 알림은 text/html 파트를 포함해 메일 클라이언트가 렌더링할 수 있게 만든다."""
     if _is_html_body(body):
         message.set_content(_html_to_plain_text(body))
         message.add_alternative(body, subtype="html")
         return
     message.set_content(body)
+    message.add_alternative(_email_notification_html(title, body), subtype="html")
+
+
+def _email_notification_html(title: str | None, body: str) -> str:
+    """AI가 plain text로 만든 변화 브리핑도 서비스 메일 양식으로 감싼다."""
+    if _is_recruitment_notification(title, body):
+        return _recruitment_notification_html(title, body)
+    return _generic_notification_html(title, body)
+
+
+def _generic_notification_html(title: str | None, body: str) -> str:
+    """도메인 전용 양식이 없는 변화 브리핑을 기본 카드 양식으로 감싼다."""
+    safe_title = escape(title or "구독 조건이 충족되었습니다")
+    lines = _non_empty_lines(body)
+    if not lines:
+        lines = ["구독 조건에 맞는 변화가 감지되었습니다."]
+    paragraphs = "\n".join(
+        f"""                      <p style="margin:0 0 8px;color:#4d4033;font-size:14px;line-height:1.65;font-weight:700;">{escape(line)}</p>"""
+        for line in lines
+    )
+
+    return f"""
+            <!doctype html>
+            <html lang="ko">
+            <body style="margin:0;background:#f7f2e8;color:#1c1917;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+              <div style="max-width:520px;margin:0 auto;padding:20px 14px;">
+                <div style="background:#fffdf7;border:1px solid #e6d9c3;border-radius:20px;padding:22px;box-shadow:0 12px 32px rgba(61,46,26,0.08);">
+                  <span style="display:inline-block;background:#0f7a4f;color:#ffffff;border-radius:999px;padding:7px 12px;font-size:12px;line-height:1;font-weight:800;">AI 변화 브리핑</span>
+                  <h1 style="margin:14px 0 14px;font-size:22px;line-height:1.35;color:#211a12;font-weight:900;">{safe_title}</h1>
+{paragraphs}
+                </div>
+              </div>
+            </body>
+            </html>
+            """.strip()
+
+
+def _recruitment_notification_html(title: str | None, body: str) -> str:
+    """채용 변화 알림은 출처 섹션과 공고 링크를 읽기 쉬운 카드 목록으로 렌더링한다."""
+    safe_title = escape(title or "채용 변화 알림")
+    summary_lines, sections = _parse_recruitment_sections(_non_empty_lines(body))
+    if not summary_lines:
+        summary_lines = ["새로운 채용 공고 변화가 감지되었습니다."]
+
+    summary_html = "\n".join(
+        f"""                      <p style="margin:0 0 8px;color:#334155;font-size:14px;line-height:1.65;font-weight:700;">{escape(line)}</p>"""
+        for line in summary_lines
+    )
+    section_html = "\n".join(_recruitment_section_html(section) for section in sections)
+
+    return f"""
+            <!doctype html>
+            <html lang="ko">
+            <body style="margin:0;background:#f4f7fb;color:#0f172a;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+              <div style="max-width:560px;margin:0 auto;padding:20px 14px;">
+                <div style="background:#ffffff;border:1px solid #dbe4f0;border-radius:20px;padding:22px;box-shadow:0 12px 32px rgba(15,23,42,0.08);">
+                  <span style="display:inline-block;background:#2563eb;color:#ffffff;border-radius:999px;padding:7px 12px;font-size:12px;line-height:1;font-weight:800;">채용 변화 브리핑</span>
+                  <h1 style="margin:14px 0 14px;font-size:22px;line-height:1.35;color:#0f172a;font-weight:900;">{safe_title}</h1>
+{summary_html}
+{section_html}
+                </div>
+              </div>
+            </body>
+            </html>
+            """.strip()
+
+
+def _is_recruitment_notification(title: str | None, body: str) -> bool:
+    text = f"{title or ''}\n{body}"
+    return any(marker in text for marker in ("채용", "공공채용", "워크넷"))
+
+
+def _non_empty_lines(body: str) -> list[str]:
+    return [line.strip() for line in body.splitlines() if line.strip()]
+
+
+def _parse_recruitment_sections(lines: list[str]) -> tuple[list[str], list[dict[str, Any]]]:
+    summary: list[str] = []
+    sections: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+
+    for line in lines:
+        heading = _markdown_heading(line)
+        if heading:
+            current = {"title": heading, "items": []}
+            sections.append(current)
+            continue
+
+        if line.startswith("- "):
+            if current is None:
+                current = {"title": "채용 공고", "items": []}
+                sections.append(current)
+            current["items"].append(line[2:].strip())
+            continue
+
+        if current is None:
+            summary.append(line)
+        else:
+            current["items"].append(line)
+
+    return summary, sections
+
+
+def _markdown_heading(line: str) -> str | None:
+    stripped = line.strip()
+    if stripped.startswith("**") and stripped.endswith("**") and len(stripped) > 4:
+        return stripped[2:-2].strip()
+    return None
+
+
+def _recruitment_section_html(section: dict[str, Any]) -> str:
+    title = escape(str(section["title"]))
+    items = section.get("items", [])
+    if not items:
+        return ""
+    item_html = "\n".join(_recruitment_item_html(str(item)) for item in items)
+    return f"""
+                  <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:16px;margin-top:14px;">
+                    <p style="margin:0 0 10px;color:#1d4ed8;font-size:13px;line-height:1.2;font-weight:900;">{title}</p>
+                    <ul style="margin:0;padding:0;list-style:none;">
+{item_html}
+                    </ul>
+                  </div>
+            """.rstrip()
+
+
+def _recruitment_item_html(item: str) -> str:
+    label, url = _split_first_url(item)
+    safe_label = escape(label.rstrip(":").strip() or item)
+    link_html = ""
+    if url:
+        href = _url_href(url)
+        link_html = (
+            f"""<a href="{escape(href)}" style="display:inline-block;margin-top:7px;color:#2563eb;font-size:13px;line-height:1.35;font-weight:800;text-decoration:none;">공고 보기</a>"""
+        )
+    return f"""
+                      <li style="padding:12px 0;border-top:1px solid #e2e8f0;">
+                        <p style="margin:0;color:#0f172a;font-size:15px;line-height:1.5;font-weight:800;">{safe_label}</p>
+                        {link_html}
+                      </li>
+            """.rstrip()
+
+
+def _split_first_url(item: str) -> tuple[str, str | None]:
+    match = _URL_PATTERN.search(item)
+    if match is None:
+        return item, None
+    url = match.group(0).rstrip(").,")
+    label = (item[:match.start()] + item[match.end():]).strip()
+    return label, url
+
+
+def _url_href(url: str) -> str:
+    return url if url.startswith(("http://", "https://")) else f"https://{url}"
 
 
 def _is_html_body(value: str) -> bool:
