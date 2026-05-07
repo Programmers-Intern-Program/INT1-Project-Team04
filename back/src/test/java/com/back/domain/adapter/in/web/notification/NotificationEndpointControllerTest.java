@@ -131,6 +131,53 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
     }
 
     @Test
+    @DisplayName("Web: Discord 기본 알림 계정은 재연결 OAuth로 교체할 수 있다")
+    void reconnectsDiscordDefaultEndpointWithDifferentOAuthAccount() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("discord-reconnect@example.com", "웹사용자"));
+        oauthConnectionRepository.save(new UserOAuthConnectionJpaEntity(
+                user,
+                OAuthProvider.DISCORD,
+                "discord-web-1",
+                "discord-old@example.com",
+                "old-token"
+        ));
+        endpointRepository.save(new NotificationEndpointJpaEntity(
+                user.getId(),
+                NotificationChannel.DISCORD_DM,
+                "discord-web-1",
+                true
+        ));
+        String rawToken = "discord-reconnect-session";
+        String sessionCookie = createSession(user, rawToken);
+
+        HttpResponse<String> reconnect = post("/api/notification-endpoints/discord/reconnect", "{}", sessionCookie);
+        assertThat(reconnect.statusCode()).as(reconnect.body()).isEqualTo(200);
+        assertThat(reconnect.body()).contains("\"connected\":false");
+        assertThat(reconnect.body()).contains("/api/notification-endpoints/discord/authorize");
+
+        HttpResponse<String> authorize = get("/api/notification-endpoints/discord/authorize", sessionCookie);
+        String state = readCookieValue(authorize.headers().allValues("Set-Cookie"), "OAUTH_STATE");
+
+        HttpRequest callback = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl() + "/api/auth/oauth/discord/callback?code=discord-code-2&state=" + state))
+                .header("Cookie", sessionCookie + "; OAUTH_STATE=" + state + "; DISCORD_NOTIFICATION_CONNECT=true")
+                .GET()
+                .build();
+
+        HttpResponse<String> response = httpClient.send(callback, HttpResponse.BodyHandlers.ofString());
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(302);
+        assertThat(oauthConnectionRepository.findFirstByUserIdAndProvider(user.getId(), OAuthProvider.DISCORD))
+                .get()
+                .extracting("providerUserId")
+                .isEqualTo("discord-web-2");
+        assertThat(endpointRepository.findByUserIdAndChannelAndEnabledTrue(user.getId(), NotificationChannel.DISCORD_DM))
+                .get()
+                .extracting("targetAddress")
+                .isEqualTo("discord-web-2");
+    }
+
+    @Test
     @DisplayName("Web: Telegram deep link를 발급하고 webhook start 명령으로 chat_id endpoint를 저장한다")
     void connectsTelegramEndpointFromDeepLinkWebhook() throws Exception {
         UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("telegram-connected@example.com", "웹사용자"));
@@ -158,6 +205,34 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
                 .get()
                 .extracting("targetAddress")
                 .isEqualTo("123456789");
+    }
+
+    @Test
+    @DisplayName("Web: Email 기본 알림 주소를 저장하고 변경한다")
+    void updatesEmailDefaultEndpoint() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("email-update@example.com", "웹사용자"));
+        endpointRepository.save(new NotificationEndpointJpaEntity(
+                user.getId(),
+                NotificationChannel.EMAIL,
+                "old@example.com",
+                true
+        ));
+        String cookieHeader = createSession(user, "email-update-session");
+
+        HttpResponse<String> response = post("/api/notification-endpoints/email/connect", """
+                {
+                  "targetAddress": " new@example.com "
+                }
+                """, cookieHeader);
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.body()).contains("\"channel\":\"EMAIL\"");
+        assertThat(response.body()).contains("\"connected\":true");
+        assertThat(response.body()).contains("\"targetLabel\":\"n***@example.com\"");
+        assertThat(endpointRepository.findByUserIdAndChannelAndEnabledTrue(user.getId(), NotificationChannel.EMAIL))
+                .get()
+                .extracting("targetAddress")
+                .isEqualTo("new@example.com");
     }
 
     @Test

@@ -4,10 +4,13 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
+  connectEmailNotification,
   connectDiscordNotification,
   getNotificationEndpoints,
+  reconnectDiscordNotification,
   startTelegramNotificationConnect,
   type NotificationChannelId,
+  type NotificationEndpointStatus,
 } from "../lib/subscriptions";
 import {
   STALE_CONVERSATION_MESSAGE,
@@ -55,8 +58,11 @@ export function SubscriptionChat({
   const [actions, setActions] = useState<ConversationActionOption[]>([]);
   const [draft, setDraft] = useState<ConversationResponse["draft"]>(null);
   const [subscriptions, setSubscriptions] = useState<SubscriptionSummary[]>([]);
+  const [notificationEndpoints, setNotificationEndpoints] = useState<NotificationEndpointStatus[]>([]);
+  const [emailEndpointInput, setEmailEndpointInput] = useState("");
   const [submitState, setSubmitState] = useState<SubmitState>("idle");
   const [deletingSubscriptionId, setDeletingSubscriptionId] = useState<string | null>(null);
+  const [updatingEndpointChannel, setUpdatingEndpointChannel] = useState<NotificationChannelId | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
   const [debugJson, setDebugJson] = useState<DebugJsonSnapshot>({
     request: "{}",
@@ -75,6 +81,17 @@ export function SubscriptionChat({
       return;
     }
     setSubscriptions(response.data);
+  }, [onUnauthenticated]);
+
+  const reloadNotificationEndpoints = useCallback(async () => {
+    const response = await getNotificationEndpoints();
+    if (!response.ok) {
+      if (response.error.code === "UNAUTHENTICATED") {
+        onUnauthenticated?.();
+      }
+      return;
+    }
+    setNotificationEndpoints(response.data);
   }, [onUnauthenticated]);
 
   const resetExpiredConversation = useCallback(() => {
@@ -137,6 +154,7 @@ export function SubscriptionChat({
       }
       return;
     }
+    setNotificationEndpoints(endpointResult.data);
 
     const connected = endpointResult.data.some(
       (endpoint) => endpoint.channel === pending.channel && endpoint.connected,
@@ -169,9 +187,10 @@ export function SubscriptionChat({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void reloadSubscriptions();
+      void reloadNotificationEndpoints();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [reloadSubscriptions]);
+  }, [reloadNotificationEndpoints, reloadSubscriptions]);
 
   useEffect(() => {
     if (!hasRestoredSession) {
@@ -210,11 +229,13 @@ export function SubscriptionChat({
       void resumePendingChannel();
     }, 0);
     window.addEventListener("focus", resumePendingChannel);
+    window.addEventListener("focus", reloadNotificationEndpoints);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener("focus", resumePendingChannel);
+      window.removeEventListener("focus", reloadNotificationEndpoints);
     };
-  }, [resumePendingChannel]);
+  }, [reloadNotificationEndpoints, resumePendingChannel]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "end" });
@@ -378,6 +399,7 @@ export function SubscriptionChat({
     setStatusMessage(response.data.message);
 
     if (response.data.connected) {
+      await reloadNotificationEndpoints();
       await resumePendingChannel();
       return;
     }
@@ -388,6 +410,71 @@ export function SubscriptionChat({
     if (response.data.connectUrl) {
       window.open(response.data.connectUrl, "_blank", "noopener,noreferrer");
     }
+  }
+
+  async function handleEndpointChange(channel: Exclude<NotificationChannelId, "EMAIL">) {
+    if (updatingEndpointChannel) {
+      return;
+    }
+
+    setStatusMessage("");
+    setUpdatingEndpointChannel(channel);
+    const response =
+      channel === "DISCORD_DM"
+        ? await reconnectDiscordNotification()
+        : await startTelegramNotificationConnect();
+    setUpdatingEndpointChannel(null);
+
+    if (!response.ok) {
+      if (response.error.code === "UNAUTHENTICATED") {
+        onUnauthenticated?.();
+      }
+      setStatusMessage(response.error.message);
+      return;
+    }
+
+    setStatusMessage(response.data.message);
+    if (response.data.connected) {
+      await reloadNotificationEndpoints();
+      return;
+    }
+    if (response.data.authorizationUrl) {
+      window.location.assign(response.data.authorizationUrl);
+      return;
+    }
+    if (response.data.connectUrl) {
+      window.open(response.data.connectUrl, "_blank", "noopener,noreferrer");
+    }
+  }
+
+  async function handleEmailEndpointSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (updatingEndpointChannel) {
+      return;
+    }
+
+    const email = emailEndpointInput.trim();
+    if (!email || !email.includes("@")) {
+      setStatusMessage("올바른 이메일 형식으로 입력해 주세요.");
+      return;
+    }
+
+    setStatusMessage("");
+    setUpdatingEndpointChannel("EMAIL");
+    const response = await connectEmailNotification(email);
+    setUpdatingEndpointChannel(null);
+
+    if (!response.ok) {
+      if (response.error.code === "UNAUTHENTICATED") {
+        onUnauthenticated?.();
+      }
+      setStatusMessage(response.error.message);
+      return;
+    }
+
+    setEmailEndpointInput("");
+    setStatusMessage(response.data.message);
+    await reloadNotificationEndpoints();
   }
 
   async function handleDeleteSubscription(subscriptionId: string) {
@@ -521,6 +608,50 @@ export function SubscriptionChat({
       <aside className="rounded-[28px] border border-stone-200 bg-[#10251d] p-5 text-white shadow-[0_18px_50px_rgba(16,37,29,0.18)]">
         <h2 className="text-lg font-black tracking-tight">구독중인 알림</h2>
         <div className="mt-4 grid gap-3">
+          <section className="rounded-2xl border border-white/10 bg-white/8 p-4">
+            <h3 className="text-sm font-black">알림 채널</h3>
+            <div className="mt-3 grid gap-3">
+              <ChannelEndpointRow
+                label="Discord"
+                status={endpointStatusLabel(notificationEndpoints, "DISCORD_DM")}
+                actionLabel={endpointActionLabel(notificationEndpoints, "DISCORD_DM")}
+                disabled={updatingEndpointChannel !== null}
+                busy={updatingEndpointChannel === "DISCORD_DM"}
+                onAction={() => void handleEndpointChange("DISCORD_DM")}
+              />
+              <ChannelEndpointRow
+                label="Telegram"
+                status={endpointStatusLabel(notificationEndpoints, "TELEGRAM_DM")}
+                actionLabel={endpointActionLabel(notificationEndpoints, "TELEGRAM_DM")}
+                disabled={updatingEndpointChannel !== null}
+                busy={updatingEndpointChannel === "TELEGRAM_DM"}
+                onAction={() => void handleEndpointChange("TELEGRAM_DM")}
+              />
+              <form onSubmit={handleEmailEndpointSubmit} className="grid gap-2 rounded-xl bg-white/6 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-black">Email</p>
+                    <p className="mt-1 text-xs font-bold text-emerald-100">
+                      {endpointStatusLabel(notificationEndpoints, "EMAIL")}
+                    </p>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={updatingEndpointChannel !== null || !emailEndpointInput.trim()}
+                    className="rounded-full border border-white/15 px-3 py-1 text-xs font-black text-emerald-50 transition hover:border-white/40 hover:bg-white/10 disabled:cursor-not-allowed disabled:text-emerald-100/50"
+                  >
+                    {updatingEndpointChannel === "EMAIL" ? "저장 중" : "저장"}
+                  </button>
+                </div>
+                <input
+                  value={emailEndpointInput}
+                  onChange={(event) => setEmailEndpointInput(event.target.value)}
+                  placeholder="user@example.com"
+                  className="h-10 min-w-0 rounded-xl border border-white/10 bg-white/10 px-3 text-sm font-bold text-white outline-none transition placeholder:text-emerald-100/55 focus:border-emerald-200"
+                />
+              </form>
+            </div>
+          </section>
           {subscriptions.length === 0 ? (
             <p className="rounded-2xl bg-white/8 p-4 text-sm font-bold text-emerald-50">
               아직 시작한 알림이 없습니다.
@@ -580,6 +711,58 @@ function SummaryRow({
       </dd>
     </div>
   );
+}
+
+function ChannelEndpointRow({
+  label,
+  status,
+  actionLabel,
+  disabled,
+  busy,
+  onAction,
+}: {
+  label: string;
+  status: string;
+  actionLabel: string;
+  disabled: boolean;
+  busy: boolean;
+  onAction: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-3 rounded-xl bg-white/6 p-3">
+      <div>
+        <p className="text-sm font-black">{label}</p>
+        <p className="mt-1 text-xs font-bold text-emerald-100">{status}</p>
+      </div>
+      <button
+        type="button"
+        onClick={onAction}
+        disabled={disabled}
+        className="rounded-full border border-white/15 px-3 py-1 text-xs font-black text-emerald-50 transition hover:border-white/40 hover:bg-white/10 disabled:cursor-not-allowed disabled:text-emerald-100/50"
+      >
+        {busy ? "처리 중" : actionLabel}
+      </button>
+    </div>
+  );
+}
+
+function endpointStatusLabel(
+  endpoints: NotificationEndpointStatus[],
+  channel: NotificationChannelId,
+): string {
+  const endpoint = endpoints.find((item) => item.channel === channel);
+  if (!endpoint?.connected) {
+    return "미연결";
+  }
+  return endpoint.targetLabel ?? "연결됨";
+}
+
+function endpointActionLabel(
+  endpoints: NotificationEndpointStatus[],
+  channel: NotificationChannelId,
+): string {
+  const endpoint = endpoints.find((item) => item.channel === channel);
+  return endpoint?.connected ? "변경" : "연결";
 }
 
 function readPendingChannel():

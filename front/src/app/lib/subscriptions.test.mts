@@ -8,11 +8,13 @@ import {
   CADENCE_PRESETS,
   CHANNEL_PRESETS,
   createSubscription,
+  connectEmailNotification,
   connectDiscordNotification,
   disconnectNotificationEndpoint,
   getDomains,
   getApiBaseUrl,
   getNotificationEndpoints,
+  reconnectDiscordNotification,
   startTelegramNotificationConnect,
   validateSubscriptionForm,
   shouldShowEmailAddressInput,
@@ -485,6 +487,41 @@ describe("subscription API client", () => {
     });
   });
 
+  it("requests Discord notification reconnection", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/discord/reconnect");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
+
+      return new Response(
+        JSON.stringify({
+          channel: "DISCORD_DM",
+          connected: false,
+          authorizationUrl: "http://api.test/api/auth/oauth/discord/authorize",
+          message: "Discord 로그인 후 기본 알림 계정을 변경할 수 있습니다.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await reconnectDiscordNotification({
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "DISCORD_DM",
+        connected: false,
+        targetLabel: null,
+        connectUrl: null,
+        authorizationUrl: "http://api.test/api/auth/oauth/discord/authorize",
+        message: "Discord 로그인 후 기본 알림 계정을 변경할 수 있습니다.",
+      },
+    });
+  });
+
   it("requests Telegram notification deep link", async () => {
     const fetcher: SubscriptionFetch = async (input, init) => {
       assert.equal(input, "http://api.test/api/notification-endpoints/telegram/connect");
@@ -516,6 +553,42 @@ describe("subscription API client", () => {
         connectUrl: "https://t.me/int1_test_bot?start=token-1",
         authorizationUrl: null,
         message: "Telegram 봇을 열어 연결을 완료해 주세요.",
+      },
+    });
+  });
+
+  it("updates the default email notification endpoint", async () => {
+    const fetcher: SubscriptionFetch = async (input, init) => {
+      assert.equal(input, "http://api.test/api/notification-endpoints/email/connect");
+      assert.equal(init?.method, "POST");
+      assert.equal(init?.credentials, "include");
+      assert.equal(init?.body, JSON.stringify({ targetAddress: "new@example.com" }));
+
+      return new Response(
+        JSON.stringify({
+          channel: "EMAIL",
+          connected: true,
+          targetLabel: "n***@example.com",
+          message: "Email 알림 수신 주소가 저장되었습니다.",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
+
+    const result = await connectEmailNotification(" new@example.com ", {
+      baseUrl: "http://api.test",
+      fetcher,
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      data: {
+        channel: "EMAIL",
+        connected: true,
+        targetLabel: "n***@example.com",
+        connectUrl: null,
+        authorizationUrl: null,
+        message: "Email 알림 수신 주소가 저장되었습니다.",
       },
     });
   });

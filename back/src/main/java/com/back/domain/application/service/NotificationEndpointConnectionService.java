@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationEndpointConnectionService {
 
     private static final Duration TELEGRAM_CONNECT_TOKEN_TTL = Duration.ofMinutes(15);
+    private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
     private final LoadNotificationEndpointPort loadNotificationEndpointPort;
     private final SaveNotificationEndpointPort saveNotificationEndpointPort;
@@ -77,6 +79,17 @@ public class NotificationEndpointConnectionService {
                 ));
     }
 
+    public NotificationEndpointConnectionResult reconnectDiscord(Long userId, String authorizationUrl) {
+        return new NotificationEndpointConnectionResult(
+                NotificationChannel.DISCORD_DM,
+                false,
+                null,
+                null,
+                authorizationUrl,
+                "Discord 로그인 후 기본 알림 계정을 변경할 수 있습니다."
+        );
+    }
+
     public NotificationEndpointConnectionResult completeDiscordConnection(Long userId, OAuthUserProfile profile) {
         if (profile.provider() != OAuthProvider.DISCORD
                 || profile.providerUserId() == null
@@ -93,21 +106,22 @@ public class NotificationEndpointConnectionService {
         if (existingIdentity.isEmpty()) {
             Optional<UserOAuthConnectionJpaEntity> existingUserDiscord = oauthConnectionRepository
                     .findFirstByUserIdAndProvider(userId, OAuthProvider.DISCORD);
-            if (existingUserDiscord.isPresent()
-                    && !existingUserDiscord.get().getProviderUserId().equals(profile.providerUserId())) {
-                throw new ApiException(ErrorCode.INVALID_REQUEST);
-            }
-
             UserJpaEntity user = userRepository.findById(userId)
                     .filter(storedUser -> storedUser.getDeletedAt() == null)
                     .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST));
-            oauthConnectionRepository.save(new UserOAuthConnectionJpaEntity(
-                    user,
-                    OAuthProvider.DISCORD,
-                    profile.providerUserId(),
-                    profile.email() == null || profile.email().isBlank() ? user.getEmail() : profile.email(),
-                    profile.accessToken()
-            ));
+            String email = profile.email() == null || profile.email().isBlank() ? user.getEmail() : profile.email();
+            if (existingUserDiscord.isPresent()) {
+                // 알림용 Discord 연결은 로그인 세션이 아니라 채널 기본 수신처라 같은 사용자 안에서는 교체를 허용한다.
+                existingUserDiscord.get().updateProfile(profile.providerUserId(), email, profile.accessToken());
+            } else {
+                oauthConnectionRepository.save(new UserOAuthConnectionJpaEntity(
+                        user,
+                        OAuthProvider.DISCORD,
+                        profile.providerUserId(),
+                        email,
+                        profile.accessToken()
+                ));
+            }
         }
 
         saveOrUpdateEndpoint(userId, NotificationChannel.DISCORD_DM, profile.providerUserId());
@@ -167,6 +181,20 @@ public class NotificationEndpointConnectionService {
                 null,
                 null,
                 "Telegram DM 연결이 완료되었습니다."
+        );
+    }
+
+    public NotificationEndpointConnectionResult connectEmail(Long userId, String targetAddress) {
+        String email = normalizeEmail(targetAddress);
+        saveOrUpdateEndpoint(userId, NotificationChannel.EMAIL, email);
+
+        return new NotificationEndpointConnectionResult(
+                NotificationChannel.EMAIL,
+                true,
+                targetLabel(NotificationChannel.EMAIL, email),
+                null,
+                null,
+                "Email 알림 수신 주소가 저장되었습니다."
         );
     }
 
@@ -231,6 +259,17 @@ public class NotificationEndpointConnectionService {
         }
 
         return Optional.of(parts[1].trim());
+    }
+
+    private String normalizeEmail(String targetAddress) {
+        if (targetAddress == null || targetAddress.isBlank()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+        String email = targetAddress.trim();
+        if (!EMAIL.matcher(email).matches()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+        return email;
     }
 
     private NotificationEndpointConnectionResult telegramWebhookIgnored() {
