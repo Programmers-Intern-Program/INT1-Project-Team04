@@ -157,6 +157,9 @@ class PromptTemplateTest {
                 .contains("거래연월")
                 .contains("거래건수")
                 .contains("데이터 출처")
+                .contains("API 캐시")
                 .contains("한 줄로 끝내지 마세요");
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("내부 처리 경로는 알림 본문에 쓰지 마세요");
     }
 }

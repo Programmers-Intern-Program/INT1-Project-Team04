@@ -49,6 +49,34 @@ METRIC_SUMMARY_KEYS = {
     "COUNT": COUNT_KEYS,
     "ONGOING_COUNT": ONGOING_COUNT_KEYS,
 }
+SUMMARY_FIELD_LABELS = {
+    "avg_deal_amount": "평균 매매가",
+    "min_deal_amount": "최저 매매가",
+    "max_deal_amount": "최고 매매가",
+    "avg_deposit": "평균 보증금",
+    "min_deposit": "최저 보증금",
+    "max_deposit": "최고 보증금",
+    "avg_monthly_rent": "평균 월세",
+    "count": "건수",
+    "added_count": "신규 공고 수",
+    "removed_count": "제외 공고 수",
+    "ongoing_count": "진행중 공고 수",
+    "ongoing_added_count": "신규 진행중 공고 수",
+    "ongoing_removed_count": "제외된 진행중 공고 수",
+}
+MONEY_MANWON_FIELDS = frozenset({
+    "avg_deal_amount",
+    "min_deal_amount",
+    "max_deal_amount",
+    "avg_deposit",
+    "min_deposit",
+    "max_deposit",
+    "avg_monthly_rent",
+})
+COUNT_FIELDS = COUNT_KEYS | ONGOING_COUNT_KEYS | frozenset({
+    "removed_count",
+    "ongoing_removed_count",
+})
 
 
 def stable_params_hash(params: dict[str, Any]) -> str:
@@ -628,13 +656,18 @@ def build_diff(field: str, baseline_value: Any, current_value: Any) -> SummaryDi
 
 def briefing_fact(diff: SummaryDiff) -> str:
     """AI 브리핑에 바로 사용할 수 있는 대표 근거 문장을 만든다."""
+    label = SUMMARY_FIELD_LABELS.get(diff.field, diff.field)
     if diff.delta is not None:
         verb = "증가" if diff.direction == "increase" else "감소"
         return (
-            f"{diff.field} 값이 {diff.baseline_value}에서 {diff.current_value}으로 "
-            f"{_format_number(diff.delta)} {verb}했습니다."
+            f"{label}가 {_format_summary_value(diff.field, diff.baseline_value)}에서 "
+            f"{_format_summary_value(diff.field, diff.current_value)}으로 "
+            f"{_format_summary_value(diff.field, abs(diff.delta))} {verb}했습니다."
         )
-    return f"{diff.field} 값이 {diff.baseline_value}에서 {diff.current_value}으로 변경되었습니다."
+    return (
+        f"{label}가 {_format_summary_value(diff.field, diff.baseline_value)}에서 "
+        f"{_format_summary_value(diff.field, diff.current_value)}으로 변경되었습니다."
+    )
 
 
 def _briefing_facts(diffs: list[SummaryDiff]) -> list[str]:
@@ -642,7 +675,8 @@ def _briefing_facts(diffs: list[SummaryDiff]) -> list[str]:
     for diff in diffs:
         facts.append(briefing_fact(diff))
         if diff.change_rate is not None:
-            facts.append(f"{diff.field} 변화율은 {diff.change_rate}%입니다.")
+            label = SUMMARY_FIELD_LABELS.get(diff.field, diff.field)
+            facts.append(f"{label} 변화율은 {diff.change_rate}%입니다.")
     return facts
 
 
@@ -652,3 +686,31 @@ def _is_number(value: Any) -> bool:
 
 def _format_number(value: float) -> str:
     return str(int(value)) if value.is_integer() else str(value)
+
+
+def _format_summary_value(field: str, value: Any) -> str:
+    """알림 문장은 summary 내부 저장 단위보다 사용자가 읽는 단위를 우선한다."""
+    if field in MONEY_MANWON_FIELDS and _is_number(value):
+        return _format_manwon(float(value))
+    if field in COUNT_FIELDS and _is_number(value):
+        return f"{_format_number(float(value))}건"
+    return str(value)
+
+
+def _format_manwon(value: float) -> str:
+    sign = "-" if value < 0 else ""
+    amount = int(abs(value)) if float(value).is_integer() else abs(value)
+    if amount < 10000:
+        return f"{sign}{_format_amount(amount)}만원"
+
+    eok = int(amount // 10000)
+    manwon = amount - (eok * 10000)
+    if manwon == 0:
+        return f"{sign}{eok}억원"
+    return f"{sign}{eok}억 {_format_amount(manwon)}만원"
+
+
+def _format_amount(value: int | float) -> str:
+    if isinstance(value, float) and not value.is_integer():
+        return f"{value:,.1f}".rstrip("0").rstrip(".")
+    return f"{int(value):,}"

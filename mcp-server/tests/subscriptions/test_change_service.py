@@ -206,9 +206,10 @@ async def test_second_run_returns_numeric_diff_and_updates_latest(
     assert result.diffs[0].change_rate == 6.0
     assert result.diffs[0].direction == "increase"
     assert (
-        "avg_deal_amount 값이 100000에서 106000으로 6000 증가했습니다."
+        "평균 매매가가 10억원에서 10억 6,000만원으로 6,000만원 증가했습니다."
         in result.briefing_facts
     )
+    assert "평균 매매가 변화율은 6.0%입니다." in result.briefing_facts
 
     async with patched_session_factory() as session:
         row = (await session.execute(select(SubscriptionSnapshotState))).scalar_one()
