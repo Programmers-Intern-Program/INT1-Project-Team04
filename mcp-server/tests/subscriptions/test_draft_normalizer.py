@@ -1,5 +1,7 @@
 """구독 초안 구조화 서비스 테스트."""
 
+import pytest
+
 from mcp_server.subscriptions.draft_models import (
     ParsedTaskDraft,
     SubscriptionDraftNormalizationInput,
@@ -210,24 +212,78 @@ def test_recruitment_request_without_target_or_condition_asks_for_more_details()
     assert "어떤 채용" in result.question
 
 
-def test_apartment_rent_request_is_not_normalized_as_trade() -> None:
+@pytest.mark.parametrize(
+    ("user_message", "query", "target", "expected_intent", "expected_tool_name"),
+    [
+        (
+            "강남구 아파트 전월세 보증금 5% 이상 상승하면 알려줘",
+            "강남구 아파트 전월세",
+            "강남구 아파트 전월세",
+            "apartment_rent_price",
+            "search_apt_rent",
+        ),
+        (
+            "강남구 오피스텔 매매 실거래가 5% 이상 상승하면 알려줘",
+            "강남구 오피스텔 매매 실거래가",
+            "강남구 오피스텔 매매 실거래가",
+            "officetel_trade_price",
+            "search_offi_trade",
+        ),
+        (
+            "강남구 오피스텔 전월세 보증금 5% 이상 상승하면 알려줘",
+            "강남구 오피스텔 전월세",
+            "강남구 오피스텔 전월세",
+            "officetel_rent_price",
+            "search_offi_rent",
+        ),
+        (
+            "강남구 연립다세대 매매 실거래가 5% 이상 상승하면 알려줘",
+            "강남구 연립다세대 매매 실거래가",
+            "강남구 연립다세대 매매 실거래가",
+            "row_house_trade_price",
+            "search_rh_trade",
+        ),
+        (
+            "강남구 연립다세대 전월세 보증금 5% 이상 상승하면 알려줘",
+            "강남구 연립다세대 전월세",
+            "강남구 연립다세대 전월세",
+            "row_house_rent_price",
+            "search_rh_rent",
+        ),
+    ],
+)
+def test_supported_real_estate_capabilities_return_matching_tool_contract(
+    user_message: str,
+    query: str,
+    target: str,
+    expected_intent: str,
+    expected_tool_name: str,
+) -> None:
     result = normalize_subscription_draft(
         SubscriptionDraftNormalizationInput(
-            userMessage="강남구 아파트 전세 5% 이상 상승하면 알려줘",
+            userMessage=user_message,
             task=ParsedTaskDraft(
                 intent="create",
                 domainName="부동산",
-                query="강남구 아파트 전세",
+                query=query,
                 condition="5% 이상 상승",
-                target="강남구 아파트 전세",
+                target=target,
                 confidence=0.9,
             ),
         )
     )
 
-    assert result.tool_name is None
-    assert result.missing_fields == ["unsupportedCapability"]
-    assert "매매" in result.question
+    assert result.domain_name == "real-estate"
+    assert result.intent == expected_intent
+    assert result.tool_name == expected_tool_name
+    assert result.parameters["region"] == "강남구"
+    assert result.parameters["dealYmdPolicy"] == "LATEST_AVAILABLE_MONTH"
+    assert result.parameters["conditionMetric"] == "AVG_PRICE"
+    assert result.parameters["conditionDirection"] == "UP"
+    assert result.parameters["conditionOperator"] == "GTE"
+    assert result.parameters["conditionThreshold"] == "5"
+    assert result.parameters["conditionUnit"] == "PERCENT"
+    assert result.missing_fields == []
 
 
 def test_inferred_target_rent_does_not_make_house_price_unsupported() -> None:
