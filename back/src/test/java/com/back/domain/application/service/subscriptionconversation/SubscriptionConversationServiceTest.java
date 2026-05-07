@@ -1600,6 +1600,58 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("baseline 초기화가 실패해도 구독 확정 응답은 성공으로 처리한다")
+    void confirmStillCreatesSubscriptionWhenBaselineInitializationFails() {
+        SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
+        readyConversation.updateParsedDraft(
+                "parse-1",
+                "안산 상록구 아파트 매매",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{\"region\":\"안산 상록구\",\"conditionMetric\":\"AVG_PRICE\",\"conditionDirection\":\"UP\",\"conditionOperator\":\"GTE\",\"conditionThreshold\":\"5\",\"conditionUnit\":\"PERCENT\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "0 0 * * * *",
+                NotificationChannel.DISCORD_DM,
+                null,
+                "아래 내용으로 알림을 시작할까요?",
+                SubscriptionConversationStatus.READY_FOR_CONFIRMATION
+        );
+        when(conversationRepository.findByIdAndUserId(readyConversation.getId(), 1L))
+                .thenReturn(Optional.of(readyConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(monitoringConfigRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        createSubscriptionUseCase.result = new SubscriptionResult(
+                "sub-1",
+                1L,
+                1L,
+                "안산 상록구 아파트 매매",
+                true,
+                LocalDateTime.now(),
+                "schedule-1",
+                "0 0 * * * *",
+                LocalDateTime.now().plusHours(1)
+        );
+        LoadNotificationEndpointPort connectedDiscord = (userId, channel) -> channel == NotificationChannel.DISCORD_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "discord-user-1", true))
+                : Optional.empty();
+        runSubscriptionExecutionPort.failure = new RuntimeException("baseline failed");
+        SubscriptionConversationService service = service(connectedDiscord);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                readyConversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
+        );
+
+        assertThat(response.status()).isEqualTo("CREATED");
+        assertThat(response.subscription().id()).isEqualTo("sub-1");
+        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.CREATED);
+        verify(monitoringConfigRepository).save(any());
+    }
+
+    @Test
     @DisplayName("조건이 없는 준비 초안은 구독 생성 대신 조건을 질문한다")
     void readyDraftWithoutConditionAsksForConditionInsteadOfCreatingSubscription() {
         SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
@@ -2039,11 +2091,15 @@ class SubscriptionConversationServiceTest {
 
     private static class FakeRunSubscriptionExecutionPort implements RunSubscriptionExecutionPort {
         private final List<SubscriptionContext> contexts = new ArrayList<>();
+        private RuntimeException failure;
 
         @Override
         public void execute(List<SubscriptionContext> subscriptions) {
             contexts.clear();
             contexts.addAll(subscriptions);
+            if (failure != null) {
+                throw failure;
+            }
         }
     }
 

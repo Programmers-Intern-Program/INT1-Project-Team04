@@ -40,9 +40,11 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -319,16 +321,25 @@ public class SubscriptionConversationService {
             SubscriptionConversationJpaEntity conversation,
             SubscriptionResult result
     ) {
-        runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
-                result.id(),
-                conversation.getDraftDomainName(),
-                result.query(),
-                baselineParams(conversation),
-                conversation.getDraftNotificationChannel() != null
-                        ? conversation.getDraftNotificationChannel().name()
-                        : null,
-                notificationTarget(userId, conversation)
-        )));
+        // 초기 기준값 수집은 다음 스케줄에서도 재시도되므로 구독 생성 응답을 실패시키지 않는다.
+        try {
+            runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
+                    result.id(),
+                    conversation.getDraftDomainName(),
+                    result.query(),
+                    baselineParams(conversation),
+                    conversation.getDraftNotificationChannel() != null
+                            ? conversation.getDraftNotificationChannel().name()
+                            : null,
+                    notificationTarget(userId, conversation)
+            )));
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[SubscriptionConversationService] baseline 초기화 실패 - 구독 생성은 유지합니다. subscriptionId={}",
+                    result.id(),
+                    exception
+            );
+        }
     }
 
     private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {
