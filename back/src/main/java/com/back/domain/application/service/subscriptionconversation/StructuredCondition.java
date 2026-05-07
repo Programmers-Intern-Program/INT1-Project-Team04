@@ -23,6 +23,10 @@ public record StructuredCondition(
     }
 
     public static Optional<StructuredCondition> parse(String raw) {
+        return parse(raw, null);
+    }
+
+    public static Optional<StructuredCondition> parse(String raw, String metricContext) {
         String text = raw == null ? "" : raw.trim();
         if (text.isBlank()) {
             return Optional.empty();
@@ -35,7 +39,7 @@ public record StructuredCondition(
 
         BigDecimal threshold = new BigDecimal(matcher.group(1)).stripTrailingZeros();
         Unit unit = Unit.from(matcher.group(2));
-        Metric metric = Metric.from(text);
+        Metric metric = Metric.from(text, metricContext);
         Direction direction = Direction.from(text);
         Operator operator = Operator.from(text);
         return Optional.of(new StructuredCondition(
@@ -93,14 +97,28 @@ public record StructuredCondition(
         COUNT,
         ONGOING_COUNT;
 
-        private static Metric from(String text) {
-            if (text.replace("전월세", "").contains("월세")) {
+        private static Metric from(String text, String metricContext) {
+            if (containsMonthlyRent(text)) {
                 return AVG_MONTHLY_RENT;
             }
-            if (text.contains("보증금") || text.contains("전세") || text.contains("전월세")) {
+            if (containsDeposit(text)) {
+                return AVG_DEPOSIT;
+            }
+            if (containsMonthlyRent(metricContext)) {
+                return AVG_MONTHLY_RENT;
+            }
+            if (containsDeposit(metricContext)) {
                 return AVG_DEPOSIT;
             }
             return AVG_PRICE;
+        }
+
+        private static boolean containsMonthlyRent(String text) {
+            return text != null && text.replace("전월세", "").contains("월세");
+        }
+
+        private static boolean containsDeposit(String text) {
+            return text != null && (text.contains("보증금") || text.contains("전세") || text.contains("전월세"));
         }
     }
 

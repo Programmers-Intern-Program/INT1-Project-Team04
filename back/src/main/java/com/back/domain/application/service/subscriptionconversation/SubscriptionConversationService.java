@@ -498,7 +498,7 @@ public class SubscriptionConversationService {
             return null;
         }
 
-        Optional<StructuredCondition> condition = StructuredCondition.parse(message);
+        Optional<StructuredCondition> condition = StructuredCondition.parse(message, conditionMetricContext(conversation));
         if (condition.isEmpty()) {
             return null;
         }
@@ -521,6 +521,12 @@ public class SubscriptionConversationService {
                 conversation.getStatus()
         );
         return completeOrAsk(conversation);
+    }
+
+    private String conditionMetricContext(SubscriptionConversationJpaEntity conversation) {
+        return (emptyIfBlank(conversation.getDraftQuery()) + " "
+                + emptyIfBlank(conversation.getDraftIntent()) + " "
+                + emptyIfBlank(conversation.getDraftToolName())).strip();
     }
 
     private Response completeShortAnswerIfPossible(
@@ -1372,6 +1378,10 @@ public class SubscriptionConversationService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String emptyIfBlank(String value) {
+        return isBlank(value) ? "" : value;
     }
 
     private record RealEstateDraftSelection(String intent, String toolName, String label) {

@@ -272,6 +272,48 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("월세 초안의 짧은 조건 답변은 평균 월세 metric으로 저장한다")
+    void shortConditionAnswerForMonthlyRentDraftUsesMonthlyRentMetric() {
+        SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
+        savedConversation.updateParsedDraft(
+                "parse-1",
+                "강남구 오피스텔 월세",
+                1L,
+                "real-estate",
+                "officetel_rent_price",
+                "search_offi_rent",
+                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                null,
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
+                .thenReturn(Optional.of(savedConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                savedConversation.getId(),
+                "5만원 이상 상승",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "AVG_MONTHLY_RENT")
+                .containsEntry("conditionThreshold", "5")
+                .containsEntry("conditionUnit", "MANWON");
+    }
+
+    @Test
     @DisplayName("MCP tool이 아직 없어도 퍼센트 조건 답변은 현재 모호한 대화를 유지한다")
     void percentConditionAnswerKeepsAmbiguousConversationWithoutResolvedTool() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
