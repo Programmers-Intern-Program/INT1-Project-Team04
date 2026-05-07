@@ -2,6 +2,7 @@ package com.back.domain.bootstrap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.List;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -11,7 +12,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-@DisplayName("Bootstrap: Flyway MCP V2 마이그레이션 테스트")
+@DisplayName("Bootstrap: Flyway MCP 마이그레이션 테스트")
 @Testcontainers
 class FlywayMcpMigrationIntegrationTest {
 
@@ -22,7 +23,7 @@ class FlywayMcpMigrationIntegrationTest {
             .withPassword("test");
 
     @Test
-    @DisplayName("V2 가 mcp_server / mcp_tool 테이블을 만들고 search_house_price 시드를 적재한다")
+    @DisplayName("MCP 마이그레이션은 mcp_server / mcp_tool 테이블과 부동산 도구 시드를 적재한다")
     void migratesMcpTablesAndSeedsSearchHousePrice() {
         Flyway flyway = Flyway.configure()
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
@@ -40,6 +41,11 @@ class FlywayMcpMigrationIntegrationTest {
                 Integer.class
         );
         assertThat(v2Applied).isEqualTo(1);
+        Integer v4Applied = jdbcTemplate.queryForObject(
+                "select count(*) from flyway_schema_history where version = '4' and success = true",
+                Integer.class
+        );
+        assertThat(v4Applied).isEqualTo(1);
 
         Integer serverCount = jdbcTemplate.queryForObject(
                 "select count(*) from mcp_server where name = 'monitoring-mcp'",
@@ -52,6 +58,24 @@ class FlywayMcpMigrationIntegrationTest {
                 String.class
         );
         assertThat(toolName).isEqualTo("search_house_price");
+        List<String> realEstateToolNames = jdbcTemplate.queryForList(
+                """
+                        select t.name from mcp_tool t
+                        join domain d on d.id = t.domain_id
+                        where d.name = 'real-estate'
+                        order by t.name
+                        """,
+                String.class
+        );
+        assertThat(realEstateToolNames)
+                .contains(
+                        "search_house_price",
+                        "search_apt_rent",
+                        "search_offi_trade",
+                        "search_offi_rent",
+                        "search_rh_trade",
+                        "search_rh_rent"
+                );
 
         String domainName = jdbcTemplate.queryForObject(
                 """

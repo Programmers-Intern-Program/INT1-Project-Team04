@@ -465,6 +465,63 @@ class ScheduleExecutionServiceTest {
     }
 
     @Test
+    @DisplayName("Application: 아파트 매매 외 부동산 도구도 region과 deal_ymd 입력으로 실행한다")
+    void runsOtherRealEstateToolsWithMolitRealEstateInput() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 오피스텔 전월세", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool defaultTool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "아파트 매매 실거래가 조회",
+                "{}"
+        );
+        McpTool configuredTool = new McpTool(
+                101L,
+                defaultTool.server(),
+                domain,
+                "search_offi_rent",
+                "오피스텔 전월세 실거래가 조회",
+                "{}"
+        );
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(defaultTool, configuredTool),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_offi_rent",
+                        "officetel_rent_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}"
+                )),
+                subscriptionId -> List.of(),
+                executeMcpToolPort,
+                new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(executeMcpToolPort.executedToolName).isEqualTo("search_offi_rent");
+        assertThat(executeMcpToolPort.executedInput())
+                .containsEntry("region", "강남구")
+                .containsEntry("deal_ymd", latestAvailableDealYmd())
+                .doesNotContainKey("condition")
+                .doesNotContainKey("dealYmdPolicy");
+    }
+
+    @Test
     @DisplayName("Application: 변화가 감지되면 AI 브리핑 알림을 우선 발송한다")
     void sendsAiBriefingNotificationWhenChangeDetected() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);

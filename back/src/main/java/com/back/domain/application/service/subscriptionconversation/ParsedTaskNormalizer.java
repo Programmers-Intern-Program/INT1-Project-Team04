@@ -126,7 +126,7 @@ public class ParsedTaskNormalizer {
             return "어느 지역의 아파트 매매 실거래가를 확인할까요?";
         }
         if (missing.contains("dealType")) {
-            return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요.";
+            return "부동산 가격은 매매/전월세 중 어떤 기준인가요?";
         }
         if (missing.contains("condition")) {
             return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
