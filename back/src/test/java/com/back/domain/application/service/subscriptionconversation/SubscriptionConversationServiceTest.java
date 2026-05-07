@@ -1636,7 +1636,8 @@ class SubscriptionConversationServiceTest {
         assertThat(baselineContext.domain()).isEqualTo("real-estate");
         assertThat(baselineContext.params())
                 .containsEntry("region", "강남구")
-                .containsEntry("deal_ymd", latestAvailableDealYmd());
+                .containsEntry("deal_ymd", latestAvailableDealYmd())
+                .containsEntry("dataToolName", "search_house_price");
         assertThat(baselineContext.notificationChannel()).isEqualTo("TELEGRAM_DM");
         assertThat(baselineContext.notificationTarget()).isEqualTo("123456789");
     }

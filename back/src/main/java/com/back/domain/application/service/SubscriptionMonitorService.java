@@ -125,11 +125,13 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
 
     private Map<String, Object> parameters(SubscriptionMonitoringConfig config, LocalDateTime now) {
         if (isBlank(config.parametersJson())) {
-            return Map.of();
+            return configuredToolParameters(config.toolName());
         }
         try {
             Map<String, Object> parsed = OBJECT_MAPPER.readValue(config.parametersJson(), PARAMETER_MAP);
-            return normalizeExecutionParameters(parsed, now);
+            Map<String, Object> normalized = normalizeExecutionParameters(parsed, now);
+            putConfiguredToolName(normalized, config.toolName());
+            return normalized;
         } catch (JsonProcessingException e) {
             log.warn("parametersJson 파싱 실패 - subscriptionId: {}", config.subscriptionId(), e);
             return Map.of();
@@ -145,6 +147,18 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
             normalized.put("deal_ymd", now.minusMonths(1).format(DEAL_YMD_FORMATTER));
         }
         return normalized;
+    }
+
+    private Map<String, Object> configuredToolParameters(String toolName) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        putConfiguredToolName(params, toolName);
+        return params;
+    }
+
+    private void putConfiguredToolName(Map<String, Object> params, String toolName) {
+        if (!isBlank(toolName)) {
+            params.put("dataToolName", toolName);
+        }
     }
 
     private Map<String, Object> fallbackParameters(String query) {

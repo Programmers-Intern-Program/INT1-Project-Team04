@@ -59,6 +59,41 @@ class SubscriptionMonitorServiceTest {
     }
 
     @Test
+    @DisplayName("Spring AI 실행 context는 저장된 MCP 도구명을 dataToolName으로 전달한다")
+    void contextIncludesConfiguredToolNameAsDataToolName() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = subscription("sub-1", user, domain);
+        Schedule dueSchedule = new Schedule(
+                "schedule-1",
+                subscription,
+                "0 0 9 * * *",
+                null,
+                LocalDateTime.now().minusMinutes(1)
+        );
+        CapturingSubscriptionExecutionPort executionPort = new CapturingSubscriptionExecutionPort();
+        SubscriptionMonitorService service = new SubscriptionMonitorService(
+                now -> List.of(dueSchedule),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_offi_rent",
+                        "officetel_rent_price",
+                        "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}"
+                )),
+                subscriptionId -> List.of(),
+                (userId, channel) -> Optional.empty(),
+                new CapturingSaveSchedulePort(),
+                executionPort
+        );
+
+        service.runAll();
+
+        assertThat(executionPort.contexts).hasSize(1);
+        assertThat(executionPort.contexts.get(0).params())
+                .containsEntry("dataToolName", "search_offi_rent");
+    }
+
+    @Test
     @DisplayName("실행 실패 구독은 스케줄을 갱신하지 않고 성공 구독만 갱신한다")
     void advancesOnlySuccessfullyExecutedSubscriptionSchedules() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);

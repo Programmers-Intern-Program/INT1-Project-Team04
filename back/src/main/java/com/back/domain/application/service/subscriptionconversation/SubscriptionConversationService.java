@@ -344,12 +344,19 @@ public class SubscriptionConversationService {
 
     private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {
         Map<String, Object> params = new LinkedHashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
+        putConfiguredToolName(params, conversation.getDraftToolName());
         if ("LATEST_AVAILABLE_MONTH".equals(String.valueOf(params.get("dealYmdPolicy")))
                 && !params.containsKey("deal_ymd")
                 && !params.containsKey("dealYmd")) {
             params.put("deal_ymd", LocalDateTime.now().minusMonths(1).format(DEAL_YMD_FORMATTER));
         }
         return params;
+    }
+
+    private void putConfiguredToolName(Map<String, Object> params, String toolName) {
+        if (!isBlank(toolName)) {
+            params.put("dataToolName", toolName);
+        }
     }
 
     private String notificationTarget(Long userId, SubscriptionConversationJpaEntity conversation) {
