@@ -7,6 +7,8 @@ import {
   decodeSubscriptionChatSession,
   encodeSubscriptionChatSession,
   isStaleConversationError,
+  parsePendingChannelSelection,
+  pendingChannelSelectionForAction,
   type SubscriptionChatSessionSnapshot,
 } from "./subscription-chat-session.ts";
 
@@ -77,5 +79,40 @@ describe("subscription chat session persistence", () => {
       false,
     );
     assert.equal(STALE_CONVERSATION_MESSAGE, "이전 대화가 만료되어 새로 시작할게요.");
+  });
+
+  it("marks an unconnected Email channel action as pending so endpoint save can resume it", () => {
+    assert.deepEqual(
+      pendingChannelSelectionForAction("conversation-1", {
+        type: "SELECT_CHANNEL",
+        label: "Email",
+        value: "EMAIL",
+        connected: false,
+        requiresConnection: false,
+      }),
+      { conversationId: "conversation-1", channel: "EMAIL" },
+    );
+
+    assert.equal(
+      pendingChannelSelectionForAction("conversation-1", {
+        type: "SELECT_CHANNEL",
+        label: "Email",
+        value: "EMAIL",
+        connected: true,
+        requiresConnection: false,
+      }),
+      null,
+    );
+  });
+
+  it("parses Email as a pending channel selection", () => {
+    assert.deepEqual(
+      parsePendingChannelSelection(JSON.stringify({ conversationId: "conversation-1", channel: "EMAIL" })),
+      { conversationId: "conversation-1", channel: "EMAIL" },
+    );
+    assert.equal(
+      parsePendingChannelSelection(JSON.stringify({ conversationId: "conversation-1", channel: "SMS" })),
+      null,
+    );
   });
 });

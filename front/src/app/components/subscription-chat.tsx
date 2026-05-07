@@ -18,6 +18,8 @@ import {
   decodeSubscriptionChatSession,
   encodeSubscriptionChatSession,
   isStaleConversationError,
+  parsePendingChannelSelection,
+  pendingChannelSelectionForAction,
   type ChatMessage,
   type DebugJsonSnapshot,
   type SubscriptionChatSessionSnapshot,
@@ -136,6 +138,9 @@ export function SubscriptionChat({
 
       if (response.status === "CREATED") {
         await reloadSubscriptions();
+      }
+      if (response.status !== "NEEDS_INPUT") {
+        sessionStorage.removeItem(PENDING_CHANNEL_KEY);
       }
     },
     [reloadSubscriptions],
@@ -311,6 +316,11 @@ export function SubscriptionChat({
       return;
     }
 
+    const pendingChannel = pendingChannelSelectionForAction(conversationId, action);
+    if (pendingChannel) {
+      sessionStorage.setItem(PENDING_CHANNEL_KEY, JSON.stringify(pendingChannel));
+    }
+
     setSubmitState("sending");
     const pendingMessageId = createMessageId("assistant-pending");
     setMessages((current) => [
@@ -345,6 +355,9 @@ export function SubscriptionChat({
       if (isStaleConversationError(response.error, requestPayload.conversationId)) {
         resetExpiredConversation();
         return;
+      }
+      if (pendingChannel) {
+        sessionStorage.removeItem(PENDING_CHANNEL_KEY);
       }
       replaceMessage(pendingMessageId, response.error.message, "error");
       setStatusMessage(response.error.message);
@@ -475,6 +488,7 @@ export function SubscriptionChat({
     setEmailEndpointInput("");
     setStatusMessage(response.data.message);
     await reloadNotificationEndpoints();
+    await resumePendingChannel();
   }
 
   async function handleDeleteSubscription(subscriptionId: string) {
@@ -769,29 +783,11 @@ function readPendingChannel():
   | { conversationId: string; channel: NotificationChannelId }
   | null {
   const raw = sessionStorage.getItem(PENDING_CHANNEL_KEY);
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const value = JSON.parse(raw) as {
-      conversationId?: unknown;
-      channel?: unknown;
-    };
-    if (
-      typeof value.conversationId === "string" &&
-      (value.channel === "TELEGRAM_DM" || value.channel === "DISCORD_DM")
-    ) {
-      return {
-        conversationId: value.conversationId,
-        channel: value.channel,
-      };
-    }
-  } catch {
+  const pending = parsePendingChannelSelection(raw);
+  if (raw && !pending) {
     sessionStorage.removeItem(PENDING_CHANNEL_KEY);
   }
-
-  return null;
+  return pending;
 }
 
 function readChatSession(): SubscriptionChatSessionSnapshot | null {
@@ -805,20 +801,6 @@ function readChatSession(): SubscriptionChatSessionSnapshot | null {
     sessionStorage.removeItem(SUBSCRIPTION_CHAT_SESSION_KEY);
   }
   return snapshot;
-}
-
-function formatDateTime(value: string | null): string {
-  if (!value) {
-    return "-";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
 
 function createMessageId(prefix: string) {
