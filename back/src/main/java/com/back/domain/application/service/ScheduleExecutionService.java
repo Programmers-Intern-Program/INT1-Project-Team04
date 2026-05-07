@@ -60,6 +60,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<Map<String, Object>> PARAMETER_MAP = new TypeReference<>() {};
     private static final int RECENT_SNAPSHOT_LIMIT = 20;
+    private static final String LEGACY_REAL_ESTATE_TOOL_NAME = "search_house_price";
     private static final List<String> MOLIT_REAL_ESTATE_TOOL_PREFIXES = List.of(
             "search_house_price",
             "search_apt_rent",
@@ -113,9 +114,7 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
     ) {
         Optional<SubscriptionMonitoringConfig> monitoringConfig =
                 loadSubscriptionMonitoringConfigPort.loadBySubscriptionId(schedule.subscription().id());
-        McpTool tool = loadConfiguredTool(schedule, monitoringConfig)
-                .or(() -> loadMcpToolPort.loadByDomainId(schedule.subscription().domain().id()))
-                .orElseThrow(() -> new ApiException(ErrorCode.MCP_TOOL_NOT_FOUND));
+        McpTool tool = loadExecutionTool(schedule, monitoringConfig);
         Map<String, Object> parameters = monitoringConfig
                 .map(this::parameters)
                 .orElseGet(() -> fallbackParameters(schedule.subscription().query()));
@@ -340,16 +339,36 @@ public class ScheduleExecutionService implements RunDueSchedulesUseCase {
         }
     }
 
-    private Optional<McpTool> loadConfiguredTool(
+    private McpTool loadExecutionTool(
             Schedule schedule,
             Optional<SubscriptionMonitoringConfig> monitoringConfig
     ) {
-        return monitoringConfig
-                .filter(config -> !isBlank(config.toolName()))
-                .flatMap(config -> loadMcpToolPort.loadByDomainIdAndName(
-                        schedule.subscription().domain().id(),
-                        config.toolName()
-                ));
+        Optional<String> configuredToolName = monitoringConfig
+                .map(SubscriptionMonitoringConfig::toolName)
+                .filter(toolName -> !isBlank(toolName));
+        if (configuredToolName.isPresent()) {
+            return loadMcpToolPort.loadByDomainIdAndName(
+                            schedule.subscription().domain().id(),
+                            configuredToolName.get()
+                    )
+                    .orElseThrow(() -> new ApiException(ErrorCode.MCP_TOOL_NOT_FOUND));
+        }
+
+        if (isRealEstateDomain(schedule)) {
+            return loadMcpToolPort.loadByDomainIdAndName(
+                            schedule.subscription().domain().id(),
+                            LEGACY_REAL_ESTATE_TOOL_NAME
+                    )
+                    .orElseThrow(() -> new ApiException(ErrorCode.MCP_TOOL_NOT_FOUND));
+        }
+
+        return loadMcpToolPort.loadByDomainId(schedule.subscription().domain().id())
+                .orElseThrow(() -> new ApiException(ErrorCode.MCP_TOOL_NOT_FOUND));
+    }
+
+    private boolean isRealEstateDomain(Schedule schedule) {
+        return schedule.subscription().domain() != null
+                && "real-estate".equals(schedule.subscription().domain().name());
     }
 
     private Map<String, Object> executionArguments(

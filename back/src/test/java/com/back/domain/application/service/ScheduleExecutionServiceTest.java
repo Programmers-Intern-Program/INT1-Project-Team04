@@ -465,6 +465,102 @@ class ScheduleExecutionServiceTest {
     }
 
     @Test
+    @DisplayName("Application: 설정된 MCP 도구가 없으면 도메인 기본 도구로 대체 실행하지 않는다")
+    void doesNotFallbackToDefaultDomainToolWhenConfiguredToolIsMissing() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 오피스텔 전월세", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool defaultTool = new McpTool(
+                100L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_house_price",
+                "아파트 매매 실거래가 조회",
+                "{}"
+        );
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort();
+        FakeSaveAiDataHubPort saveAiDataHubPort = new FakeSaveAiDataHubPort();
+        FakeSaveSchedulePort saveSchedulePort = new FakeSaveSchedulePort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(defaultTool, null),
+                subscriptionId -> Optional.of(new SubscriptionMonitoringConfig(
+                        subscriptionId,
+                        "search_offi_rent",
+                        "officetel_rent_price",
+                        "{\"region\":\"강남구\",\"condition\":\"5% 이상 상승\"}"
+                )),
+                subscriptionId -> List.of(),
+                executeMcpToolPort,
+                saveAiDataHubPort,
+                new FakeLoadRecentAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                saveSchedulePort,
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(executeMcpToolPort.executedToolName).isNull();
+        assertThat(saveAiDataHubPort.saved).isEmpty();
+        assertThat(saveSchedulePort.saved).hasSize(1);
+        assertThat(saveSchedulePort.saved.get(0).id()).isEqualTo("schedule-1");
+    }
+
+    @Test
+    @DisplayName("Application: 부동산 legacy 설정은 도메인 첫 도구가 아니라 아파트 매매 도구로 실행한다")
+    void legacyRealEstateScheduleUsesExplicitApartmentTradeTool() {
+        User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
+        Domain domain = new Domain(10L, "real-estate");
+        Subscription subscription = new Subscription("sub-1", user, domain, "강남구 아파트 매매", "create", true, LocalDateTime.now());
+        Schedule schedule = new Schedule("schedule-1", subscription, "0 0 * * * *", null, LocalDateTime.now().minusMinutes(1));
+        McpTool arbitraryDomainTool = new McpTool(
+                101L,
+                new McpServer(1L, "default-mcp", "server", "http://localhost:8090/tools/execute"),
+                domain,
+                "search_offi_rent",
+                "오피스텔 전월세 실거래가 조회",
+                "{}"
+        );
+        McpTool apartmentTradeTool = new McpTool(
+                100L,
+                arbitraryDomainTool.server(),
+                domain,
+                "search_house_price",
+                "아파트 매매 실거래가 조회",
+                "{}"
+        );
+        FakeExecuteMcpToolPort executeMcpToolPort = new FakeExecuteMcpToolPort();
+        ScheduleExecutionService service = new ScheduleExecutionService(
+                new FakeLoadDueSchedulesPort(schedule),
+                new FakeLoadMcpToolPort(arbitraryDomainTool, apartmentTradeTool),
+                subscriptionId -> Optional.empty(),
+                subscriptionId -> List.of(),
+                executeMcpToolPort,
+                new FakeSaveAiDataHubPort(),
+                new FakeLoadRecentAiDataHubPort(),
+                new FakeSaveNotificationPort(),
+                notification -> true,
+                new FakeSaveSchedulePort(),
+                new MonitoringQueryMatcher(),
+                new MonitoringChangeDetector(),
+                new MonitoringAlertMessageBuilder(),
+                new FakeGenerateMonitoringBriefingPort(),
+                noOpDeliveryCreationService()
+        );
+
+        service.runDueSchedules();
+
+        assertThat(executeMcpToolPort.executedToolName).isEqualTo("search_house_price");
+    }
+
+    @Test
     @DisplayName("Application: 아파트 매매 외 부동산 도구도 region과 deal_ymd 입력으로 실행한다")
     void runsOtherRealEstateToolsWithMolitRealEstateInput() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
