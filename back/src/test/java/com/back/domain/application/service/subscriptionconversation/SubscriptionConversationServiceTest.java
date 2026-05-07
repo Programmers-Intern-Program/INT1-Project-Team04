@@ -272,6 +272,48 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("월세 초안의 짧은 조건 답변은 평균 월세 metric으로 저장한다")
+    void shortConditionAnswerForMonthlyRentDraftUsesMonthlyRentMetric() {
+        SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
+        savedConversation.updateParsedDraft(
+                "parse-1",
+                "강남구 오피스텔 월세",
+                1L,
+                "real-estate",
+                "officetel_rent_price",
+                "search_offi_rent",
+                "{\"region\":\"강남구\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                null,
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
+                .thenReturn(Optional.of(savedConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                savedConversation.getId(),
+                "5만원 이상 상승",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().monitoringParams())
+                .containsEntry("conditionMetric", "AVG_MONTHLY_RENT")
+                .containsEntry("conditionThreshold", "5")
+                .containsEntry("conditionUnit", "MANWON");
+    }
+
+    @Test
     @DisplayName("MCP tool이 아직 없어도 퍼센트 조건 답변은 현재 모호한 대화를 유지한다")
     void percentConditionAnswerKeepsAmbiguousConversationWithoutResolvedTool() {
         SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
@@ -1436,6 +1478,57 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("거래 유형 확인 대기는 AI 이어가기 없이 짧은 전월세 답변을 수락한다")
+    void pendingDealTypeConfirmationAcceptsShortRentAnswer() {
+        SubscriptionConversationJpaEntity savedConversation = new SubscriptionConversationJpaEntity(1L);
+        savedConversation.updateParsedDraft(
+                "parse-1",
+                "강남구 집값",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                null,
+                "{" +
+                        "\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"," +
+                        "\"region\":\"강남구\"," +
+                        "\"pendingDealTypeConfirmation\":\"true\"," +
+                        "\"conditionMetric\":\"AVG_PRICE\"," +
+                        "\"conditionDirection\":\"UP\"," +
+                        "\"conditionOperator\":\"GTE\"," +
+                        "\"conditionThreshold\":\"5\"," +
+                        "\"conditionUnit\":\"PERCENT\"" +
+                        "}",
+                "0 0 9 * * *",
+                NotificationChannel.TELEGRAM_DM,
+                null,
+                "부동산 가격은 매매/전월세 중 어떤 기준인가요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(savedConversation.getId(), 1L))
+                .thenReturn(Optional.of(savedConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        parseTaskUseCase.continueResult = new ParseResult("parse-1", List.of(realEstateTask(false)));
+        LoadNotificationEndpointPort connectedTelegram = (userId, channel) -> channel == NotificationChannel.TELEGRAM_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "123456789", true))
+                : Optional.empty();
+        SubscriptionConversationService service = service(connectedTelegram);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                savedConversation.getId(),
+                "전월세로 해줘",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("READY_FOR_CONFIRMATION");
+        assertThat(response.draft().query()).isEqualTo("강남구 아파트 전월세 실거래가");
+        assertThat(response.draft().intent()).isEqualTo("apartment_rent_price");
+        assertThat(response.draft().toolName()).isEqualTo("search_apt_rent");
+        assertThat(response.draft().monitoringParams()).doesNotContainKey("pendingDealTypeConfirmation");
+    }
+
+    @Test
     @DisplayName("지원하지 않는 초안 뒤의 자유 입력은 새 파싱을 시작한다")
     void unsupportedDraftStartsNewParseForNextMessage() {
         SubscriptionConversationJpaEntity unsupportedConversation = new SubscriptionConversationJpaEntity(1L);
@@ -1543,9 +1636,62 @@ class SubscriptionConversationServiceTest {
         assertThat(baselineContext.domain()).isEqualTo("real-estate");
         assertThat(baselineContext.params())
                 .containsEntry("region", "강남구")
-                .containsEntry("deal_ymd", latestAvailableDealYmd());
+                .containsEntry("deal_ymd", latestAvailableDealYmd())
+                .containsEntry("dataToolName", "search_house_price");
         assertThat(baselineContext.notificationChannel()).isEqualTo("TELEGRAM_DM");
         assertThat(baselineContext.notificationTarget()).isEqualTo("123456789");
+    }
+
+    @Test
+    @DisplayName("baseline 초기화가 실패해도 구독 확정 응답은 성공으로 처리한다")
+    void confirmStillCreatesSubscriptionWhenBaselineInitializationFails() {
+        SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
+        readyConversation.updateParsedDraft(
+                "parse-1",
+                "안산 상록구 아파트 매매",
+                1L,
+                "real-estate",
+                "apartment_trade_price",
+                "search_house_price",
+                "{\"region\":\"안산 상록구\",\"conditionMetric\":\"AVG_PRICE\",\"conditionDirection\":\"UP\",\"conditionOperator\":\"GTE\",\"conditionThreshold\":\"5\",\"conditionUnit\":\"PERCENT\",\"dealYmdPolicy\":\"LATEST_AVAILABLE_MONTH\"}",
+                "0 0 * * * *",
+                NotificationChannel.DISCORD_DM,
+                null,
+                "아래 내용으로 알림을 시작할까요?",
+                SubscriptionConversationStatus.READY_FOR_CONFIRMATION
+        );
+        when(conversationRepository.findByIdAndUserId(readyConversation.getId(), 1L))
+                .thenReturn(Optional.of(readyConversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(monitoringConfigRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        createSubscriptionUseCase.result = new SubscriptionResult(
+                "sub-1",
+                1L,
+                1L,
+                "안산 상록구 아파트 매매",
+                true,
+                LocalDateTime.now(),
+                "schedule-1",
+                "0 0 * * * *",
+                LocalDateTime.now().plusHours(1)
+        );
+        LoadNotificationEndpointPort connectedDiscord = (userId, channel) -> channel == NotificationChannel.DISCORD_DM
+                ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "discord-user-1", true))
+                : Optional.empty();
+        runSubscriptionExecutionPort.failure = new RuntimeException("baseline failed");
+        SubscriptionConversationService service = service(connectedDiscord);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                readyConversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
+        );
+
+        assertThat(response.status()).isEqualTo("CREATED");
+        assertThat(response.subscription().id()).isEqualTo("sub-1");
+        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.CREATED);
+        verify(monitoringConfigRepository).save(any());
     }
 
     @Test
@@ -1953,7 +2099,7 @@ class SubscriptionConversationServiceTest {
                 return "어느 지역의 아파트 매매 실거래가를 확인할까요?";
             }
             if (missing.contains("dealType")) {
-                return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요.";
+                return "부동산 가격은 매매/전월세 중 어떤 기준인가요?";
             }
             if (missing.contains("condition")) {
                 return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등";
@@ -1988,11 +2134,15 @@ class SubscriptionConversationServiceTest {
 
     private static class FakeRunSubscriptionExecutionPort implements RunSubscriptionExecutionPort {
         private final List<SubscriptionContext> contexts = new ArrayList<>();
+        private RuntimeException failure;
 
         @Override
         public void execute(List<SubscriptionContext> subscriptions) {
             contexts.clear();
             contexts.addAll(subscriptions);
+            if (failure != null) {
+                throw failure;
+            }
         }
     }
 

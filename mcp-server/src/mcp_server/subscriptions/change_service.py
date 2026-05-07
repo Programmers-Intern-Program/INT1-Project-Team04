@@ -46,6 +46,8 @@ POSTING_URL_KEYS = ("src_url", "srcUrl", "info_url", "wantedInfoUrl")
 # conditionMetric 과 current summary 필드를 분리해 도메인별 비교 대상이 섞이지 않게 한다.
 METRIC_SUMMARY_KEYS = {
     "AVG_PRICE": AVG_PRICE_KEYS,
+    "AVG_DEPOSIT": frozenset({"avg_deposit"}),
+    "AVG_MONTHLY_RENT": frozenset({"avg_monthly_rent"}),
     "COUNT": COUNT_KEYS,
     "ONGOING_COUNT": ONGOING_COUNT_KEYS,
 }

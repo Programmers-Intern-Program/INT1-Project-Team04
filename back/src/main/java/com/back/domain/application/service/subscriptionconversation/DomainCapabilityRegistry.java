@@ -15,12 +15,14 @@ public class DomainCapabilityRegistry {
                     "real-estate",
                     "부동산",
                     SupportStatus.ENABLED,
-                    List.of(new IntentCapability(
-                            "apartment_trade_price",
-                            null,
-                            List.of("region"),
-                            Map.of("dealYmdPolicy", "LATEST_AVAILABLE_MONTH")
-                    ))
+                    List.of(
+                            realEstateIntent("apartment_trade_price", "search_house_price"),
+                            realEstateIntent("apartment_rent_price", "search_apt_rent"),
+                            realEstateIntent("officetel_trade_price", "search_offi_trade"),
+                            realEstateIntent("officetel_rent_price", "search_offi_rent"),
+                            realEstateIntent("row_house_trade_price", "search_rh_trade"),
+                            realEstateIntent("row_house_rent_price", "search_rh_rent")
+                    )
             ),
             "law-regulation", new DomainCapability("law-regulation", "법률/규제", SupportStatus.PLANNED, List.of()),
             "recruitment", new DomainCapability(
@@ -36,6 +38,15 @@ public class DomainCapabilityRegistry {
             ),
             "auction", new DomainCapability("auction", "경매/희소매물", SupportStatus.PLANNED, List.of())
     );
+
+    private static IntentCapability realEstateIntent(String id, String toolName) {
+        return new IntentCapability(
+                id,
+                toolName,
+                List.of("region"),
+                Map.of("dealYmdPolicy", "LATEST_AVAILABLE_MONTH")
+        );
+    }
 
     public Optional<DomainCapability> findDomain(String domainName) {
         return Optional.ofNullable(CAPABILITIES.get(domainName));

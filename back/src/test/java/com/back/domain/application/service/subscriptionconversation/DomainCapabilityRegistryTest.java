@@ -17,7 +17,7 @@ class DomainCapabilityRegistryTest {
         assertThat(registry.requireDomain("real-estate").status())
                 .isEqualTo(DomainCapabilityRegistry.SupportStatus.ENABLED);
         assertThat(registry.requireIntent("real-estate", "apartment_trade_price").toolName())
-                .isNull();
+                .isEqualTo("search_house_price");
         assertThat(registry.missingRequiredParameters(
                 "real-estate",
                 "apartment_trade_price",
@@ -35,6 +35,33 @@ class DomainCapabilityRegistryTest {
                 "job_posting_change",
                 Map.of()
         )).isEmpty();
+    }
+
+    @Test
+    @DisplayName("부동산 구독은 MCP 부동산 도구 6종에 대응하는 intent를 지원한다")
+    void allRealEstateToolIntentsAreEnabled() {
+        DomainCapabilityRegistry registry = new DomainCapabilityRegistry();
+
+        assertThat(registry.requireDomain("real-estate").intents())
+                .extracting(DomainCapabilityRegistry.IntentCapability::id)
+                .contains(
+                        "apartment_trade_price",
+                        "apartment_rent_price",
+                        "officetel_trade_price",
+                        "officetel_rent_price",
+                        "row_house_trade_price",
+                        "row_house_rent_price"
+                );
+        assertThat(registry.requireIntent("real-estate", "apartment_rent_price").toolName())
+                .isEqualTo("search_apt_rent");
+        assertThat(registry.requireIntent("real-estate", "officetel_trade_price").toolName())
+                .isEqualTo("search_offi_trade");
+        assertThat(registry.requireIntent("real-estate", "officetel_rent_price").toolName())
+                .isEqualTo("search_offi_rent");
+        assertThat(registry.requireIntent("real-estate", "row_house_trade_price").toolName())
+                .isEqualTo("search_rh_trade");
+        assertThat(registry.requireIntent("real-estate", "row_house_rent_price").toolName())
+                .isEqualTo("search_rh_rent");
     }
 
     @Test

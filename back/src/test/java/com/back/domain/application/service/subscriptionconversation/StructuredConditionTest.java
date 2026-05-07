@@ -25,6 +25,34 @@ class StructuredConditionTest {
     }
 
     @Test
+    @DisplayName("월세 금액 상승 조건을 평균 월세 metric으로 파싱한다")
+    void parsesMonthlyRentRiseCondition() {
+        Optional<StructuredCondition> parsed = StructuredCondition.parse("월세 5만원 이상 상승");
+
+        assertThat(parsed).isPresent();
+        assertThat(parsed.get().toParameterMap())
+                .containsEntry("conditionMetric", "AVG_MONTHLY_RENT")
+                .containsEntry("conditionDirection", "UP")
+                .containsEntry("conditionOperator", "GTE")
+                .containsEntry("conditionThreshold", "5")
+                .containsEntry("conditionUnit", "MANWON");
+    }
+
+    @Test
+    @DisplayName("전월세 보증금 조건을 평균 보증금 metric으로 파싱한다")
+    void parsesDepositRiseCondition() {
+        Optional<StructuredCondition> parsed = StructuredCondition.parse("전월세 보증금 1000만원 이상 상승");
+
+        assertThat(parsed).isPresent();
+        assertThat(parsed.get().toParameterMap())
+                .containsEntry("conditionMetric", "AVG_DEPOSIT")
+                .containsEntry("conditionDirection", "UP")
+                .containsEntry("conditionOperator", "GTE")
+                .containsEntry("conditionThreshold", "1000")
+                .containsEntry("conditionUnit", "MANWON");
+    }
+
+    @Test
     @DisplayName("숫자 기준값이 없는 모호한 조건은 거부한다")
     void rejectsVagueCondition() {
         assertThat(StructuredCondition.parse("오르면 알려줘")).isEmpty();
@@ -68,5 +96,25 @@ class StructuredConditionTest {
                 .containsEntry("conditionMetric", "ONGOING_COUNT")
                 .containsEntry("conditionThreshold", "2")
                 .containsEntry("conditionUnit", "COUNT");
+    }
+
+    @Test
+    @DisplayName("월세 평균 조건 파라미터를 허용한다")
+    void acceptsMonthlyRentConditionParameters() {
+        Optional<StructuredCondition> parsed = StructuredCondition.fromParameters(Map.of(
+                "conditionMetric", "AVG_MONTHLY_RENT",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "5",
+                "conditionUnit", "MANWON"
+        ));
+
+        assertThat(parsed).isPresent();
+        assertThat(parsed.get().metric()).isEqualTo(StructuredCondition.Metric.AVG_MONTHLY_RENT);
+        assertThat(parsed.get().unit()).isEqualTo(StructuredCondition.Unit.MANWON);
+        assertThat(parsed.get().toParameterMap())
+                .containsEntry("conditionMetric", "AVG_MONTHLY_RENT")
+                .containsEntry("conditionThreshold", "5")
+                .containsEntry("conditionUnit", "MANWON");
     }
 }

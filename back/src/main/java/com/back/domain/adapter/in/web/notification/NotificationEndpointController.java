@@ -59,6 +59,15 @@ public class NotificationEndpointController {
         ));
     }
 
+    @PostMapping("/discord/reconnect")
+    public NotificationEndpointConnectionResponse reconnectDiscord(HttpServletRequest request) {
+        UserJpaEntity user = currentUserService.requireCurrentUser(readSessionCookie(request));
+        return NotificationEndpointConnectionResponse.from(connectionService.reconnectDiscord(
+                user.getId(),
+                discordAuthorizationUrl()
+        ));
+    }
+
     @GetMapping("/discord/authorize")
     public ResponseEntity<Void> authorizeDiscordNotification(HttpServletRequest request) {
         currentUserService.requireCurrentUser(readSessionCookie(request));
@@ -77,6 +86,18 @@ public class NotificationEndpointController {
     public NotificationEndpointConnectionResponse connectTelegram(HttpServletRequest request) {
         UserJpaEntity user = currentUserService.requireCurrentUser(readSessionCookie(request));
         return NotificationEndpointConnectionResponse.from(connectionService.startTelegramConnection(user.getId()));
+    }
+
+    @PostMapping("/email/connect")
+    public NotificationEndpointConnectionResponse connectEmail(
+            @RequestBody EmailNotificationEndpointRequest body,
+            HttpServletRequest request
+    ) {
+        UserJpaEntity user = currentUserService.requireCurrentUser(readSessionCookie(request));
+        return NotificationEndpointConnectionResponse.from(connectionService.connectEmail(
+                user.getId(),
+                body == null ? null : body.targetAddress()
+        ));
     }
 
     @DeleteMapping("/{channel}")

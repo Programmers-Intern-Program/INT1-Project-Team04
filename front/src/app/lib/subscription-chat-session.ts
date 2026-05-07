@@ -1,6 +1,7 @@
 import type {
   ConversationActionOption,
   ConversationResponse,
+  NotificationChannelId,
 } from "./subscription-conversations";
 
 export type ChatMessage = {
@@ -23,6 +24,11 @@ export type SubscriptionChatSessionSnapshot = {
   debugJson: DebugJsonSnapshot;
 };
 
+export type PendingChannelSelection = {
+  conversationId: string;
+  channel: NotificationChannelId;
+};
+
 type StoredSubscriptionChatSession = {
   version: 1;
   savedAt: number;
@@ -41,6 +47,55 @@ export function isStaleConversationError(
     typeof conversationId === "string" &&
     conversationId.trim() !== "" &&
     (error.code === "SESSION_NOT_FOUND" || error.code === "INVALID_REQUEST")
+  );
+}
+
+export function pendingChannelSelectionForAction(
+  conversationId: string | null | undefined,
+  action: ConversationActionOption,
+): PendingChannelSelection | null {
+  if (
+    typeof conversationId !== "string" ||
+    conversationId.trim() === "" ||
+    action.type !== "SELECT_CHANNEL" ||
+    action.value !== "EMAIL" ||
+    action.connected !== false
+  ) {
+    return null;
+  }
+
+  return { conversationId, channel: "EMAIL" };
+}
+
+export function parsePendingChannelSelection(raw: string | null): PendingChannelSelection | null {
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const value = JSON.parse(raw) as {
+      conversationId?: unknown;
+      channel?: unknown;
+    };
+    if (typeof value.conversationId !== "string" || !isNotificationChannelId(value.channel)) {
+      return null;
+    }
+    return {
+      conversationId: value.conversationId,
+      channel: value.channel,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function shouldClearPendingChannelForResponse(
+  pending: PendingChannelSelection | null,
+  response: Pick<ConversationResponse, "conversationId" | "status">,
+): boolean {
+  return (
+    pending !== null &&
+    (response.status !== "NEEDS_INPUT" || response.conversationId !== pending.conversationId)
   );
 }
 
@@ -104,4 +159,8 @@ function isChatMessage(value: unknown): value is ChatMessage {
     typeof message.content === "string" &&
     (message.status === undefined || message.status === "pending" || message.status === "error")
   );
+}
+
+function isNotificationChannelId(value: unknown): value is NotificationChannelId {
+  return value === "DISCORD_DM" || value === "TELEGRAM_DM" || value === "EMAIL";
 }

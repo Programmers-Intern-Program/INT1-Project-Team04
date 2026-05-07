@@ -2,14 +2,13 @@
 
 역할:
 - 백엔드 AI 파서가 만든 자연어 초안을 MCP 서버가 지원하는 도메인 계약으로 다시 구조화한다.
-- 현재 실행 가능한 구독은 부동산 아파트 매매 실거래가 중심이므로
-  search_house_price 입력에 필요한 region/condition/dealType 여부를 여기서 판정한다.
+- 부동산 구독은 아파트/오피스텔/연립다세대의 매매/전월세 도구 계약으로 매핑하고,
+  입력에 필요한 region/condition/dealType 여부를 여기서 판정한다.
 - cadence/notificationChannel/notificationTarget 은 백엔드 사용자 설정 영역이므로
   이 모듈에서는 missingFields 로 다루지 않는다.
 
 안전장치:
 - "강남구 아파트 변경"처럼 자료유형이 빠진 요청은 매매로 추정하지 않고 dealType 을 요구한다.
-- 전세/월세 요청은 search_house_price 로 변환하지 않고 unsupportedCapability 로 돌려준다.
 - 채용은 공고 수 변화 감시 계약으로 구조화한다.
 - 법률/경매는 도메인 분류는 유지하되 planned capability 로 응답해 UX 와 실행 범위를 맞춘다.
 """
@@ -17,6 +16,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from decimal import Decimal
 
 from mcp_server.subscriptions.draft_models import (
@@ -27,6 +27,11 @@ from mcp_server.subscriptions.draft_models import (
 )
 
 _TOOL_APT_TRADE = "search_house_price"
+_TOOL_APT_RENT = "search_apt_rent"
+_TOOL_OFFI_TRADE = "search_offi_trade"
+_TOOL_OFFI_RENT = "search_offi_rent"
+_TOOL_RH_TRADE = "search_rh_trade"
+_TOOL_RH_RENT = "search_rh_rent"
 _TOOL_PUBLIC_JOB = "search_public_job"
 _TOOL_WORKNET_JOB = "search_worknet_job"
 _INTENT_JOB_POSTING_CHANGE = "job_posting_change"
@@ -77,6 +82,61 @@ _RECRUITMENT_KEYWORD_SUFFIXES = (
     "알림",
     "정보",
 )
+
+
+@dataclass(frozen=True)
+class RealEstateCapability:
+    asset_type: str
+    deal_type: str
+    intent: str
+    tool_name: str
+    label: str
+
+
+_REAL_ESTATE_CAPABILITIES = {
+    ("apartment", "trade"): RealEstateCapability(
+        "apartment",
+        "trade",
+        "apartment_trade_price",
+        _TOOL_APT_TRADE,
+        "아파트 매매",
+    ),
+    ("apartment", "rent"): RealEstateCapability(
+        "apartment",
+        "rent",
+        "apartment_rent_price",
+        _TOOL_APT_RENT,
+        "아파트 전월세",
+    ),
+    ("officetel", "trade"): RealEstateCapability(
+        "officetel",
+        "trade",
+        "officetel_trade_price",
+        _TOOL_OFFI_TRADE,
+        "오피스텔 매매",
+    ),
+    ("officetel", "rent"): RealEstateCapability(
+        "officetel",
+        "rent",
+        "officetel_rent_price",
+        _TOOL_OFFI_RENT,
+        "오피스텔 전월세",
+    ),
+    ("row_house", "trade"): RealEstateCapability(
+        "row_house",
+        "trade",
+        "row_house_trade_price",
+        _TOOL_RH_TRADE,
+        "연립다세대 매매",
+    ),
+    ("row_house", "rent"): RealEstateCapability(
+        "row_house",
+        "rent",
+        "row_house_rent_price",
+        _TOOL_RH_RENT,
+        "연립다세대 전월세",
+    ),
+}
 
 
 # ─────────────────────────────────────────────
@@ -174,35 +234,25 @@ def normalize_subscription_draft(
             confidence=task.confidence,
         )
 
-    intent = "apartment_trade_price"
     params["dealYmdPolicy"] = "LATEST_AVAILABLE_MONTH"
 
     region = _extract_region(query, task.target)
     if region is not None:
         params["region"] = region
 
-    # 현재 부동산 구독 실행 도구는 아파트 "매매" 실거래가 기준이다.
     # AI 가 만든 query/target 은 원문에 없는 매매/전세 표현을 보탤 수 있으므로 거래유형은 사용자 원문으로 판단한다.
     text = input_model.user_message if not _is_blank(input_model.user_message) else query or ""
-    if _mentions_rent(text):
-        params[_PENDING_DEAL_TYPE_CONFIRMATION] = "true"
-        return _draft(
-            query=query,
-            domain_name=domain_name,
-            intent=intent,
-            parameters=params,
-            missing_fields=["unsupportedCapability"],
-            question="현재는 아파트 매매 실거래가 알림만 만들 수 있어요. 매매 실거래가 알림으로 만들까요?",
-            confidence=task.confidence,
-        )
+    capability = _resolve_real_estate_capability(text, query, task.target, previous if can_reuse_previous else None)
+    fallback_capability = capability or _default_real_estate_capability(text, query, task.target, previous if can_reuse_previous else None)
+    intent = fallback_capability.intent
 
-    # "아파트 가격/시세/집값/변동"은 매매/전월세 중 무엇인지 불명확하다.
-    # search_house_price 로 실행 가능한 "매매 실거래가"가 명시될 때까지 구독 생성을 보류한다.
+    # "아파트 가격/시세/집값/변동"처럼 거래유형이 빠진 요청은 매매/전월세 중 무엇인지 확인한다.
     if (
         can_reuse_previous
         and previous is not None
         and previous.monitoring_params.get(_PENDING_DEAL_TYPE_CONFIRMATION) == "true"
-    ) or _requires_explicit_apartment_deal_type(text):
+        and capability is None
+    ) or (capability is None and _requires_explicit_real_estate_deal_type(text)):
         missing.append("dealType")
         params[_PENDING_DEAL_TYPE_CONFIRMATION] = "true"
 
@@ -217,7 +267,7 @@ def normalize_subscription_draft(
 
     # condition 은 비교/알림 트리거에 필요한 구조화 파라미터로 변환한다.
     # 이전 초안에 이미 구조화 조건이 있으면 후속 턴에서 재사용한다.
-    condition = _parse_condition(task.condition)
+    condition = _parse_condition(task.condition, text)
     if condition is None and can_reuse_previous and previous is not None:
         condition = _condition_from_parameters(previous.monitoring_params)
     if condition is None:
@@ -226,13 +276,13 @@ def normalize_subscription_draft(
         params.update(condition)
 
     return _draft(
-        query=_apartment_trade_query(query, params) if not missing else query,
+        query=_real_estate_query(query, params, fallback_capability) if not missing else query,
         domain_name=domain_name,
         intent=intent,
-        tool_name=_TOOL_APT_TRADE if "dealType" not in missing else None,
+        tool_name=fallback_capability.tool_name if "dealType" not in missing else None,
         parameters=params,
         missing_fields=missing,
-        question=_question_for_missing(missing),
+        question=_question_for_missing(missing, fallback_capability),
         confidence=task.confidence,
     )
 
@@ -486,7 +536,7 @@ def _extract_alias_region(query: str | None, target: str | None) -> str | None:
 # 조건 정규화
 # ─────────────────────────────────────────────
 
-def _parse_condition(raw: str | None) -> dict[str, str] | None:
+def _parse_condition(raw: str | None, metric_context: str | None = None) -> dict[str, str] | None:
     """자연어 조건을 백엔드 MonitoringChangeDetector 가 읽는 파라미터 맵으로 변환한다."""
     text = (raw or "").strip()
     if not text:
@@ -497,7 +547,7 @@ def _parse_condition(raw: str | None) -> dict[str, str] | None:
 
     threshold = Decimal(match.group(1)).normalize()
     return {
-        "conditionMetric": "AVG_PRICE",
+        "conditionMetric": _condition_metric(_joined_text(metric_context, text)),
         "conditionDirection": _condition_direction(text),
         "conditionOperator": _condition_operator(text),
         "conditionThreshold": format(threshold, "f"),
@@ -530,6 +580,15 @@ def _condition_direction(text: str) -> str:
     return "ANY"
 
 
+def _condition_metric(text: str) -> str:
+    monthly_text = text.replace("전월세", "")
+    if "월세" in monthly_text:
+        return "AVG_MONTHLY_RENT"
+    if any(word in text for word in ["보증금", "전세", "전월세"]):
+        return "AVG_DEPOSIT"
+    return "AVG_PRICE"
+
+
 def _condition_operator(text: str) -> str:
     if "미만" in text:
         return "LT"
@@ -548,34 +607,143 @@ def _condition_unit(raw: str | None) -> str:
     return "PERCENT"
 
 
-def _requires_explicit_apartment_deal_type(text: str) -> bool:
-    """아파트 가격 요청이 매매/전월세 중 무엇인지 명시됐는지 확인한다."""
+def _resolve_real_estate_capability(
+    user_text: str,
+    query: str | None,
+    target: str | None,
+    previous: PreviousSubscriptionDraft | None,
+) -> RealEstateCapability | None:
+    previous_capability = _previous_real_estate_capability(previous)
+    asset_type = (
+        _real_estate_asset_type(user_text)
+        or _real_estate_asset_type(query)
+        or _real_estate_asset_type(target)
+        or (previous_capability.asset_type if previous_capability is not None else None)
+        or "apartment"
+    )
+
+    deal_type = _real_estate_deal_type(user_text)
+    if deal_type is None and _is_blank(user_text):
+        deal_type = _real_estate_deal_type(_joined_text(query, target))
+    if deal_type is None and previous_capability is not None:
+        deal_type = previous_capability.deal_type
+    if deal_type is None:
+        return None
+    return _REAL_ESTATE_CAPABILITIES.get((asset_type, deal_type))
+
+
+def _default_real_estate_capability(
+    user_text: str,
+    query: str | None,
+    target: str | None,
+    previous: PreviousSubscriptionDraft | None,
+) -> RealEstateCapability:
+    previous_capability = _previous_real_estate_capability(previous)
+    if previous_capability is not None:
+        return previous_capability
+    asset_type = (
+        _real_estate_asset_type(user_text)
+        or _real_estate_asset_type(query)
+        or _real_estate_asset_type(target)
+        or "apartment"
+    )
+    return _REAL_ESTATE_CAPABILITIES[(asset_type, "trade")]
+
+
+def _previous_real_estate_capability(
+    previous: PreviousSubscriptionDraft | None,
+) -> RealEstateCapability | None:
+    if previous is None:
+        return None
+    return _real_estate_capability_by_tool_name(previous.tool_name)
+
+
+def _real_estate_capability_by_tool_name(tool_name: str | None) -> RealEstateCapability | None:
+    for capability in _REAL_ESTATE_CAPABILITIES.values():
+        if capability.tool_name == tool_name:
+            return capability
+    return None
+
+
+def _real_estate_asset_type(text: str | None) -> str | None:
+    lowered = (text or "").lower()
+    if any(word in lowered for word in ["오피스텔", "officetel", "office-tel"]):
+        return "officetel"
+    if any(word in lowered for word in ["연립다세대", "연립", "다세대", "빌라"]):
+        return "row_house"
+    if any(word in lowered for word in ["아파트", "apt", "apartment"]):
+        return "apartment"
+    return None
+
+
+def _real_estate_deal_type(text: str | None) -> str | None:
+    lowered = (text or "").lower()
+    if _mentions_rent(lowered):
+        return "rent"
+    if "매매" in lowered:
+        return "trade"
+    return None
+
+
+def _requires_explicit_real_estate_deal_type(text: str) -> bool:
+    """부동산 가격 요청이 매매/전월세 중 무엇인지 명시됐는지 확인한다."""
     lowered = text.lower()
-    if _mentions_rent(lowered) or "매매" in lowered:
+    if _real_estate_deal_type(lowered) is not None:
         return False
-    return any(word in lowered for word in ["아파트", "가격", "시세", "집값", "실거래가", "변경", "변동"])
+    return any(
+        word in lowered
+        for word in [
+            "아파트",
+            "오피스텔",
+            "연립",
+            "다세대",
+            "빌라",
+            "가격",
+            "시세",
+            "집값",
+            "실거래가",
+            "변경",
+            "변동",
+        ]
+    )
+
+
+def _requires_explicit_apartment_deal_type(text: str) -> bool:
+    return _requires_explicit_real_estate_deal_type(text)
 
 
 def _mentions_rent(text: str) -> bool:
     return any(word in text for word in ["전월세", "전세", "월세"])
 
 
-def _apartment_trade_query(query: str | None, params: dict[str, str]) -> str | None:
-    """매매가 확정된 모호 query 는 확인 화면에 보일 표준 query 로 보정한다."""
-    if query and not _requires_explicit_apartment_deal_type(query):
+def _real_estate_query(
+    query: str | None,
+    params: dict[str, str],
+    capability: RealEstateCapability,
+) -> str | None:
+    """자료유형이 확정된 모호 query 는 확인 화면에 보일 표준 query 로 보정한다."""
+    if query and not _requires_explicit_real_estate_deal_type(query):
         return query
     region = params.get("region")
     if region:
-        return f"{region} 아파트 매매 실거래가"
+        return f"{region} {capability.label} 실거래가"
     return query
 
 
-def _question_for_missing(missing: list[str]) -> str:
+def _apartment_trade_query(query: str | None, params: dict[str, str]) -> str | None:
+    return _real_estate_query(query, params, _REAL_ESTATE_CAPABILITIES[("apartment", "trade")])
+
+
+def _question_for_missing(
+    missing: list[str],
+    capability: RealEstateCapability | None = None,
+) -> str:
     """백엔드가 그대로 사용자에게 보여줄 수 있는 도메인 추가 질문을 만든다."""
+    label = capability.label if capability is not None else "부동산"
     if "region" in missing:
-        return "어느 지역의 아파트 매매 실거래가를 확인할까요?"
+        return f"어느 지역의 {label} 실거래가를 확인할까요?"
     if "dealType" in missing:
-        return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요."
+        return "부동산 가격은 매매/전월세 중 어떤 기준인가요?"
     if "condition" in missing:
         return "어떤 가격 변동 조건 시 알림을 받으시겠어요? 예: 5% 이상 상승, 50만원 이상 변동 등"
     return ""

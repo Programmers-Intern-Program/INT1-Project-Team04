@@ -33,9 +33,12 @@ public class TestOAuthProviderConfiguration {
 
         @Override
         public OAuthUserProfile fetchProfile(String code) {
+            String providerUserId = "discord-code-2".equals(code)
+                    ? "discord-web-2"
+                    : providerPath() + "-web-1";
             return new OAuthUserProfile(
                     provider,
-                    providerPath() + "-web-1",
+                    providerUserId,
                     providerPath() + "-web@example.com",
                     "웹사용자",
                     "provider-token"

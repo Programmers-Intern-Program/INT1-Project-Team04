@@ -3,8 +3,6 @@ package com.back.domain.application.service;
 import com.back.domain.adapter.out.notification.NotificationClientProperties;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaEntity;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaRepository;
-import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
-import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaRepository;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
@@ -23,6 +21,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,10 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationEndpointConnectionService {
 
     private static final Duration TELEGRAM_CONNECT_TOKEN_TTL = Duration.ofMinutes(15);
+    private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 
     private final LoadNotificationEndpointPort loadNotificationEndpointPort;
     private final SaveNotificationEndpointPort saveNotificationEndpointPort;
-    private final UserJpaRepository userRepository;
     private final UserOAuthConnectionJpaRepository oauthConnectionRepository;
     private final NotificationConnectionTokenJpaRepository connectionTokenRepository;
     private final NotificationClientProperties notificationClientProperties;
@@ -77,6 +76,17 @@ public class NotificationEndpointConnectionService {
                 ));
     }
 
+    public NotificationEndpointConnectionResult reconnectDiscord(Long userId, String authorizationUrl) {
+        return new NotificationEndpointConnectionResult(
+                NotificationChannel.DISCORD_DM,
+                false,
+                null,
+                null,
+                authorizationUrl,
+                "Discord 로그인 후 기본 알림 계정을 변경할 수 있습니다."
+        );
+    }
+
     public NotificationEndpointConnectionResult completeDiscordConnection(Long userId, OAuthUserProfile profile) {
         if (profile.provider() != OAuthProvider.DISCORD
                 || profile.providerUserId() == null
@@ -88,26 +98,6 @@ public class NotificationEndpointConnectionService {
                 .findByProviderAndProviderUserId(OAuthProvider.DISCORD, profile.providerUserId());
         if (existingIdentity.isPresent() && !existingIdentity.get().getUser().getId().equals(userId)) {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
-        }
-
-        if (existingIdentity.isEmpty()) {
-            Optional<UserOAuthConnectionJpaEntity> existingUserDiscord = oauthConnectionRepository
-                    .findFirstByUserIdAndProvider(userId, OAuthProvider.DISCORD);
-            if (existingUserDiscord.isPresent()
-                    && !existingUserDiscord.get().getProviderUserId().equals(profile.providerUserId())) {
-                throw new ApiException(ErrorCode.INVALID_REQUEST);
-            }
-
-            UserJpaEntity user = userRepository.findById(userId)
-                    .filter(storedUser -> storedUser.getDeletedAt() == null)
-                    .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST));
-            oauthConnectionRepository.save(new UserOAuthConnectionJpaEntity(
-                    user,
-                    OAuthProvider.DISCORD,
-                    profile.providerUserId(),
-                    profile.email() == null || profile.email().isBlank() ? user.getEmail() : profile.email(),
-                    profile.accessToken()
-            ));
         }
 
         saveOrUpdateEndpoint(userId, NotificationChannel.DISCORD_DM, profile.providerUserId());
@@ -167,6 +157,20 @@ public class NotificationEndpointConnectionService {
                 null,
                 null,
                 "Telegram DM 연결이 완료되었습니다."
+        );
+    }
+
+    public NotificationEndpointConnectionResult connectEmail(Long userId, String targetAddress) {
+        String email = normalizeEmail(targetAddress);
+        saveOrUpdateEndpoint(userId, NotificationChannel.EMAIL, email);
+
+        return new NotificationEndpointConnectionResult(
+                NotificationChannel.EMAIL,
+                true,
+                targetLabel(NotificationChannel.EMAIL, email),
+                null,
+                null,
+                "Email 알림 수신 주소가 저장되었습니다."
         );
     }
 
@@ -231,6 +235,17 @@ public class NotificationEndpointConnectionService {
         }
 
         return Optional.of(parts[1].trim());
+    }
+
+    private String normalizeEmail(String targetAddress) {
+        if (targetAddress == null || targetAddress.isBlank()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+        String email = targetAddress.trim();
+        if (!EMAIL.matcher(email).matches()) {
+            throw new ApiException(ErrorCode.INVALID_REQUEST);
+        }
+        return email;
     }
 
     private NotificationEndpointConnectionResult telegramWebhookIgnored() {

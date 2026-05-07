@@ -352,6 +352,16 @@ export async function connectDiscordNotification(
   );
 }
 
+export async function reconnectDiscordNotification(
+  options: { baseUrl?: string; fetcher?: SubscriptionFetch } = {},
+): Promise<NotificationConnectionResult> {
+  return postNotificationConnection(
+    "/api/notification-endpoints/discord/reconnect",
+    "Discord 알림 변경 요청에 실패했습니다.",
+    options,
+  );
+}
+
 export async function startTelegramNotificationConnect(
   options: { baseUrl?: string; fetcher?: SubscriptionFetch } = {},
 ): Promise<NotificationConnectionResult> {
@@ -359,6 +369,18 @@ export async function startTelegramNotificationConnect(
     "/api/notification-endpoints/telegram/connect",
     "Telegram 알림 연결 요청에 실패했습니다.",
     options,
+  );
+}
+
+export async function connectEmailNotification(
+  targetAddress: string,
+  options: { baseUrl?: string; fetcher?: SubscriptionFetch } = {},
+): Promise<NotificationConnectionResult> {
+  return postNotificationConnection(
+    "/api/notification-endpoints/email/connect",
+    "Email 알림 주소 저장에 실패했습니다.",
+    options,
+    { targetAddress: targetAddress.trim() },
   );
 }
 
@@ -407,6 +429,7 @@ async function postNotificationConnection(
   path: string,
   fallbackMessage: string,
   options: { baseUrl?: string; fetcher?: SubscriptionFetch },
+  requestBody: Record<string, unknown> = {},
 ): Promise<NotificationConnectionResult> {
   const baseUrl = (options.baseUrl ?? getApiBaseUrl()).replace(/\/$/, "");
   const fetcher = options.fetcher ?? fetch;
@@ -416,7 +439,7 @@ async function postNotificationConnection(
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: "{}",
+      body: JSON.stringify(requestBody),
     });
     const body: unknown = await response.json().catch(() => null);
 

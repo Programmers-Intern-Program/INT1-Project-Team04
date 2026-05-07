@@ -51,6 +51,39 @@ def _structured_condition_input(avg_deal_amount: int) -> SubscriptionChangeInput
     return input_model
 
 
+def _rent_condition_input(
+    *,
+    avg_deposit: int,
+    avg_monthly_rent: int,
+    metric: str,
+) -> SubscriptionChangeInput:
+    return SubscriptionChangeInput.model_validate(
+        {
+            "subscriptionId": f"rent-{metric}",
+            "domain": "real-estate",
+            "query": "강남구 오피스텔 전월세",
+            "params": {
+                "region": "강남구",
+                "conditionMetric": metric,
+                "conditionDirection": "UP",
+                "conditionOperator": "GTE",
+                "conditionThreshold": "5",
+                "conditionUnit": "PERCENT",
+            },
+            "current": {
+                "text": "오피스텔 전월세 실거래",
+                "structured": {
+                    "summary": {
+                        "count": 20,
+                        "avg_deposit": avg_deposit,
+                        "avg_monthly_rent": avg_monthly_rent,
+                    }
+                },
+            },
+        }
+    )
+
+
 def _recruitment_input(
     count: int,
     ongoing_count: int,
@@ -247,6 +280,56 @@ async def test_diff_meeting_structured_condition_requires_ai_analysis(
     assert result.requires_ai_analysis is True
     assert result.condition_reason == "condition satisfied"
     assert result.diffs[0].change_rate == 6.0
+
+
+async def test_rent_deposit_metric_meeting_condition_requires_ai_analysis(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(_rent_condition_input(
+        avg_deposit=10000,
+        avg_monthly_rent=50,
+        metric="AVG_DEPOSIT",
+    ))
+    result = await service.compare(_rent_condition_input(
+        avg_deposit=10600,
+        avg_monthly_rent=50,
+        metric="AVG_DEPOSIT",
+    ))
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    assert result.diffs[0].field == "avg_deposit"
+    assert result.diffs[0].change_rate == 6.0
+
+
+async def test_rent_monthly_metric_meeting_condition_requires_ai_analysis(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+
+    await service.compare(_rent_condition_input(
+        avg_deposit=10000,
+        avg_monthly_rent=50,
+        metric="AVG_MONTHLY_RENT",
+    ))
+    result = await service.compare(_rent_condition_input(
+        avg_deposit=10000,
+        avg_monthly_rent=55,
+        metric="AVG_MONTHLY_RENT",
+    ))
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert result.condition_reason == "condition satisfied"
+    assert result.diffs[0].field == "avg_monthly_rent"
+    assert result.diffs[0].change_rate == 10.0
 
 
 async def test_recruitment_count_increase_meeting_condition_requires_ai_analysis(

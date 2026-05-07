@@ -40,9 +40,11 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -319,26 +321,42 @@ public class SubscriptionConversationService {
             SubscriptionConversationJpaEntity conversation,
             SubscriptionResult result
     ) {
-        runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
-                result.id(),
-                conversation.getDraftDomainName(),
-                result.query(),
-                baselineParams(conversation),
-                conversation.getDraftNotificationChannel() != null
-                        ? conversation.getDraftNotificationChannel().name()
-                        : null,
-                notificationTarget(userId, conversation)
-        )));
+        // 초기 기준값 수집은 다음 스케줄에서도 재시도되므로 구독 생성 응답을 실패시키지 않는다.
+        try {
+            runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
+                    result.id(),
+                    conversation.getDraftDomainName(),
+                    result.query(),
+                    baselineParams(conversation),
+                    conversation.getDraftNotificationChannel() != null
+                            ? conversation.getDraftNotificationChannel().name()
+                            : null,
+                    notificationTarget(userId, conversation)
+            )));
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "[SubscriptionConversationService] baseline 초기화 실패 - 구독 생성은 유지합니다. subscriptionId={}",
+                    result.id(),
+                    exception
+            );
+        }
     }
 
     private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {
         Map<String, Object> params = new LinkedHashMap<>(monitoringParams(conversation.getDraftMonitoringParams()));
+        putConfiguredToolName(params, conversation.getDraftToolName());
         if ("LATEST_AVAILABLE_MONTH".equals(String.valueOf(params.get("dealYmdPolicy")))
                 && !params.containsKey("deal_ymd")
                 && !params.containsKey("dealYmd")) {
             params.put("deal_ymd", LocalDateTime.now().minusMonths(1).format(DEAL_YMD_FORMATTER));
         }
         return params;
+    }
+
+    private void putConfiguredToolName(Map<String, Object> params, String toolName) {
+        if (!isBlank(toolName)) {
+            params.put("dataToolName", toolName);
+        }
     }
 
     private String notificationTarget(Long userId, SubscriptionConversationJpaEntity conversation) {
@@ -487,7 +505,7 @@ public class SubscriptionConversationService {
             return null;
         }
 
-        Optional<StructuredCondition> condition = StructuredCondition.parse(message);
+        Optional<StructuredCondition> condition = StructuredCondition.parse(message, conditionMetricContext(conversation));
         if (condition.isEmpty()) {
             return null;
         }
@@ -510,6 +528,12 @@ public class SubscriptionConversationService {
                 conversation.getStatus()
         );
         return completeOrAsk(conversation);
+    }
+
+    private String conditionMetricContext(SubscriptionConversationJpaEntity conversation) {
+        return (emptyIfBlank(conversation.getDraftQuery()) + " "
+                + emptyIfBlank(conversation.getDraftIntent()) + " "
+                + emptyIfBlank(conversation.getDraftToolName())).strip();
     }
 
     private Response completeShortAnswerIfPossible(
@@ -929,7 +953,7 @@ public class SubscriptionConversationService {
             return "어떤 채용 공고를 구독할까요? 예: 백엔드, 데이터, 공공기관 인턴 등";
         }
         if (missing.contains("dealType")) {
-            return "아파트 가격은 매매/전세/월세 중 어떤 기준인가요? 현재는 매매 실거래가 알림만 만들 수 있어요.";
+            return "부동산 가격은 매매/전월세 중 어떤 기준인가요?";
         }
         if (missing.contains("condition")) {
             if (isRecruitmentDraft(conversation)) {
@@ -1115,7 +1139,7 @@ public class SubscriptionConversationService {
     private Optional<String> parseDealTypeAnswer(String value) {
         String text = lower(value);
         if (text.contains("전월세") || text.contains("전세") || text.contains("월세")) {
-            return Optional.of("UNSUPPORTED_RENT");
+            return Optional.of("RENT");
         }
         if (text.contains("매매") || text.contains("실거래가")) {
             return Optional.of("TRADE");
@@ -1124,20 +1148,15 @@ public class SubscriptionConversationService {
     }
 
     private Response selectDealType(SubscriptionConversationJpaEntity conversation, String value) {
-        if (!"TRADE".equals(value)) {
-            String message = "현재는 아파트 매매 실거래가 알림만 만들 수 있어요. 매매 실거래가 알림으로 만들까요?";
-            conversation.updateStatus(SubscriptionConversationStatus.COLLECTING, message);
-            conversationRepository.save(conversation);
-            return needsInput(conversation, message, List.of());
-        }
+        RealEstateDraftSelection selection = realEstateDraftSelection(conversation, value);
 
         conversation.updateParsedDraft(
                 conversation.getParseSessionId(),
-                apartmentTradeQuery(conversation),
+                realEstateQuery(conversation, selection),
                 conversation.getDraftDomainId(),
                 conversation.getDraftDomainName(),
-                "apartment_trade_price",
-                conversation.getDraftToolName(),
+                selection.intent(),
+                selection.toolName(),
                 clearPendingDealTypeConfirmation(conversation.getDraftMonitoringParams()),
                 conversation.getDraftCronExpr(),
                 conversation.getDraftNotificationChannel(),
@@ -1149,20 +1168,96 @@ public class SubscriptionConversationService {
     }
 
     private String apartmentTradeQuery(SubscriptionConversationJpaEntity conversation) {
+        return realEstateQuery(conversation, new RealEstateDraftSelection(
+                "apartment_trade_price",
+                "search_house_price",
+                "아파트 매매"
+        ));
+    }
+
+    private String realEstateQuery(
+            SubscriptionConversationJpaEntity conversation,
+            RealEstateDraftSelection selection
+    ) {
         if (!hasPendingDealTypeConfirmation(conversation)
                 && !requiresExplicitApartmentDealType(conversation.getDraftQuery())) {
             return conversation.getDraftQuery();
         }
         String region = monitoringParams(conversation.getDraftMonitoringParams()).get("region");
         if (!isBlank(region)) {
-            return region + " 아파트 매매 실거래가";
+            return region + " " + selection.label() + " 실거래가";
         }
-        return "아파트 매매 실거래가";
+        return selection.label() + " 실거래가";
+    }
+
+    private RealEstateDraftSelection realEstateDraftSelection(
+            SubscriptionConversationJpaEntity conversation,
+            String dealType
+    ) {
+        String assetType = realEstateAssetType(conversation);
+        return switch (assetType + ":" + dealType) {
+            case "officetel:RENT" -> new RealEstateDraftSelection(
+                    "officetel_rent_price",
+                    "search_offi_rent",
+                    "오피스텔 전월세"
+            );
+            case "officetel:TRADE" -> new RealEstateDraftSelection(
+                    "officetel_trade_price",
+                    "search_offi_trade",
+                    "오피스텔 매매"
+            );
+            case "row_house:RENT" -> new RealEstateDraftSelection(
+                    "row_house_rent_price",
+                    "search_rh_rent",
+                    "연립다세대 전월세"
+            );
+            case "row_house:TRADE" -> new RealEstateDraftSelection(
+                    "row_house_trade_price",
+                    "search_rh_trade",
+                    "연립다세대 매매"
+            );
+            case "apartment:RENT" -> new RealEstateDraftSelection(
+                    "apartment_rent_price",
+                    "search_apt_rent",
+                    "아파트 전월세"
+            );
+            default -> new RealEstateDraftSelection(
+                    "apartment_trade_price",
+                    "search_house_price",
+                    "아파트 매매"
+            );
+        };
+    }
+
+    private String realEstateAssetType(SubscriptionConversationJpaEntity conversation) {
+        String toolName = lower(conversation.getDraftToolName());
+        if (toolName.startsWith("search_offi")) {
+            return "officetel";
+        }
+        if (toolName.startsWith("search_rh")) {
+            return "row_house";
+        }
+
+        String intent = lower(conversation.getDraftIntent());
+        if (intent.startsWith("officetel")) {
+            return "officetel";
+        }
+        if (intent.startsWith("row_house")) {
+            return "row_house";
+        }
+
+        String query = lower(conversation.getDraftQuery());
+        if (query.contains("오피스텔")) {
+            return "officetel";
+        }
+        if (containsAny(query, "연립다세대", "연립", "다세대", "빌라")) {
+            return "row_house";
+        }
+        return "apartment";
     }
 
     private boolean requiresApartmentDealType(SubscriptionConversationJpaEntity conversation) {
         return "real-estate".equals(conversation.getDraftDomainName())
-                && "apartment_trade_price".equals(conversation.getDraftIntent())
                 && (hasPendingDealTypeConfirmation(conversation)
                         || requiresExplicitApartmentDealType(conversation.getDraftQuery()));
     }
@@ -1184,6 +1279,10 @@ public class SubscriptionConversationService {
             return false;
         }
         return text.contains("아파트")
+                || text.contains("오피스텔")
+                || text.contains("연립")
+                || text.contains("다세대")
+                || text.contains("빌라")
                 || text.contains("가격")
                 || text.contains("시세")
                 || text.contains("집값")
@@ -1286,6 +1385,13 @@ public class SubscriptionConversationService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private String emptyIfBlank(String value) {
+        return isBlank(value) ? "" : value;
+    }
+
+    private record RealEstateDraftSelection(String intent, String toolName, String label) {
     }
 
     public record ActionRequest(String type, String value) {
