@@ -121,9 +121,7 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
         assertThat(response.headers().allValues("Set-Cookie"))
                 .noneMatch(cookie -> cookie.startsWith("SESSION=") && !cookie.startsWith("SESSION=;"));
         assertThat(oauthConnectionRepository.findFirstByUserIdAndProvider(user.getId(), OAuthProvider.DISCORD))
-                .get()
-                .extracting("providerUserId")
-                .isEqualTo("discord-web-1");
+                .isEmpty();
         assertThat(endpointRepository.findByUserIdAndChannelAndEnabledTrue(user.getId(), NotificationChannel.DISCORD_DM))
                 .get()
                 .extracting("targetAddress")
@@ -170,7 +168,7 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
         assertThat(oauthConnectionRepository.findFirstByUserIdAndProvider(user.getId(), OAuthProvider.DISCORD))
                 .get()
                 .extracting("providerUserId")
-                .isEqualTo("discord-web-2");
+                .isEqualTo("discord-web-1");
         assertThat(endpointRepository.findByUserIdAndChannelAndEnabledTrue(user.getId(), NotificationChannel.DISCORD_DM))
                 .get()
                 .extracting("targetAddress")

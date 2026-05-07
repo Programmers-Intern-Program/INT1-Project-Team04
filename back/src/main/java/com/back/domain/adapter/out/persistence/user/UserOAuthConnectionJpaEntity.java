@@ -65,9 +65,4 @@ public class UserOAuthConnectionJpaEntity extends BaseTimeEntity {
         this.accessToken = accessToken;
     }
 
-    public void updateProfile(String providerUserId, String email, String accessToken) {
-        this.providerUserId = providerUserId;
-        this.email = email;
-        this.accessToken = accessToken;
-    }
 }

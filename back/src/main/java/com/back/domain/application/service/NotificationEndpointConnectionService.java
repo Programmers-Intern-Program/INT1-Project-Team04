@@ -3,8 +3,6 @@ package com.back.domain.application.service;
 import com.back.domain.adapter.out.notification.NotificationClientProperties;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaEntity;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaRepository;
-import com.back.domain.adapter.out.persistence.user.UserJpaEntity;
-import com.back.domain.adapter.out.persistence.user.UserJpaRepository;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaEntity;
 import com.back.domain.adapter.out.persistence.user.UserOAuthConnectionJpaRepository;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
@@ -38,7 +36,6 @@ public class NotificationEndpointConnectionService {
 
     private final LoadNotificationEndpointPort loadNotificationEndpointPort;
     private final SaveNotificationEndpointPort saveNotificationEndpointPort;
-    private final UserJpaRepository userRepository;
     private final UserOAuthConnectionJpaRepository oauthConnectionRepository;
     private final NotificationConnectionTokenJpaRepository connectionTokenRepository;
     private final NotificationClientProperties notificationClientProperties;
@@ -101,27 +98,6 @@ public class NotificationEndpointConnectionService {
                 .findByProviderAndProviderUserId(OAuthProvider.DISCORD, profile.providerUserId());
         if (existingIdentity.isPresent() && !existingIdentity.get().getUser().getId().equals(userId)) {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
-        }
-
-        if (existingIdentity.isEmpty()) {
-            Optional<UserOAuthConnectionJpaEntity> existingUserDiscord = oauthConnectionRepository
-                    .findFirstByUserIdAndProvider(userId, OAuthProvider.DISCORD);
-            UserJpaEntity user = userRepository.findById(userId)
-                    .filter(storedUser -> storedUser.getDeletedAt() == null)
-                    .orElseThrow(() -> new ApiException(ErrorCode.INVALID_REQUEST));
-            String email = profile.email() == null || profile.email().isBlank() ? user.getEmail() : profile.email();
-            if (existingUserDiscord.isPresent()) {
-                // 알림용 Discord 연결은 로그인 세션이 아니라 채널 기본 수신처라 같은 사용자 안에서는 교체를 허용한다.
-                existingUserDiscord.get().updateProfile(profile.providerUserId(), email, profile.accessToken());
-            } else {
-                oauthConnectionRepository.save(new UserOAuthConnectionJpaEntity(
-                        user,
-                        OAuthProvider.DISCORD,
-                        profile.providerUserId(),
-                        email,
-                        profile.accessToken()
-                ));
-            }
         }
 
         saveOrUpdateEndpoint(userId, NotificationChannel.DISCORD_DM, profile.providerUserId());
