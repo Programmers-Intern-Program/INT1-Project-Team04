@@ -210,7 +210,7 @@ class CreateSubscriptionServiceTest {
     }
 
     @Test
-    @DisplayName("Application: Email 알림 구독은 컴팩트하고 시인성 높은 HTML 시작 알림을 생성한다")
+    @DisplayName("Application: Email 알림 구독은 사용자가 바로 이해할 수 있는 HTML 시작 알림을 생성한다")
     void createsEmailHtmlSubscriptionStartedDelivery() {
         User user = new User(1L, "user@example.com", "사용자", LocalDateTime.now(), null);
         Domain domain = new Domain(10L, "real-estate");
@@ -241,22 +241,22 @@ class CreateSubscriptionServiceTest {
         assertThat(saveDeliveryPort.saved.message()).startsWith("<!doctype html>");
         assertThat(saveDeliveryPort.saved.message()).contains(
                 "<h1",
-                "max-width:520px",
-                "알림 설정 완료</span>",
+                "max-width:560px",
+                "구독 준비 완료</span>",
                 "font-size:22px",
                 "role=\"presentation\"",
-                "요청하신 알림을 시작했어요",
+                "요청하신 조건을 지켜볼 준비가 끝났어요",
                 "강남구 아파트 실거래가",
                 "부동산",
                 "변화 감지 시",
-                "변화가 감지되면 정리해서 보내드릴게요."
+                "변화가 감지되면 핵심 변화, 판단 근거, 다음에 볼 지표를 정리해 보내드릴게요."
         );
         assertThat(saveDeliveryPort.saved.message()).doesNotContain(
+                "AI 변화 브리핑",
                 "WATCH STARTED",
                 "font-size:28px",
                 "padding:32px",
                 "이제부터 요청하신 변화를 지켜보고",
-                "새 항목, 판단 근거, 링크",
                 "real-estate",
                 "0 0 * * * *"
         );

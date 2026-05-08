@@ -1,6 +1,7 @@
 package com.back.domain.application.service.subscriptionconversation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -1643,8 +1644,8 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("baseline 초기화가 실패해도 구독 확정 응답은 성공으로 처리한다")
-    void confirmStillCreatesSubscriptionWhenBaselineInitializationFails() {
+    @DisplayName("baseline 초기화가 실패하면 구독 확정 성공으로 응답하지 않는다")
+    void confirmDoesNotReportCreatedWhenBaselineInitializationFails() {
         SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
         readyConversation.updateParsedDraft(
                 "parse-1",
@@ -1681,16 +1682,15 @@ class SubscriptionConversationServiceTest {
         runSubscriptionExecutionPort.failure = new RuntimeException("baseline failed");
         SubscriptionConversationService service = service(connectedDiscord);
 
-        SubscriptionConversationService.Response response = service.handle(
-                1L,
-                readyConversation.getId(),
-                null,
-                new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
-        );
+        assertThatThrownBy(() -> service.handle(
+                        1L,
+                        readyConversation.getId(),
+                        null,
+                        new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
+                ))
+                .isSameAs(runSubscriptionExecutionPort.failure);
 
-        assertThat(response.status()).isEqualTo("CREATED");
-        assertThat(response.subscription().id()).isEqualTo("sub-1");
-        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.CREATED);
+        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.READY_FOR_CONFIRMATION);
         verify(monitoringConfigRepository).save(any());
     }
 
