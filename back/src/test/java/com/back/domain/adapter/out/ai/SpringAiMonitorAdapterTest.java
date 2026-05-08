@@ -2,6 +2,7 @@ package com.back.domain.adapter.out.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
@@ -12,7 +13,10 @@ import com.back.domain.application.service.SubscriptionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
@@ -23,7 +27,7 @@ class SpringAiMonitorAdapterTest {
     @Test
     @DisplayName("ChatClient가 없으면 일반 모니터링 호출을 스킵한다")
     void skipsMonitorCallWhenChatClientIsNull() {
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(null, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(null, new ObjectMapper(), Integer.MAX_VALUE);
 
         adapter.run();
         // null chatClient → 스킵, 예외 없음
@@ -32,7 +36,7 @@ class SpringAiMonitorAdapterTest {
     @Test
     @DisplayName("ChatClient가 없으면 구독 실행을 실패로 처리한다")
     void failsExecuteWhenChatClientIsNull() {
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(null, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(null, new ObjectMapper(), Integer.MAX_VALUE);
 
         assertThatThrownBy(() -> adapter.execute(List.of(subscription())))
                 .isInstanceOf(RuntimeException.class);
@@ -42,7 +46,7 @@ class SpringAiMonitorAdapterTest {
     @DisplayName("구독 목록이 비어 있으면 ChatClient를 호출하지 않는다")
     void skipsMonitorCallWhenSubscriptionListIsEmpty() {
         ChatClient chatClient = mock(ChatClient.class);
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         adapter.execute(List.of());
 
@@ -55,7 +59,7 @@ class SpringAiMonitorAdapterTest {
         ChatClient chatClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
         when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
                 .thenReturn("처리했습니다.");
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         assertThatThrownBy(() -> adapter.execute(List.of(subscription())))
                 .isInstanceOf(RuntimeException.class);
@@ -69,7 +73,7 @@ class SpringAiMonitorAdapterTest {
                 .thenReturn("""
                         {"results":[{"subscriptionId":"sub-1","dataToolExecuted":true,"compareExecuted":true,"notificationRequired":false,"notificationSent":false,"status":"NO_CHANGE"}]}
                         """);
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         adapter.execute(List.of(subscription()));
     }
@@ -85,7 +89,7 @@ class SpringAiMonitorAdapterTest {
                         {"results":[{"subscriptionId":"sub-1","dataToolExecuted":true,"compareExecuted":true,"notificationRequired":false,"notificationSent":false,"status":"BASELINE_INITIALIZED"}]}
                         ```
                         """);
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         adapter.execute(List.of(subscription()));
     }
@@ -106,7 +110,7 @@ class SpringAiMonitorAdapterTest {
                             """, false);
                     return null;
                 });
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         adapter.execute(List.of(subscription()));
     }
@@ -127,7 +131,7 @@ class SpringAiMonitorAdapterTest {
                             """, false);
                     return null;
                 });
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         assertThatThrownBy(() -> adapter.execute(List.of(subscription())))
                 .isInstanceOf(RuntimeException.class);
@@ -156,7 +160,7 @@ class SpringAiMonitorAdapterTest {
                             """, false);
                     return null;
                 });
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         adapter.execute(List.of(subscription()));
 
@@ -171,10 +175,62 @@ class SpringAiMonitorAdapterTest {
                 .thenReturn("""
                         {"results":[{"subscriptionId":"sub-1","dataToolExecuted":true,"compareExecuted":true,"notificationRequired":true,"notificationSent":false,"status":"FAILED"}]}
                         """);
-        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper());
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
 
         assertThatThrownBy(() -> adapter.execute(List.of(subscription())))
                 .isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    @DisplayName("여러 구독이 병렬로 실행된다")
+    void executesSubscriptionsConcurrently() throws InterruptedException {
+        int count = 5;
+        CountDownLatch allStarted = new CountDownLatch(count);
+        CountDownLatch release = new CountDownLatch(1);
+        ChatClient chatClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenAnswer(inv -> {
+                    allStarted.countDown();
+                    release.await();
+                    return null;
+                });
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), Integer.MAX_VALUE);
+
+        Thread t = Thread.ofVirtual().start(() -> {
+            try { adapter.execute(subs(count)); } catch (Exception ignored) {}
+        });
+
+        assertTrue(allStarted.await(3, TimeUnit.SECONDS), "5개 구독이 동시에 시작되지 않았다");
+        release.countDown();
+        t.join(3000);
+    }
+
+    @Test
+    @DisplayName("Semaphore가 동시 실행 수를 제한한다")
+    void semaphoreLimitsConcurrency() throws InterruptedException {
+        int limit = 2;
+        AtomicInteger concurrent = new AtomicInteger(0);
+        AtomicInteger maxConcurrent = new AtomicInteger(0);
+        CountDownLatch release = new CountDownLatch(1);
+        ChatClient chatClient = mock(ChatClient.class, RETURNS_DEEP_STUBS);
+        when(chatClient.prompt().system(anyString()).user(anyString()).call().content())
+                .thenAnswer(inv -> {
+                    int current = concurrent.incrementAndGet();
+                    maxConcurrent.updateAndGet(max -> Math.max(max, current));
+                    release.await();
+                    concurrent.decrementAndGet();
+                    return null;
+                });
+        SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(chatClient, new ObjectMapper(), limit);
+
+        Thread t = Thread.ofVirtual().start(() -> {
+            try { adapter.execute(subs(5)); } catch (Exception ignored) {}
+        });
+
+        Thread.sleep(200);
+        assertThat(maxConcurrent.get()).isLessThanOrEqualTo(limit);
+        release.countDown();
+        t.join(3000);
     }
 
     private SubscriptionContext subscription() {
@@ -186,5 +242,12 @@ class SpringAiMonitorAdapterTest {
                 "TELEGRAM_DM",
                 "123456789"
         );
+    }
+
+    private static List<SubscriptionContext> subs(int count) {
+        return IntStream.range(0, count)
+                .mapToObj(i -> new SubscriptionContext(
+                        "sub-" + i, "real-estate", "query", Map.of(), "DISCORD_DM", "target"))
+                .toList();
     }
 }
