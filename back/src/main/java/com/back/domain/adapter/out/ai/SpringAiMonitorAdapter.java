@@ -33,6 +33,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscriptionExecutionPort {
 
+    private static final int  RATE_LIMIT_MAX_RETRY    = 3;
+    private static final long RATE_LIMIT_BASE_DELAY_MS = 2000; // 2s → 4s → 8s
+
     private static final Set<String> DATA_TOOL_NAMES = Set.of(
             "get_cached_data",
             "search_house_price",
@@ -158,19 +161,48 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
 
     private ExecutionResult requestMonitorExecution(String userPrompt) {
         // Gemini가 도구 호출 후 최종 text를 비우는 경우가 있어 MCP 콜백 실행 기록도 함께 본다.
-        McpToolExecutionRecorder.start();
-        String content;
-        List<Execution> executions;
-        try {
-            content = monitorChatClient.prompt()
-                    .system(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
-                    .user(userPrompt)
-                    .call()
-                    .content();
-        } finally {
-            executions = McpToolExecutionRecorder.stop();
+        // rate limit 시 해당 호출만 재시도 — 이전 호출 결과는 보존
+        for (int attempt = 0; ; attempt++) {
+            McpToolExecutionRecorder.start();
+            try {
+                String content = monitorChatClient.prompt()
+                        .system(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                        .user(userPrompt)
+                        .call()
+                        .content();
+                return new ExecutionResult(content, McpToolExecutionRecorder.stop());
+            } catch (RuntimeException e) {
+                McpToolExecutionRecorder.stop(); // ThreadLocal 정리 후 재시도 또는 전파
+                if (isRateLimitException(e) && attempt < RATE_LIMIT_MAX_RETRY) {
+                    long delay = RATE_LIMIT_BASE_DELAY_MS << attempt;
+                    log.warn("[SpringAiMonitorAdapter] rate limit — {}ms 후 재시도 ({}/{})",
+                            delay, attempt + 1, RATE_LIMIT_MAX_RETRY);
+                    try {
+                        Thread.sleep(delay); // VT: carrier thread 반납하고 대기
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new ApiException(ErrorCode.RATE_LIMIT_EXCEEDED);
+                    }
+                    continue;
+                }
+                if (isRateLimitException(e)) {
+                    throw new ApiException(ErrorCode.RATE_LIMIT_EXCEEDED);
+                }
+                throw e;
+            }
         }
-        return new ExecutionResult(content, executions);
+    }
+
+    // 예외 체인 전체를 탐색 — 원인이 깊이 래핑될 수 있음
+    // 실제 Vertex AI 429 예외 타입은 첫 발생 시 로그로 확인 후 보정 필요
+    private boolean isRateLimitException(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String name = t.getClass().getName();
+            String msg  = t.getMessage() == null ? "" : t.getMessage();
+            if (name.contains("ResourceExhausted") || name.contains("TooManyRequests")) return true;
+            if (msg.contains("429") || msg.contains("RESOURCE_EXHAUSTED"))              return true;
+        }
+        return false;
     }
 
     private boolean shouldRetryMissingCompare(
