@@ -1,6 +1,9 @@
 -- 부동산 MCP 도구 6종 중 V2에서 누락된 5종을 백엔드 mcp_tool registry에 적재한다.
 -- 모든 도구는 MCP 서버의 MolitRealEstateInput(region, deal_ymd) 계약을 공유한다.
 
+-- V2가 IF NOT EXISTS로 생성되어 기존 DB에 제약이 없을 경우 보완
+ALTER TABLE mcp_tool ADD CONSTRAINT IF NOT EXISTS uq_mcp_tool_server_name UNIQUE (server_id, name);
+
 WITH specs(name, description) AS (
     VALUES
         (
