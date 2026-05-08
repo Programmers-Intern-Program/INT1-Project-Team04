@@ -61,6 +61,11 @@ app:
     retry-delay-seconds: ${APP_NOTIFICATION_RETRY_DELAY_SECONDS:300}
     telegram:
       bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
+    baseline-promote:
+      # 알림 메시지에 포함되는 GET 링크의 base URL (사용자가 직접 클릭).
+      # 외부 노출 도메인이 백엔드 8080 과 다를 수 있으므로 별도 prop.
+      base-url: ${APP_BASELINE_PROMOTE_BASE_URL:http://localhost:8080}
+      ttl-days: ${APP_BASELINE_PROMOTE_TTL_DAYS:7}
   monitor:
     concurrency-limit: ${APP_MONITOR_CONCURRENCY_LIMIT:5}
 
