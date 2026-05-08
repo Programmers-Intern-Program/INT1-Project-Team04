@@ -16,16 +16,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
 public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscriptionExecutionPort {
+
+    private static final int  RATE_LIMIT_MAX_RETRY    = 3;
+    private static final long RATE_LIMIT_BASE_DELAY_MS = 2000; // 2s → 4s → 8s
 
     private static final Set<String> DATA_TOOL_NAMES = Set.of(
             "get_cached_data",
@@ -45,6 +54,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     @Nullable
     private final ChatClient monitorChatClient;
     private final ObjectMapper objectMapper;
+    private final Semaphore semaphore;
 
     // [레버 1] system prompt로 tool 호출 순서/조건 유도
     // [레버 2] MCP tool description에 순서/조건 명시 → Python 담당자 담당
@@ -60,10 +70,12 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
 
     public SpringAiMonitorAdapter(
             @Autowired(required = false) ChatClient monitorChatClient,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            @Value("${app.monitor.concurrency-limit:5}") int concurrencyLimit
     ) {
         this.monitorChatClient = monitorChatClient;
         this.objectMapper = objectMapper;
+        this.semaphore = new Semaphore(concurrencyLimit);
     }
 
     @Override
@@ -91,40 +103,106 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
             return;
         }
         log.info("[SpringAiMonitorAdapter] 구독 실행 요청 - {}건", subscriptions.size());
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            for (SubscriptionContext subscription : subscriptions) {
+                futures.add(CompletableFuture.runAsync(
+                        () -> processSubscription(subscription, cancelled),
+                        executor
+                ));
+            }
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof ApiException ae) throw ae;
+            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+        }
+    }
+
+    // package-private: 테스트에서 동기 직접 호출 가능
+    void processSubscription(SubscriptionContext subscription, AtomicBoolean cancelled) {
+        if (cancelled.get()) {
+            log.info("[SpringAiMonitorAdapter] 구독 {} 취소 플래그 확인 — 스킵", subscription.subscriptionId());
+            return;
+        }
+        // acquireUninterruptibly: Runnable 람다는 checked exception 불가, soft-cancel은 AtomicBoolean으로 처리
+        semaphore.acquireUninterruptibly();
         try {
-            String payload = objectMapper.writeValueAsString(subscriptions);
+            if (cancelled.get()) {
+                log.info("[SpringAiMonitorAdapter] 구독 {} 취소 플래그 확인 — 스킵", subscription.subscriptionId());
+                return;
+            }
+            log.info("[SpringAiMonitorAdapter] 구독 {} 실행", subscription.subscriptionId());
+            List<SubscriptionContext> asList = List.of(subscription);
+            String payload = objectMapper.writeValueAsString(asList);
             ExecutionResult result = requestMonitorExecution(payload);
             String content = result.content();
             List<Execution> executions = result.executions();
-            if (shouldRetryMissingCompare(content, subscriptions, executions)) {
+            if (shouldRetryMissingCompare(content, asList, executions)) {
                 // 데이터 조회까지 성공한 뒤 멈춘 경우, 백엔드 계산 대신 MCP compare 호출만 한 번 더 유도한다.
                 ExecutionResult retryResult = requestMonitorExecution(retryPrompt(payload, executions));
                 executions = mergeExecutions(executions, retryResult.executions());
-                verifyToolExecutionEvidence(subscriptions, executions);
+                verifyToolExecutionEvidence(asList, executions);
                 return;
             }
-            verifyExecutionResponse(content, subscriptions, executions);
+            verifyExecutionResponse(content, asList, executions);
         } catch (JsonProcessingException e) {
-            log.error("[SpringAiMonitorAdapter] 구독 context 직렬화 실패", e);
+            log.error("[SpringAiMonitorAdapter] 구독 {} 직렬화 실패", subscription.subscriptionId(), e);
+            cancelled.set(true);
             throw new ApiException(ErrorCode.AI_PARSE_FAILED);
+        } catch (ApiException e) {
+            cancelled.set(true);
+            throw e;
+        } finally {
+            semaphore.release();
         }
     }
 
     private ExecutionResult requestMonitorExecution(String userPrompt) {
         // Gemini가 도구 호출 후 최종 text를 비우는 경우가 있어 MCP 콜백 실행 기록도 함께 본다.
-        McpToolExecutionRecorder.start();
-        String content;
-        List<Execution> executions;
-        try {
-            content = monitorChatClient.prompt()
-                    .system(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
-                    .user(userPrompt)
-                    .call()
-                    .content();
-        } finally {
-            executions = McpToolExecutionRecorder.stop();
+        // rate limit 시 해당 호출만 재시도 — 이전 호출 결과는 보존
+        for (int attempt = 0; ; attempt++) {
+            McpToolExecutionRecorder.start();
+            try {
+                String content = monitorChatClient.prompt()
+                        .system(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                        .user(userPrompt)
+                        .call()
+                        .content();
+                return new ExecutionResult(content, McpToolExecutionRecorder.stop());
+            } catch (RuntimeException e) {
+                McpToolExecutionRecorder.stop(); // ThreadLocal 정리 후 재시도 또는 전파
+                if (isRateLimitException(e) && attempt < RATE_LIMIT_MAX_RETRY) {
+                    long delay = RATE_LIMIT_BASE_DELAY_MS << attempt;
+                    log.warn("[SpringAiMonitorAdapter] rate limit — {}ms 후 재시도 ({}/{})",
+                            delay, attempt + 1, RATE_LIMIT_MAX_RETRY);
+                    try {
+                        Thread.sleep(delay); // VT: carrier thread 반납하고 대기
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new ApiException(ErrorCode.RATE_LIMIT_EXCEEDED);
+                    }
+                    continue;
+                }
+                if (isRateLimitException(e)) {
+                    throw new ApiException(ErrorCode.RATE_LIMIT_EXCEEDED);
+                }
+                throw e;
+            }
         }
-        return new ExecutionResult(content, executions);
+    }
+
+    // 예외 체인 전체를 탐색 — 원인이 깊이 래핑될 수 있음
+    // 실제 Vertex AI 429 예외 타입은 첫 발생 시 로그로 확인 후 보정 필요
+    private boolean isRateLimitException(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            String name = t.getClass().getName();
+            String msg  = t.getMessage() == null ? "" : t.getMessage();
+            if (name.contains("ResourceExhausted") || name.contains("TooManyRequests")) return true;
+            if (msg.contains("429") || msg.contains("RESOURCE_EXHAUSTED"))              return true;
+        }
+        return false;
     }
 
     private boolean shouldRetryMissingCompare(
