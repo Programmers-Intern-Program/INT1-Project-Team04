@@ -1,6 +1,6 @@
 package com.back.domain.adapter.in.scheduler;
 
-import com.back.domain.application.port.in.RunDueSchedulesUseCase;
+import com.back.domain.application.port.in.RunSubscriptionMonitorUseCase;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -12,10 +12,10 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class ScheduleTrigger {
 
-    private final RunDueSchedulesUseCase runDueSchedulesUseCase;
+    private final RunSubscriptionMonitorUseCase runSubscriptionMonitorUseCase;
 
-    @Scheduled(fixedDelayString = "${schedule.runner.fixed-delay-ms:60000}")
-    public void run() {
-        runDueSchedulesUseCase.runDueSchedules();
+    @Scheduled(fixedDelayString = "${schedule.monitor.fixed-delay-ms:300000}")
+    public void runMonitor() {
+        runSubscriptionMonitorUseCase.runAll();
     }
 }

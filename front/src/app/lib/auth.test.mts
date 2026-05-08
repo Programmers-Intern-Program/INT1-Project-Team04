@@ -113,7 +113,7 @@ describe("auth UI source rules", () => {
     const source =
       readFileSync(new URL("../page.tsx", import.meta.url), "utf8") +
       readFileSync(
-        new URL("../components/subscription-mvp.tsx", import.meta.url),
+        new URL("../components/subscription-chat.tsx", import.meta.url),
         "utf8",
       );
 
@@ -140,5 +140,25 @@ describe("auth UI source rules", () => {
     assert.equal(source.includes("카카오"), true);
     assert.equal(source.includes("Google"), true);
     assert.equal(source.includes("Discord"), true);
+  });
+
+  it("keeps account management out of the main dashboard chrome", () => {
+    const source = readFileSync(
+      new URL("../page.tsx", import.meta.url),
+      "utf8",
+    );
+    const bannedCopy = [
+      "회원정보",
+      "회원 탈퇴",
+      "{authState.member.email}",
+      "authState.member.providers.map",
+      "lg:grid-cols-[minmax(0,1fr)_360px]",
+      "grid content-start gap-4",
+    ];
+
+    assert.deepEqual(
+      bannedCopy.filter((copy) => source.includes(copy)),
+      [],
+    );
   });
 });

@@ -65,6 +65,18 @@ jobs:
           echo "BE_IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_BE }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
           echo "FE_IMAGE=$(echo "${{ env.REGISTRY }}/${{ env.IMAGE_FE }}" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
+      - name: Parse frontend build env
+        env:
+          DOT_ENV_PROD: ${{ secrets.DOT_ENV_PROD }}
+        run: |
+          strip() { echo "$1" | sed 's/[[:space:]]*#.*$//' | tr -d '[:space:]'; }
+          NEXT_PUBLIC_API_BASE_URL=$(strip "$(printf '%s' "$DOT_ENV_PROD" | grep -E '^NEXT_PUBLIC_API_BASE_URL=' | cut -d= -f2-)")
+          if [ -z "$NEXT_PUBLIC_API_BASE_URL" ]; then
+            echo "NEXT_PUBLIC_API_BASE_URL is required in DOT_ENV_PROD"
+            exit 1
+          fi
+          echo "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" >> $GITHUB_ENV
+
       - name: Build and push Backend
         uses: docker/build-push-action@v6
         with:
@@ -86,6 +98,8 @@ jobs:
           tags: |
             ${{ env.FE_IMAGE }}:${{ needs.calculate-tag.outputs.tag_name }}
             ${{ env.FE_IMAGE }}:latest
+          build-args: |
+            NEXT_PUBLIC_API_BASE_URL=${{ env.NEXT_PUBLIC_API_BASE_URL }}
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
@@ -121,6 +135,12 @@ jobs:
           echo "$SSH_KEY"        >> $GITHUB_OUTPUT
           echo "SSHEOF"          >> $GITHUB_OUTPUT
 
+      - name: Encode Google credentials
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: |
+          echo "GOOGLE_CREDENTIALS_B64=$(printf '%s' "$GOOGLE_CREDENTIALS_JSON" | base64 -w0)" >> $GITHUB_ENV
+
       - name: Sync infra files to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -143,11 +163,12 @@ jobs:
           FE_DOMAIN: ${{ env.FE_DOMAIN }}
           BE_DOMAIN: ${{ env.BE_DOMAIN }}
           DOT_ENV_B64: ${{ env.DOT_ENV_B64 }}
+          GOOGLE_CREDENTIALS_B64: ${{ env.GOOGLE_CREDENTIALS_B64 }}
         with:
           host: ${{ env.DEPLOY_HOST }}
           username: ubuntu
           key: ${{ steps.parse.outputs.ssh_key }}
-          envs: IMAGE_TAG,GITHUB_ACTOR,GITHUB_TOKEN,REPO_OWNER,REPO_NAME,NPM_EMAIL,NPM_PASSWORD,FE_DOMAIN,BE_DOMAIN,DOT_ENV_B64
+          envs: IMAGE_TAG,GITHUB_ACTOR,GITHUB_TOKEN,REPO_OWNER,REPO_NAME,NPM_EMAIL,NPM_PASSWORD,FE_DOMAIN,BE_DOMAIN,DOT_ENV_B64,GOOGLE_CREDENTIALS_B64
           script: |
             set -e
 
@@ -156,7 +177,27 @@ jobs:
 
             # ── .env 복원 ──────────────────────────────────────
             mkdir -p ~/app/infra/docker/prod
-            echo "$DOT_ENV_B64" | base64 --decode > ~/app/infra/docker/prod/.env
+            PROD_ENV_FILE=~/app/infra/docker/prod/.env
+            echo "$DOT_ENV_B64" | base64 --decode > "$PROD_ENV_FILE"
+
+            # ── Telegram webhook 자동 등록 설정 ────────────────
+            env_value() {
+              grep -E "^$1=" "$PROD_ENV_FILE" \
+                | tail -n 1 \
+                | cut -d= -f2- \
+                | sed 's/[[:space:]]*#.*$//' \
+                | tr -d '[:space:]'
+            }
+            TELEGRAM_WEBHOOK_ENABLED=$(env_value MCP_NOTIFICATION_TELEGRAM_ENABLED)
+            TELEGRAM_BOT_TOKEN=$(env_value MCP_NOTIFICATION_TELEGRAM_BOT_TOKEN)
+            TELEGRAM_API_BASE_URL=$(env_value MCP_NOTIFICATION_TELEGRAM_API_BASE_URL)
+            TELEGRAM_API_BASE_URL=${TELEGRAM_API_BASE_URL:-https://api.telegram.org}
+
+            # ── Google Vertex AI 인증 파일 복원 (GitHub Secret에서 직접 주입)
+            if [ -n "$GOOGLE_CREDENTIALS_B64" ]; then
+              echo "$GOOGLE_CREDENTIALS_B64" | base64 --decode > ~/app/google-credentials.json
+              chmod 600 ~/app/google-credentials.json
+            fi
 
             # ── 이미지 경로 ────────────────────────────────────
             BE_IMAGE=$(echo "ghcr.io/${REPO_OWNER}/${REPO_NAME}-backend" | tr '[:upper:]' '[:lower:]')
@@ -190,12 +231,18 @@ jobs:
             # be_a=9091, be_b=9092 (슬롯별 고정 포트 — Prometheus 스크래핑용)
             [ "$GREEN_BE" = "be_a" ] && BE_METRICS_PORT=9091 || BE_METRICS_PORT=9092
 
+            GOOGLE_CRED_MOUNT=""
+            if [ -f ~/app/google-credentials.json ]; then
+              GOOGLE_CRED_MOUNT="-e GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/google-credentials.json -v ~/app/google-credentials.json:/run/secrets/google-credentials.json:ro"
+            fi
+
             docker run -d --name "$GREEN_BE" \
               --network prod-net \
               --memory=4g \
               --env-file ~/app/infra/docker/prod/.env \
               -e JAVA_OPTS="-Xms512m -Xmx3500m" \
               -e SPRING_PROFILES_ACTIVE=prod \
+              $GOOGLE_CRED_MOUNT \
               -p ${BE_METRICS_PORT}:8080 \
               "${BE_IMAGE}:${IMAGE_TAG}"
 
@@ -203,7 +250,7 @@ jobs:
               --network prod-net \
               --memory=1g \
               -e NODE_ENV=production \
-              -e API_BASE_URL="http://${GREEN_BE}:8080" \
+              -e NEXT_PUBLIC_API_BASE_URL="https://${BE_DOMAIN}" \
               "${FE_IMAGE}:${IMAGE_TAG}"
 
             # .env 즉시 삭제
@@ -243,6 +290,27 @@ jobs:
             curl -sf -o /dev/null -X PUT \
               -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
               -d "$NEW_BE_CFG" "http://localhost:81/api/nginx/proxy-hosts/$BE_ID"
+
+            # ── Telegram webhook 등록 ──────────────────────────
+            if [ "$(echo "${TELEGRAM_WEBHOOK_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
+              if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+                echo "MCP_NOTIFICATION_TELEGRAM_ENABLED=true but MCP_NOTIFICATION_TELEGRAM_BOT_TOKEN is empty"
+                exit 1
+              fi
+
+              TELEGRAM_WEBHOOK_URL="https://${BE_DOMAIN}/api/notification-endpoints/telegram/webhook"
+              TELEGRAM_WEBHOOK_RESPONSE=$(curl -fsS -X POST \
+                "${TELEGRAM_API_BASE_URL%/}/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+                --data-urlencode "url=${TELEGRAM_WEBHOOK_URL}")
+              if ! echo "$TELEGRAM_WEBHOOK_RESPONSE" | jq -e '.ok == true' >/dev/null; then
+                echo "Telegram webhook registration failed"
+                echo "$TELEGRAM_WEBHOOK_RESPONSE" | jq -c '{ok,error_code,description}'
+                exit 1
+              fi
+              echo "Telegram webhook registered: ${TELEGRAM_WEBHOOK_URL}"
+            else
+              echo "Telegram webhook registration skipped"
+            fi
 
             # ── NPM 프론트엔드 프록시 전환 ─────────────────────
             FE_ID=$(curl -sf -H "Authorization: Bearer $TOKEN" \

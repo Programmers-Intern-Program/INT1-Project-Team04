@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+  <header>
+    <resultCode>000</resultCode>
+    <resultMsg>OK</resultMsg>
+  </header>
+  <body>
+    <items>
+      <item>
+        <aptNm>래미안</aptNm>
+        <dealAmount>  120,000 </dealAmount>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>15</dealDay>
+        <excluUseAr>84.97</excluUseAr>
+        <floor>10</floor>
+        <umdNm>역삼동</umdNm>
+        <jibun>758</jibun>
+        <buildYear>2010</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+      <item>
+        <aptNm>자이</aptNm>
+        <dealAmount>95,500</dealAmount>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>22</dealDay>
+        <excluUseAr>59.98</excluUseAr>
+        <floor>5</floor>
+        <umdNm>대치동</umdNm>
+        <jibun>510</jibun>
+        <buildYear>2015</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+    </items>
+    <numOfRows>10</numOfRows>
+    <pageNo>1</pageNo>
+    <totalCount>2</totalCount>
+  </body>
+</response>

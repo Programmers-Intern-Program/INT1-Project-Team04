@@ -19,7 +19,7 @@ variable "instance_shape" {
 
 variable "boot_volume_size_gb" {
   type    = number
-  default = 50
+  default = 150
 }
 
 variable "ssh_public_key" { type = string }

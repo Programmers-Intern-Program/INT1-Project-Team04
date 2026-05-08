@@ -13,6 +13,7 @@ public record Subscription(
         User user,
         Domain domain,
         String query,
+        String intent,
         boolean active,
         LocalDateTime createdAt
 ) {

@@ -2,6 +2,7 @@ package com.back.domain.adapter.out.persistence.domain;
 
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.model.domain.Domain;
+import java.util.List;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -20,5 +21,13 @@ public class DomainPersistenceAdapter implements LoadDomainPort {
     public Optional<Domain> loadById(Long domainId) {
         return domainJpaRepository.findById(domainId)
             .map(entity -> new Domain(entity.getId(), entity.getName()));
+    }
+
+    @Override
+    public List<Domain> loadAll() {
+        return domainJpaRepository.findAllByOrderByIdAsc()
+                .stream()
+                .map(DomainJpaEntity::toDomain)
+                .toList();
     }
 }

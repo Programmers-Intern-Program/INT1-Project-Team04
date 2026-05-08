@@ -1,0 +1,162 @@
+package com.back.domain.application.service.monitoring;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.math.BigDecimal;
+import java.util.Map;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+@DisplayName("Application: 모니터링 변화 감지 테스트")
+class MonitoringChangeDetectorTest {
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final MonitoringChangeDetector detector = new MonitoringChangeDetector();
+
+    @Test
+    @DisplayName("Application: 평균 매매가가 조건 이상 상승하면 알림 대상으로 판단한다")
+    void detectsPercentIncreaseFromSummary() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"avg_deal_amount\":100000,\"count\":10}");
+        JsonNode current = objectMapper.readTree("{\"avg_deal_amount\":106000,\"count\":12}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "AVG_PRICE",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "5",
+                "conditionUnit", "PERCENT"
+        ));
+
+        assertThat(decision.triggered()).isTrue();
+        assertThat(decision.metricKey()).isEqualTo("avg_deal_amount");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("100000"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("106000"));
+        assertThat(decision.changeRate()).isEqualByComparingTo(new BigDecimal("6"));
+    }
+
+    @Test
+    @DisplayName("Application: 채용 공고 수가 조건 이상 증가하면 알림 대상으로 판단한다")
+    void detectsRecruitmentCountIncrease() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"count\":10,\"ongoing_count\":4}");
+        JsonNode current = objectMapper.readTree("{\"count\":11,\"ongoing_count\":4}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "COUNT",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "1",
+                "conditionUnit", "COUNT"
+        ));
+
+        assertThat(decision.triggered()).isTrue();
+        assertThat(decision.metricKey()).isEqualTo("count");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("10"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("11"));
+        assertThat(decision.changeValue()).isEqualByComparingTo(new BigDecimal("1"));
+    }
+
+    @Test
+    @DisplayName("Application: 진행중 채용 공고 수가 조건 이상 증가하면 알림 대상으로 판단한다")
+    void detectsRecruitmentOngoingCountIncrease() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"count\":10,\"ongoing_count\":2}");
+        JsonNode current = objectMapper.readTree("{\"count\":10,\"ongoing_count\":3}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "ONGOING_COUNT",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "1",
+                "conditionUnit", "COUNT"
+        ));
+
+        assertThat(decision.triggered()).isTrue();
+        assertThat(decision.metricKey()).isEqualTo("ongoing_count");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("2"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("3"));
+        assertThat(decision.changeValue()).isEqualByComparingTo(new BigDecimal("1"));
+    }
+
+    @Test
+    @DisplayName("Application: 월세 조건은 보증금이 아니라 평균 월세 변화로 판단한다")
+    void detectsMonthlyRentChangeFromRentSummary() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"avg_deposit\":10000,\"avg_monthly_rent\":50}");
+        JsonNode current = objectMapper.readTree("{\"avg_deposit\":9500,\"avg_monthly_rent\":56}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "AVG_MONTHLY_RENT",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "5",
+                "conditionUnit", "MANWON"
+        ));
+
+        assertThat(decision.triggered()).isTrue();
+        assertThat(decision.metricKey()).isEqualTo("avg_monthly_rent");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("50"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("56"));
+        assertThat(decision.changeValue()).isEqualByComparingTo(new BigDecimal("6"));
+    }
+
+    @Test
+    @DisplayName("Application: 보증금 조건은 평균 보증금 변화로 판단한다")
+    void detectsDepositChangeFromRentSummary() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"avg_deposit\":10000,\"avg_monthly_rent\":50}");
+        JsonNode current = objectMapper.readTree("{\"avg_deposit\":11000,\"avg_monthly_rent\":48}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "AVG_DEPOSIT",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "1000",
+                "conditionUnit", "MANWON"
+        ));
+
+        assertThat(decision.triggered()).isTrue();
+        assertThat(decision.metricKey()).isEqualTo("avg_deposit");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("10000"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("11000"));
+        assertThat(decision.changeValue()).isEqualByComparingTo(new BigDecimal("1000"));
+    }
+
+    @Test
+    @DisplayName("Application: 가격 필드가 없으면 거래 건수 변화만으로 가격 조건을 트리거하지 않는다")
+    void ignoresCountChangeForAveragePriceCondition() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"count\":10}");
+        JsonNode current = objectMapper.readTree("{\"count\":12}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "AVG_PRICE",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "5",
+                "conditionUnit", "PERCENT"
+        ));
+
+        assertThat(decision.triggered()).isFalse();
+        assertThat(decision.metricKey()).isNull();
+        assertThat(decision.reason()).isEqualTo("metric missing");
+    }
+
+    @Test
+    @DisplayName("Application: 방향이 조건과 다르면 변화가 있어도 알림 대상으로 판단하지 않는다")
+    void ignoresChangeWhenDirectionDoesNotMatch() throws Exception {
+        JsonNode previous = objectMapper.readTree("{\"avg_deal_amount\":100000,\"count\":10}");
+        JsonNode current = objectMapper.readTree("{\"avg_deal_amount\":95000,\"count\":12}");
+
+        MonitoringChangeDecision decision = detector.detect(previous, current, Map.of(
+                "conditionMetric", "AVG_PRICE",
+                "conditionDirection", "UP",
+                "conditionOperator", "GTE",
+                "conditionThreshold", "5",
+                "conditionUnit", "PERCENT"
+        ));
+
+        assertThat(decision.triggered()).isFalse();
+        assertThat(decision.metricKey()).isEqualTo("avg_deal_amount");
+        assertThat(decision.previousValue()).isEqualByComparingTo(new BigDecimal("100000"));
+        assertThat(decision.currentValue()).isEqualByComparingTo(new BigDecimal("95000"));
+        assertThat(decision.changeRate()).isEqualByComparingTo(new BigDecimal("-5"));
+    }
+}

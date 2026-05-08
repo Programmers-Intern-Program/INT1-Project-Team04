@@ -8,4 +8,9 @@ import java.util.Optional;
  */
 public interface LoadMcpToolPort {
     Optional<McpTool> loadByDomainId(Long domainId);
+
+    default Optional<McpTool> loadByDomainIdAndName(Long domainId, String toolName) {
+        return loadByDomainId(domainId)
+                .filter(tool -> tool.name().equals(toolName));
+    }
 }

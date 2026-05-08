@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+  <header>
+    <resultCode>000</resultCode>
+    <resultMsg>OK</resultMsg>
+  </header>
+  <body>
+    <items>
+      <item>
+        <offiNm>강남 스카이홈</offiNm>
+        <deposit>  16,500 </deposit>
+        <monthlyRent>10</monthlyRent>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>24</dealDay>
+        <excluUseAr>25.16</excluUseAr>
+        <floor>8</floor>
+        <umdNm>도곡동</umdNm>
+        <jibun>662</jibun>
+        <buildYear>2014</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+      <item>
+        <offiNm>역삼 라이프</offiNm>
+        <deposit>5,000</deposit>
+        <monthlyRent>80</monthlyRent>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>27</dealDay>
+        <excluUseAr>22.4</excluUseAr>
+        <floor>4</floor>
+        <umdNm>역삼동</umdNm>
+        <jibun>820</jibun>
+        <buildYear>2018</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+    </items>
+    <numOfRows>10</numOfRows>
+    <pageNo>1</pageNo>
+    <totalCount>2</totalCount>
+  </body>
+</response>

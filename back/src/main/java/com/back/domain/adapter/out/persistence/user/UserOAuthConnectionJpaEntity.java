@@ -64,4 +64,5 @@ public class UserOAuthConnectionJpaEntity extends BaseTimeEntity {
         this.email = email;
         this.accessToken = accessToken;
     }
+
 }

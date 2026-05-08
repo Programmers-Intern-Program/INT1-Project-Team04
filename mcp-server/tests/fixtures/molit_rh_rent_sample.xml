@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+  <header>
+    <resultCode>000</resultCode>
+    <resultMsg>OK</resultMsg>
+  </header>
+  <body>
+    <items>
+      <item>
+        <mhouseNm>역삼삼성빌라</mhouseNm>
+        <houseType>다세대</houseType>
+        <deposit>  30,500 </deposit>
+        <monthlyRent>0</monthlyRent>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>23</dealDay>
+        <excluUseAr>26.93</excluUseAr>
+        <floor>2</floor>
+        <umdNm>역삼동</umdNm>
+        <jibun>1206</jibun>
+        <buildYear>2017</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+      <item>
+        <mhouseNm>대치연립</mhouseNm>
+        <houseType>연립</houseType>
+        <deposit>10,000</deposit>
+        <monthlyRent>50</monthlyRent>
+        <dealYear>2024</dealYear>
+        <dealMonth>3</dealMonth>
+        <dealDay>26</dealDay>
+        <excluUseAr>40.5</excluUseAr>
+        <floor>3</floor>
+        <umdNm>대치동</umdNm>
+        <jibun>402</jibun>
+        <buildYear>1995</buildYear>
+        <sggCd>11680</sggCd>
+      </item>
+    </items>
+    <numOfRows>10</numOfRows>
+    <pageNo>1</pageNo>
+    <totalCount>2</totalCount>
+  </body>
+</response>

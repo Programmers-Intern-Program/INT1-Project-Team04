@@ -1,8 +1,6 @@
 package com.back.domain.adapter.out.persistence.mcp;
 
 import com.back.domain.application.port.out.LoadMcpToolPort;
-import com.back.domain.model.domain.Domain;
-import com.back.domain.model.mcp.McpServer;
 import com.back.domain.model.mcp.McpTool;
 import java.util.Optional;
 import lombok.RequiredArgsConstructor;
@@ -23,19 +21,12 @@ public class McpToolPersistenceAdapter implements LoadMcpToolPort {
     @Override
     public Optional<McpTool> loadByDomainId(Long domainId) {
         return mcpToolJpaRepository.findFirstByDomainId(domainId)
-            .map(entity -> new McpTool(
-                entity.getId(),
-                new McpServer(
-                    entity.getServer().getId(),
-                    entity.getServer().getName(),
-                    entity.getServer().getDescription(),
-                    entity.getServer().getEndpoint()
-                ),
-                new Domain(entity.getDomain().getId(),
-                        entity.getDomain().getName()),
-                entity.getName(),
-                entity.getDescription(),
-                entity.getInputSchema()
-            ));
+                .map(McpToolJpaEntity::toDomain);
+    }
+
+    @Override
+    public Optional<McpTool> loadByDomainIdAndName(Long domainId, String toolName) {
+        return mcpToolJpaRepository.findFirstByDomainIdAndName(domainId, toolName)
+                .map(McpToolJpaEntity::toDomain);
     }
 }
