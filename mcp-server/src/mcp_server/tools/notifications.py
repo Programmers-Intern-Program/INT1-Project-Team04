@@ -12,13 +12,19 @@
 
 from typing import Any
 
+from pydantic import ValidationError
+
 from mcp_server.config import get_settings
+from mcp_server.notifications.briefing_models import NotificationBriefing
+from mcp_server.notifications.briefing_renderers import render_for_channel
 from mcp_server.notifications.delivery import NotificationDeliveryService
 from mcp_server.notifications.models import NotificationRequest
+from mcp_server.notifications.models import NotificationResult
 from mcp_server.observability.tracing import traced
 from mcp_server.server import mcp
 
 _TOOL_SEND_NOTIFICATION = "send_notification"
+_BRIEFING_CONTRACT_VERSION = "channel-v1"
 
 
 @mcp.tool()
@@ -38,6 +44,20 @@ async def send_notification(input: NotificationRequest) -> dict[str, Any]:
     자연어 최종 응답을 발송으로 간주하지 말고, structured.sent 가 true 일 때만
     발송 성공으로 판단한다.
     """
+    briefing_rendered = False
+    briefing_contract_version = input.metadata.get("briefingContractVersion")
+    if briefing_contract_version == _BRIEFING_CONTRACT_VERSION:
+        try:
+            briefing = NotificationBriefing.model_validate(input.metadata.get("briefing"))
+            rendered = render_for_channel(briefing, input.channel)
+        except ValidationError as exc:
+            return _briefing_contract_failure(input, "briefing_contract_invalid", str(exc))
+        input = input.model_copy(update={
+            "title": rendered.provider_title,
+            "message": rendered.message,
+        })
+        briefing_rendered = True
+
     result = await NotificationDeliveryService(get_settings()).send(input)
     status_text = "sent" if result.sent else "failed"
     return {
@@ -48,5 +68,32 @@ async def send_notification(input: NotificationRequest) -> dict[str, Any]:
             "tool_name": _TOOL_SEND_NOTIFICATION,
             "subscription_id": input.subscription_id,
             "idempotency_key": input.idempotency_key,
+            "briefing_contract_version": briefing_contract_version,
+            "briefing_rendered": briefing_rendered,
+        },
+    }
+
+
+def _briefing_contract_failure(input: NotificationRequest, error: str, detail: str) -> dict[str, Any]:
+    """channel-v1 브리핑 계약 위반은 provider 발송 전에 구조화 실패로 반환한다."""
+    result = NotificationResult(
+        sent=False,
+        channel=input.channel,
+        target=input.target,
+        provider="briefing_contract",
+        retryable=False,
+        error=error,
+    )
+    return {
+        "text": "briefing_contract notification failed.",
+        "structured": result.model_dump(mode="json"),
+        "source_url": None,
+        "metadata": {
+            "tool_name": _TOOL_SEND_NOTIFICATION,
+            "subscription_id": input.subscription_id,
+            "idempotency_key": input.idempotency_key,
+            "briefing_contract_version": input.metadata.get("briefingContractVersion"),
+            "briefing_rendered": False,
+            "briefing_error": detail,
         },
     }

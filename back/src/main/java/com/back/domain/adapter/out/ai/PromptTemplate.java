@@ -227,6 +227,10 @@ Step 5. compare_subscription_change 결과상 조건이 충족된 경우에만 s
 - send_notification 호출에는 반드시 notificationChannel과 notificationTarget 값을 사용하세요.
 - 알림은 반드시 notificationTarget에 전달하세요.
 - send_notification의 알림 본문에는 사용자가 바로 이해할 수 있는 간결한 한국어 AI 브리핑을 담으세요.
+- 부동산/채용 변화 알림은 send_notification metadata에 briefingContractVersion="channel-v1"와 briefing 객체를 함께 넣으세요.
+- briefing 객체는 domain, title, summary, changes, watchInfo, sources, interpretation 필드를 사용하세요.
+- channel-v1 metadata가 있으면 MCP가 Discord/Telegram/Email별 최종 본문 양식을 고정해서 렌더링합니다.
+- 채용 briefing.sources에는 신규 공고 title과 url을 반드시 포함하고, 부동산 briefing.watchInfo에는 region과 dealPeriod를 반드시 포함하세요.
 - send_notification 결과의 structured.sent가 true일 때만 알림 발송 성공으로 판단하세요.
 
 [금지 사항]
