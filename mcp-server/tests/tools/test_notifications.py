@@ -68,6 +68,10 @@ async def test_send_notification_returns_structured_result(monkeypatch) -> None:
         subscription_id=42,
         idempotency_key="subscription-42-test",
         message="조건이 충족되었습니다.",
+        metadata={
+            "deliveryId": "delivery-42",
+            "alertEventId": "alert-42",
+        },
     ))
 
     assert response["text"] == "telegram notification sent."

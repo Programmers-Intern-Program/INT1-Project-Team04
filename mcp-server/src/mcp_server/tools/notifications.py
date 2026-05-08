@@ -6,7 +6,7 @@
 원칙:
 - notificationChannel / notificationTarget 은 백엔드 SubscriptionContext 값을 그대로 쓴다.
 - 실제 외부 알림 발송은 이 도구가 수행한다. 모델의 자연어 응답만으로는 발송되지 않는다.
-- 발송 성공 여부는 structured.sent 로만 판단한다.
+- 구독 실행 알림은 channel-v1 브리핑 렌더링까지 성공해야 발송 성공 증빙으로 쓴다.
 - provider token / SMTP password 같은 비밀값은 도구 인자로 받지 않고 settings 에서 읽는다.
 """
 
@@ -41,11 +41,18 @@ async def send_notification(input: NotificationRequest) -> dict[str, Any]:
       - subscriptionId 또는 subscription_id: 구독 ID
 
     MCP 기반 구독 실행 흐름에서 실제 알림 발송 부작용은 이 도구만 수행한다.
-    자연어 최종 응답을 발송으로 간주하지 말고, structured.sent 가 true 일 때만
-    발송 성공으로 판단한다.
+    자연어 최종 응답을 발송으로 간주하지 말고, 구독 실행 알림은 channel-v1
+    브리핑 렌더링 결과까지 발송 성공 증빙으로 판단한다.
     """
     briefing_rendered = False
     briefing_contract_version = input.metadata.get("briefingContractVersion")
+    if briefing_contract_version != _BRIEFING_CONTRACT_VERSION and _requires_briefing_contract(input):
+        return _briefing_contract_failure(
+            input,
+            "briefing_contract_required",
+            "subscription execution notification requires channel-v1 briefing metadata",
+        )
+
     if briefing_contract_version == _BRIEFING_CONTRACT_VERSION:
         try:
             briefing = NotificationBriefing.model_validate(input.metadata.get("briefing"))
@@ -72,6 +79,16 @@ async def send_notification(input: NotificationRequest) -> dict[str, Any]:
             "briefing_rendered": briefing_rendered,
         },
     }
+
+
+def _requires_briefing_contract(input: NotificationRequest) -> bool:
+    """AI 구독 실행의 직접 발송만 channel-v1 계약을 강제한다."""
+    return input.subscription_id is not None and not _is_backend_delivery(input.metadata)
+
+
+def _is_backend_delivery(metadata: dict[str, Any]) -> bool:
+    """백엔드 NotificationDelivery 경로는 이미 서버가 본문을 조립하므로 legacy 발송을 허용한다."""
+    return bool(metadata.get("deliveryId")) and bool(metadata.get("alertEventId"))
 
 
 def _briefing_contract_failure(input: NotificationRequest, error: str, detail: str) -> dict[str, Any]:

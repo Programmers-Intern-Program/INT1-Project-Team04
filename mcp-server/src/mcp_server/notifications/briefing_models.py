@@ -6,6 +6,10 @@ from urllib.parse import urlparse
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
+REAL_ESTATE_DOMAINS = {"real-estate", "real_estate", "부동산"}
+RECRUITMENT_DOMAINS = {"recruitment", "job", "jobs", "채용"}
+REAL_ESTATE_AVERAGE_LABEL_KEYWORDS = ("매매", "가격", "보증", "월세")
+
 
 class BriefingChange(BaseModel):
     """알림 본문에 표시할 변화 항목."""
@@ -59,6 +63,8 @@ class BriefingSource(BaseModel):
         url = value.strip()
         if not url or any(character.isspace() for character in url):
             return None
+        if url.startswith("www."):
+            url = f"https://{url}"
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             return None
@@ -84,11 +90,43 @@ class NotificationBriefing(BaseModel):
     @model_validator(mode="after")
     def validate_domain_contract(self) -> NotificationBriefing:
         domain = self.domain.strip().lower()
-        if domain in {"recruitment", "job", "jobs", "채용"} and not any(source.url for source in self.sources):
+        self._validate_substance()
+        if domain in RECRUITMENT_DOMAINS and not any(source.url for source in self.sources):
             raise ValueError("recruitment briefing source url is required")
-        if domain in {"real-estate", "real_estate", "부동산"}:
-            if not self.watch_info.region:
-                raise ValueError("real-estate briefing requires region")
-            if not self.watch_info.deal_period:
-                raise ValueError("real-estate briefing requires deal_period")
+        if domain in REAL_ESTATE_DOMAINS:
+            self._validate_real_estate_contract()
         return self
+
+    def _validate_substance(self) -> None:
+        """성의없는 한두 줄 브리핑은 provider 발송 전에 차단한다."""
+        title = self.title.strip()
+        summary = self.summary.strip()
+        interpretation = self.interpretation.strip()
+        if len(title) < 6:
+            raise ValueError("briefing is too terse: title")
+        if len(summary) < 12:
+            raise ValueError("briefing is too terse: summary")
+        if len(interpretation) < 8:
+            raise ValueError("briefing is too terse: interpretation")
+        if len(self.changes) < 2:
+            raise ValueError("briefing is too terse: changes")
+
+    def _validate_real_estate_contract(self) -> None:
+        if not self.watch_info.region:
+            raise ValueError("real-estate briefing requires region")
+        if not self.watch_info.deal_period:
+            raise ValueError("real-estate briefing requires deal_period")
+        if len(self.changes) < 3:
+            raise ValueError("briefing is too terse: real-estate briefing requires at least 3 changes")
+
+        labels = [change.label.strip() for change in self.changes]
+        values = [change.value.strip() for change in self.changes]
+        if not any(
+            "평균" in label and any(keyword in label for keyword in REAL_ESTATE_AVERAGE_LABEL_KEYWORDS)
+            for label in labels
+        ):
+            raise ValueError("real-estate briefing requires average metric")
+        if not any("변화율" in label or "%" in value for label, value in zip(labels, values, strict=False)):
+            raise ValueError("real-estate briefing requires change rate")
+        if not any(("거래" in label and "건수" in label) or label == "건수" for label in labels):
+            raise ValueError("real-estate briefing requires transaction count")
