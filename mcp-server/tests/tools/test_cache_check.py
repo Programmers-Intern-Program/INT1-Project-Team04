@@ -1,10 +1,7 @@
-"""tools.cache_check.check_api_cache 단위 테스트.
+"""tools.cache_check 캐시 조회 MCP 도구 단위 테스트.
 
 실제 HTTP 호출 없이 DB(in-memory SQLite)에 캐시 행을 직접 삽입해
-check_api_cache 의 동작을 격리 검증한다.
-
-get_cached_data 는 MCP tool 미노출 내부 함수이므로 직접 테스트하지 않고,
-check_api_cache 의 cached_data 반환값을 통해 간접 검증한다.
+check_api_cache / get_cached_data 의 동작을 격리 검증한다.
 """
 
 from datetime import UTC, datetime
@@ -14,7 +11,7 @@ import pytest
 
 from mcp_server.db.models import ApiCache, ApiSource
 from mcp_server.db.session import get_session
-from mcp_server.tools.cache_check import check_api_cache
+from mcp_server.tools.cache_check import check_api_cache, get_cached_data
 
 _FIXTURE_LAW = Path(__file__).resolve().parents[1] / "data" / "law"
 _FIXTURE_AUCTION = Path(__file__).resolve().parents[1] / "data" / "auction"
@@ -240,15 +237,27 @@ async def test_bill_info_age_keyed(patched_session_factory):
 
 
 # ─────────────────────────────────────────────
-# get_cached_data MCP tool 미노출 확인
+# get_cached_data MCP tool 노출 확인
 # ─────────────────────────────────────────────
 
 
-def test_get_cached_data_not_registered_as_mcp_tool():
-    """get_cached_data는 MCP tool로 노출되지 않는다."""
+def test_get_cached_data_registered_as_mcp_tool():
+    """AI 구독 실행 프롬프트가 호출하는 get_cached_data는 MCP tool로 노출된다."""
     import mcp_server.tools  # noqa: F401
     from mcp_server.server import mcp
 
     tool_names = [t.name for t in mcp._tool_manager.list_tools()]
-    assert "get_cached_data" not in tool_names
+    assert "get_cached_data" in tool_names
     assert "check_api_cache" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_get_cached_data_returns_cached_public_job_payload(patched_session_factory):
+    """공공채용 캐시 hit → MCP tool 응답으로 구조화 채용공고를 반환한다."""
+    await _seed_cache("search_public_job", PUBLIC_JOB_JSON)
+
+    result = await get_cached_data("search_public_job")
+
+    assert result["metadata"]["cache_used"] is True
+    assert result["metadata"]["tool_name"] == "search_public_job"
+    assert "postings" in result["structured"]

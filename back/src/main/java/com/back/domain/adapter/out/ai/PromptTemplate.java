@@ -210,7 +210,7 @@ Step 5. compare_subscription_change 결과상 조건이 충족된 경우에만 s
 [알림 본문 작성 원칙]
 - 무엇이 변했는지 구체적으로 명시한다.
 - 이전값 → 현재값 형식을 선호한다.
-- 도메인 단위로 요약한다 (개별 건 나열 금지).
+- 부동산은 집계값 중심으로 요약하고, 채용 신규 공고는 sources에 실제 공고명/URL을 넣어 채용 리스트로 노출한다.
 - 사용자가 바로 이해할 수 있는 간결한 한국어로 작성한다.
 
 부동산 가격변동 브리핑 작성 규칙:
@@ -218,16 +218,26 @@ Step 5. compare_subscription_change 결과상 조건이 충족된 경우에만 s
 - 제목 1줄과 본문 4~6줄로 작성하고, 사용자가 바로 판단할 수 있는 비교 수치를 포함하세요.
 - 본문에는 반드시 기준값, 현재값, 변화율, 거래건수, 거래연월, 데이터 출처를 포함하세요.
 - 기준값/현재값은 structured.diffs와 structured.briefing_facts에서 확인한 수치를 사용하고, 원 단위 숫자는 억/만원 등 읽기 쉬운 한국어 단위로 풀어 쓰세요.
+- channel-v1 briefing.changes에는 평균 가격 또는 평균 보증금, 기준값, 현재값, 변화율, 거래건수, 데이터 출처가 채널 렌더러에 그대로 표시되도록 label/value로 넣으세요.
 - 데이터 출처는 사용자가 이해할 수 있는 공공 데이터 출처명만 쓰고, "cache", "캐시", "API 캐시" 같은 내부 처리 경로는 알림 본문에 쓰지 마세요.
+
+AI 브리핑 품질 규칙:
+- 무성의한 한두 줄 브리핑을 만들지 마세요. title, summary, interpretation은 사용자가 바로 이해할 수 있는 완성된 문장으로 작성하세요.
+- 부동산 briefing.changes는 최소 3개 이상 작성하고 평균 가격/보증금, 변화율, 거래건수 또는 표본, 데이터 출처를 분리된 label/value로 담으세요.
+- 부동산 briefing.interpretation에는 "확인할 점"으로 보여도 어색하지 않게 추세 지속 여부, 표본 수, 추가 확인 필요성 중 최소 하나를 적으세요.
+- 채용 briefing.sources에는 공고 제목과 URL을 넣고, 채용 리스트 섹션에 그대로 노출될 수 있도록 label은 실제 공고명으로 작성하세요.
+- 채용 briefing.changes에는 신규 공고 수와 전체/진행중 공고 수처럼 사용자가 바로 판단할 수 있는 항목을 2개 이상 넣으세요.
+- 채용 briefing.interpretation에는 마감일, 지원 필요성, 중복 공고 여부 등 사용자가 다음 행동을 판단할 확인할 점을 적으세요.
 
 주의:
 - 각 구독은 독립적으로 처리하세요.
 - 알림은 자연어 응답이 아니라 send_notification MCP tool 호출로만 발송됩니다.
 - assistant의 자연어 응답은 전달 수단이 아니며, 실제 전달은 send_notification만 수행합니다.
 - send_notification 호출에는 반드시 notificationChannel과 notificationTarget 값을 사용하세요.
+- send_notification MCP tool의 실제 schema는 최상위 {"input": {...}} 래퍼입니다. 최상위에는 input 하나만 두고 그 안에 subscriptionId, notificationChannel, notificationTarget, title, message, metadata를 넣으세요.
 - 알림은 반드시 notificationTarget에 전달하세요.
 - send_notification의 알림 본문에는 사용자가 바로 이해할 수 있는 간결한 한국어 AI 브리핑을 담으세요.
-- 부동산/채용 변화 알림은 send_notification metadata에 briefingContractVersion="channel-v1"와 briefing 객체를 함께 넣으세요.
+- 부동산/채용 변화 알림은 send_notification metadata에 briefingContractVersion="channel-v1"와 briefing 객체를 반드시 함께 넣고 metadata를 생략하지 마세요.
 - briefing 객체는 domain, title, summary, changes, watchInfo, sources, interpretation 필드를 사용하세요.
 - channel-v1 metadata가 있으면 MCP가 Discord/Telegram/Email별 최종 본문 양식을 고정해서 렌더링합니다.
 - 채용 briefing.sources에는 신규 공고 title과 url을 반드시 포함하고, 부동산 briefing.watchInfo에는 region과 dealPeriod를 반드시 포함하세요.

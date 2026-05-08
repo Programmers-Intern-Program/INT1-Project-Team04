@@ -169,6 +169,15 @@ class PromptTemplateTest {
     }
 
     @Test
+    @DisplayName("구독 실행 프롬프트는 부동산/채용 알림에서 channel-v1 metadata 생략을 금지한다")
+    void subscriptionExecutionPromptRequiresChannelV1MetadataForFormattedDomains() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("briefingContractVersion=\"channel-v1\"")
+                .contains("metadata를 생략하지 마세요")
+                .contains("Discord/Telegram/Email");
+    }
+
+    @Test
     @DisplayName("구독 실행 프롬프트는 부동산 가격변동 브리핑에 비교 수치와 데이터 범위를 포함하게 한다")
     void subscriptionExecutionPromptRequiresRealEstateBriefingDetails() {
         assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
@@ -179,9 +188,23 @@ class PromptTemplateTest {
                 .contains("거래연월")
                 .contains("거래건수")
                 .contains("데이터 출처")
+                .contains("briefing.changes")
+                .contains("평균 가격 또는 평균 보증금")
                 .contains("API 캐시")
                 .contains("한 줄로 끝내지 마세요");
         assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
                 .contains("내부 처리 경로는 알림 본문에 쓰지 마세요");
+    }
+
+    @Test
+    @DisplayName("구독 실행 프롬프트는 무성의한 한두 줄 AI 브리핑을 금지한다")
+    void subscriptionExecutionPromptRejectsTerseBriefingShape() {
+        assertThat(PromptTemplate.SUBSCRIPTION_EXECUTION_SYSTEM_PROMPT)
+                .contains("무성의한 한두 줄")
+                .contains("채용 리스트")
+                .contains("확인할 점")
+                .contains("부동산 briefing.changes는 최소 3개")
+                .contains("채용 briefing.sources에는 공고 제목과 URL")
+                .contains("title, summary, interpretation은 사용자가 바로 이해할 수 있는 완성된 문장");
     }
 }
