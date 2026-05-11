@@ -1848,7 +1848,8 @@ class SubscriptionConversationServiceTest {
                 conversationRepository,
                 monitoringConfigRepository,
                 new ObjectMapper(),
-                runSubscriptionExecutionPort
+                runSubscriptionExecutionPort,
+                (domainName, query) -> Optional.empty()
         );
     }
 
