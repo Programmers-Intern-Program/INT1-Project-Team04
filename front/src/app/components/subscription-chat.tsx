@@ -22,7 +22,6 @@ import {
   pendingChannelSelectionForAction,
   shouldClearPendingChannelForResponse,
   type ChatMessage,
-  type DebugJsonSnapshot,
   type SubscriptionChatSessionSnapshot,
 } from "../lib/subscription-chat-session";
 import {
@@ -67,10 +66,6 @@ export function SubscriptionChat({
   const [deletingSubscriptionId, setDeletingSubscriptionId] = useState<string | null>(null);
   const [updatingEndpointChannel, setUpdatingEndpointChannel] = useState<NotificationChannelId | null>(null);
   const [statusMessage, setStatusMessage] = useState("");
-  const [debugJson, setDebugJson] = useState<DebugJsonSnapshot>({
-    request: "{}",
-    response: "{}",
-  });
   const [hasRestoredSession, setHasRestoredSession] = useState(false);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -210,10 +205,9 @@ export function SubscriptionChat({
         conversationId,
         actions,
         draft,
-        debugJson,
       }),
     );
-  }, [actions, conversationId, debugJson, draft, hasRestoredSession, messages]);
+  }, [actions, conversationId, draft, hasRestoredSession, messages]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -223,7 +217,6 @@ export function SubscriptionChat({
         setConversationId(snapshot.conversationId);
         setActions(snapshot.actions);
         setDraft(snapshot.draft);
-        setDebugJson(snapshot.debugJson);
       }
       setHasRestoredSession(true);
     }, 0);
@@ -273,16 +266,8 @@ export function SubscriptionChat({
       conversationId: conversationId ?? undefined,
       message,
     };
-    setDebugJson({
-      request: formatDebugJson(requestPayload),
-      response: formatDebugJson({ pending: true }),
-    });
     const response = await sendConversationMessage(requestPayload);
     setSubmitState("idle");
-    setDebugJson((current) => ({
-      ...current,
-      response: formatDebugJson(response),
-    }));
 
     if (!response.ok) {
       if (response.error.code === "UNAUTHENTICATED") {
@@ -338,16 +323,8 @@ export function SubscriptionChat({
       conversationId,
       action: { type: action.type, value: action.value },
     };
-    setDebugJson({
-      request: formatDebugJson(requestPayload),
-      response: formatDebugJson({ pending: true }),
-    });
     const response = await sendConversationAction(requestPayload);
     setSubmitState("idle");
-    setDebugJson((current) => ({
-      ...current,
-      response: formatDebugJson(response),
-    }));
 
     if (!response.ok) {
       if (response.error.code === "UNAUTHENTICATED") {
@@ -599,24 +576,6 @@ export function SubscriptionChat({
           {statusMessage ? (
             <p className="mt-3 text-sm font-bold text-sky-900">{statusMessage}</p>
           ) : null}
-          <div className="mt-4 grid gap-3 rounded-2xl border border-dashed border-stone-300 bg-stone-50 p-3 text-xs text-stone-800 md:grid-cols-2">
-            <label className="grid gap-2 font-black">
-              요청 JSON
-              <textarea
-                readOnly
-                value={debugJson.request}
-                className="min-h-40 resize-y rounded-xl border border-stone-200 bg-white p-3 text-xs leading-5 text-stone-900 outline-none"
-              />
-            </label>
-            <label className="grid gap-2 font-black">
-              응답 JSON
-              <textarea
-                readOnly
-                value={debugJson.response}
-                className="min-h-40 resize-y rounded-xl border border-stone-200 bg-white p-3 text-xs leading-5 text-stone-900 outline-none"
-              />
-            </label>
-          </div>
         </form>
       </section>
 
@@ -806,10 +765,6 @@ function readChatSession(): SubscriptionChatSessionSnapshot | null {
 
 function createMessageId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function formatDebugJson(value: unknown): string {
-  return JSON.stringify(value, null, 2);
 }
 
 function classNames(...classes: Array<string | false | null | undefined>) {
