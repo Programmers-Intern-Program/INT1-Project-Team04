@@ -41,7 +41,7 @@ class ParseTaskServiceWithTokenTest {
     void setUp() {
         fakeParsePort = new FakeParseNaturalLanguagePort();
         fakeSaveSessionPort = new FakeSaveParseSessionPort();
-        fakeLoadSessionPort = new FakeLoadSessionPort();
+        fakeLoadSessionPort = new FakeLoadParseSessionPort();
         fakeTokenManagement = new FakeTokenManagementUseCase();
 
         service = new ParseTaskService(
