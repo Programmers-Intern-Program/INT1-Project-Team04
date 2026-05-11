@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from urllib.parse import urlparse
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -88,11 +89,31 @@ class NotificationBriefing(BaseModel):
     summary: str = Field(min_length=1)
     changes: list[BriefingChange] = Field(min_length=1)
     watch_info: BriefingWatchInfo = Field(
+        default_factory=BriefingWatchInfo,
         validation_alias=AliasChoices("watchInfo", "watch_info"),
         serialization_alias="watchInfo",
     )
     sources: list[BriefingSource] = Field(default_factory=list)
     interpretation: str = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_ai_payload_variants(cls, data: Any) -> Any:
+        """실제 AI가 자주 만드는 근사 계약을 provider 직전 표준 계약으로 보정한다."""
+        if not isinstance(data, dict):
+            return data
+        normalized = dict(data)
+        for key in ("watchInfo", "watch_info"):
+            if key in normalized and normalized[key] is None:
+                normalized[key] = {}
+
+        sources = normalized.get("sources")
+        if isinstance(sources, list):
+            flattened: list[dict[str, Any]] = []
+            for source in sources:
+                flattened.extend(_normalize_source_entry(source))
+            normalized["sources"] = flattened
+        return normalized
 
     @model_validator(mode="after")
     def validate_domain_contract(self) -> NotificationBriefing:
@@ -143,3 +164,22 @@ class NotificationBriefing(BaseModel):
             for label in labels
         ):
             raise ValueError("real-estate briefing requires transaction count")
+
+
+def _normalize_source_entry(source: Any) -> list[dict[str, Any]]:
+    """AI가 묶음 sources.value에 넣은 채용 공고를 표준 source 배열로 펼친다."""
+    if not isinstance(source, dict):
+        return []
+
+    value = source.get("value")
+    if isinstance(value, list):
+        flattened: list[dict[str, Any]] = []
+        for item in value:
+            flattened.extend(_normalize_source_entry(item))
+        return flattened
+
+    normalized = dict(source)
+    if "url" not in normalized and isinstance(value, str):
+        normalized["url"] = value
+    normalized.pop("value", None)
+    return [normalized]

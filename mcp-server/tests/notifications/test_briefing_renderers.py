@@ -233,3 +233,29 @@ def test_recruitment_email_accepts_www_source_url() -> None:
 
     assert "대한적십자사 인천사할린동포복지회관 직원 채용 공고" in rendered.message
     assert "https://www.redcross.or.kr/redrecruit" in rendered.message
+
+
+def test_recruitment_briefing_accepts_grouped_ai_source_value_list() -> None:
+    payload = _recruitment_briefing().model_dump(mode="json", by_alias=True)
+    payload["watchInfo"] = None
+    payload["sources"] = [
+        {
+            "label": "공공채용",
+            "value": [
+                {
+                    "label": "칠곡경북대학교병원 간호사 채용공고",
+                    "value": "https://www.knuch.kr/content/recruit/view",
+                },
+                {
+                    "label": "광주전남혈액원 간호사 채용 공고",
+                    "value": "www.redcross.or.kr/redrecruit",
+                },
+            ],
+        }
+    ]
+
+    briefing = NotificationBriefing.model_validate(payload)
+    rendered = render_for_channel(briefing, NotificationChannel.TELEGRAM_DM)
+
+    assert "- 칠곡경북대학교병원 간호사 채용공고: https://www.knuch.kr/content/recruit/view" in rendered.message
+    assert "- 광주전남혈액원 간호사 채용 공고: https://www.redcross.or.kr/redrecruit" in rendered.message
