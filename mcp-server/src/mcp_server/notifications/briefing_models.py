@@ -8,7 +8,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 REAL_ESTATE_DOMAINS = {"real-estate", "real_estate", "부동산"}
 RECRUITMENT_DOMAINS = {"recruitment", "job", "jobs", "채용"}
-REAL_ESTATE_AVERAGE_LABEL_KEYWORDS = ("매매", "가격", "보증", "월세")
+REAL_ESTATE_AVERAGE_LABEL_KEYWORDS = ("매매", "가격", "보증", "월세", "전세", "전월세", "임대", "임대료")
 
 
 class BriefingChange(BaseModel):
@@ -21,13 +21,20 @@ class BriefingChange(BaseModel):
     previous: str | None = None
     current: str | None = None
 
+    @field_validator("previous", "current", mode="before")
+    @classmethod
+    def stringify_numeric_diff_value(cls, value: object) -> object:
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return str(value)
+        return value
+
 
 class BriefingWatchInfo(BaseModel):
     """사용자가 구독한 감시 대상과 조건을 표시하기 위한 정보."""
 
     model_config = ConfigDict(populate_by_name=True)
 
-    target: str = Field(min_length=1)
+    target: str | None = Field(default=None, min_length=1)
     condition: str | None = None
     observed_at: str | None = Field(
         default=None,
@@ -37,7 +44,7 @@ class BriefingWatchInfo(BaseModel):
     region: str | None = None
     deal_period: str | None = Field(
         default=None,
-        validation_alias=AliasChoices("dealPeriod", "deal_period"),
+        validation_alias=AliasChoices("dealPeriod", "deal_period", "dealYmd", "deal_ymd", "dealYm", "deal_ym"),
         serialization_alias="dealPeriod",
     )
     keyword: str | None = None
@@ -128,5 +135,11 @@ class NotificationBriefing(BaseModel):
             raise ValueError("real-estate briefing requires average metric")
         if not any("변화율" in label or "%" in value for label, value in zip(labels, values, strict=False)):
             raise ValueError("real-estate briefing requires change rate")
-        if not any(("거래" in label and "건수" in label) or label == "건수" for label in labels):
+        if not any(
+            ("거래" in label and ("건수" in label or "수" in label or "량" in label))
+            or label == "건수"
+            or "표본" in label
+            or ("데이터" in label and ("건수" in label or "수" in label))
+            for label in labels
+        ):
             raise ValueError("real-estate briefing requires transaction count")
