@@ -11,6 +11,7 @@ import com.back.domain.application.command.UseTokenCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.in.ParseTaskUseCase;
 import com.back.domain.application.port.in.TokenManagementUseCase;
+import com.back.domain.application.port.out.FetchInfoDataPort;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
@@ -76,6 +77,7 @@ public class SubscriptionConversationService {
     private final SubscriptionMonitoringConfigJpaRepository monitoringConfigRepository;
     private final ObjectMapper objectMapper;
     private final RunSubscriptionExecutionPort runSubscriptionExecutionPort;
+    private final FetchInfoDataPort fetchInfoDataPort;
 
     public Response handle(Long userId, String conversationId, String message, ActionRequest action) {
         if (action != null) {
@@ -93,10 +95,25 @@ public class SubscriptionConversationService {
         return applyParseResult(conversation, parseResult, message);
     }
 
+    private Response handleInfoToCreateTransition(SubscriptionConversationJpaEntity conversation, String message) {
+        String enrichedMessage = "[이전 대화에서 조회한 데이터]\n" + conversation.getInfoContext()
+                + "\n\n[사용자 요청]\n" + message
+                + "\n\n위 데이터를 기준으로 구독을 생성해주세요.";
+        ParseResult parseResult = parseTaskUseCase.parse(
+                new ParseTaskCommand(conversation.getUserId(), enrichedMessage)
+        );
+        conversation.updateInfoContext(null);
+        return applyParseResult(conversation, parseResult, message);
+    }
+
     private Response handleContinuedMessage(Long userId, String conversationId, String message) {
         SubscriptionConversationJpaEntity conversation = loadConversation(userId, conversationId);
         if (shouldStartNewConversation(conversation, message)) {
             return handleNewMessage(userId, message);
+        }
+
+        if (!isBlank(conversation.getInfoContext()) && isMonitoringRequest(message)) {
+            return handleInfoToCreateTransition(conversation, message);
         }
 
         if (conversation.getDraftNotificationChannel() == NotificationChannel.EMAIL
@@ -130,6 +147,11 @@ public class SubscriptionConversationService {
                 || conversation.getStatus() == SubscriptionConversationStatus.CANCELLED) {
             return true;
         }
+
+        if (!isBlank(conversation.getInfoContext()) && isMonitoringRequest(message)) {
+            return false;
+        }
+
         Optional<String> requestedDomain = explicitDomainFromMessage(message);
         if (requestedDomain.isPresent()
                 && !isBlank(conversation.getDraftDomainName())
@@ -142,6 +164,9 @@ public class SubscriptionConversationService {
     }
 
     private boolean isUnsupportedConversation(SubscriptionConversationJpaEntity conversation) {
+        if ("info".equals(conversation.getDraftIntent()) && !isBlank(conversation.getInfoContext())) {
+            return false;
+        }
         return "reject".equals(conversation.getDraftIntent())
                 || "info".equals(conversation.getDraftIntent())
                 || "unsupportedDomain".equals(conversation.getDraftIntent())
@@ -165,12 +190,33 @@ public class SubscriptionConversationService {
 
         ParsedTask task = parseResult.tasks().getFirst();
 
-        // info intent: 서비스 소개/일반 대화 → 자연어 응답만 반환 (구독 draft 생성 없음)
+        // info intent: 서비스 소개/일반 대화 → 데이터 도메인이면 실시간 데이터도 조회
         if ("info".equals(task.intent())) {
             String infoMessage = task.confirmationQuestion();
             if (isBlank(infoMessage)) {
                 infoMessage = "궁금한 게 있으시면 언제든 물어보세요!";
             }
+
+            String resolvedDomain = resolveInfoDomainName(task.domainName());
+            log.info("[info intent] domainName from AI='{}', resolved='{}', query='{}'",
+                    task.domainName(), resolvedDomain, task.query());
+
+            if (resolvedDomain != null) {
+                try {
+                    Optional<FetchInfoDataPort.InfoDataResult> dataResult =
+                            fetchInfoDataPort.fetch(resolvedDomain, task.query());
+                    log.info("[info intent] fetch result present={}", dataResult.isPresent());
+                    if (dataResult.isPresent()) {
+                        FetchInfoDataPort.InfoDataResult data = dataResult.get();
+                        infoMessage = data.summary() + "\n\n변동 사항을 알림으로 받아보시겠어요? " +
+                                "'" + task.query() + " 시세 바뀌면 알려줘'라고 말씀하시면 바로 설정할 수 있어요!";
+                        conversation.updateInfoContext(data.rawContent());
+                    }
+                } catch (Exception e) {
+                    log.warn("[SubscriptionConversationService] info 데이터 조회 실패 - domain={}", resolvedDomain, e);
+                }
+            }
+
             conversation.updateStatus(SubscriptionConversationStatus.COLLECTING, infoMessage);
             conversationRepository.save(conversation);
             return needsInput(conversation, infoMessage, List.of());
@@ -1406,6 +1452,30 @@ public class SubscriptionConversationService {
 
     private String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isMonitoringRequest(String message) {
+        String text = lower(message);
+        return containsAny(text, "알림", "알려줘", "구독", "모니터링", "바뀌면", "변하면", "떨어지면", "오르면",
+                "내리면", "뜨면", "넘으면", "늘면", "줄면", "받고싶어", "받고 싶어", "받아볼래", "알려주");
+    }
+
+    private static final Map<String, String> INFO_DOMAIN_KOREAN_MAP = Map.of(
+            "real-estate", "부동산",
+            "law-regulation", "법률",
+            "recruitment", "채용",
+            "auction", "경매",
+            "부동산", "부동산",
+            "법률", "법률",
+            "채용", "채용",
+            "경매", "경매"
+    );
+
+    private String resolveInfoDomainName(String domainName) {
+        if (isBlank(domainName) || "기타".equals(domainName)) {
+            return null;
+        }
+        return INFO_DOMAIN_KOREAN_MAP.getOrDefault(domainName, null);
     }
 
     private boolean isBlank(String value) {
