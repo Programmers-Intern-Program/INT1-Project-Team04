@@ -11,17 +11,11 @@ export type ChatMessage = {
   status?: "pending" | "error";
 };
 
-export type DebugJsonSnapshot = {
-  request: string;
-  response: string;
-};
-
 export type SubscriptionChatSessionSnapshot = {
   messages: ChatMessage[];
   conversationId: string | null;
   actions: ConversationActionOption[];
   draft: ConversationResponse["draft"] | null;
-  debugJson: DebugJsonSnapshot;
 };
 
 export type PendingChannelSelection = {
@@ -141,9 +135,7 @@ function isSnapshot(value: unknown): value is SubscriptionChatSessionSnapshot {
     Array.isArray(snapshot.messages) &&
     snapshot.messages.every(isChatMessage) &&
     (typeof snapshot.conversationId === "string" || snapshot.conversationId === null) &&
-    Array.isArray(snapshot.actions) &&
-    (typeof snapshot.debugJson?.request === "string") &&
-    (typeof snapshot.debugJson?.response === "string")
+    Array.isArray(snapshot.actions)
   );
 }
 
