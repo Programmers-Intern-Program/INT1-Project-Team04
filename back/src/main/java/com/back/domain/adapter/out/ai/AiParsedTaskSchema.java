@@ -8,7 +8,7 @@ import java.util.Locale;
 import java.util.Set;
 
 final class AiParsedTaskSchema {
-    private static final Set<String> INTENTS = Set.of("create", "delete", "modify", "reject");
+    private static final Set<String> INTENTS = Set.of("create", "delete", "modify", "reject", "info");
     private static final Set<String> DOMAINS = Set.of(
             "부동산", "real-estate",
             "법률", "법률/규제", "law-regulation",
@@ -66,7 +66,7 @@ final class AiParsedTaskSchema {
                 throw new ApiException(ErrorCode.AI_PARSE_FAILED);
             }
             validateDomain(domainName);
-        } else if (!domainName.isBlank() && !"reject".equals(intent)) {
+        } else if (!domainName.isBlank() && !"reject".equals(intent) && !"info".equals(intent)) {
             validateDomain(domainName);
         }
     }

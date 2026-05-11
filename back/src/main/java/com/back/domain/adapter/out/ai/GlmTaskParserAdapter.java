@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 @Slf4j
-@Profile("glm")
+@Profile("!test")
 @Component
 public class GlmTaskParserAdapter implements ParseNaturalLanguagePort {
 
