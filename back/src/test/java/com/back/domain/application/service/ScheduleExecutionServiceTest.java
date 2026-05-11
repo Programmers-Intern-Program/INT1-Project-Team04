@@ -857,7 +857,8 @@ class ScheduleExecutionServiceTest {
                         "123456789",
                         true
                 )),
-                saveDeliveryPort
+                saveDeliveryPort,
+                FAKE_BASELINE_PROMOTE_TOKEN_PORT
         );
         ScheduleExecutionService service = new ScheduleExecutionService(
                 new FakeLoadDueSchedulesPort(schedule),
@@ -1120,11 +1121,15 @@ class ScheduleExecutionServiceTest {
                 """;
     }
 
+    private static final com.back.domain.application.port.out.IssueBaselinePromoteTokenPort FAKE_BASELINE_PROMOTE_TOKEN_PORT =
+            (subscriptionId, paramsHash, userId, notificationId, ttl) -> "test-token";
+
     private static NotificationDeliveryCreationService noOpDeliveryCreationService() {
         return new NotificationDeliveryCreationService(
                 subscriptionId -> List.of(),
                 (userId, channel) -> Optional.empty(),
-                new FakeSaveNotificationDeliveryPort()
+                new FakeSaveNotificationDeliveryPort(),
+                FAKE_BASELINE_PROMOTE_TOKEN_PORT
         );
     }
 

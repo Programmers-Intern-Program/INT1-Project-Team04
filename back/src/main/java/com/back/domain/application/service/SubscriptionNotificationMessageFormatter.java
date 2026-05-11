@@ -177,13 +177,13 @@ public class SubscriptionNotificationMessageFormatter {
             Schedule schedule
     ) {
         return formatEmailSubscriptionMessage(
-                "구독 준비 완료",
-                "요청하신 조건을 지켜볼 준비가 끝났어요",
-                "#2563eb",
+                "알림 설정 완료",
+                "요청하신 알림을 시작했어요",
+                "#0f7a4f",
                 query(subscription),
                 domainName(domain),
                 cronExpr(schedule),
-                "변화가 감지되면 핵심 변화, 판단 근거, 다음에 볼 지표를 정리해 보내드릴게요."
+                "변화가 감지되면 정리해서 보내드릴게요."
         );
     }
 
@@ -217,37 +217,38 @@ public class SubscriptionNotificationMessageFormatter {
         String cronDescription = escapeHtml(formatCronDescription(cronExpr));
         String escapedFooter = escapeHtml(footer);
 
-        // 구독 시작/해지 메일도 변화 브리핑과 같은 카드 톤을 사용해 채널 경험을 맞춘다.
         return """
                 <!doctype html>
                 <html lang="ko">
-                <body style="margin:0;background:#f4f7fb;color:#0f172a;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
-                  <div style="max-width:560px;margin:0 auto;padding:20px 14px;">
-                    <div style="background:#ffffff;border:1px solid #dbe4f0;border-radius:16px;padding:22px;box-shadow:0 12px 30px rgba(15,23,42,0.08);">
-                      <span style="display:inline-block;background:%s;color:#ffffff;border-radius:999px;padding:7px 12px;font-size:12px;line-height:1;font-weight:800;">%s</span>
-                      <h1 style="margin:14px 0 10px;font-size:22px;line-height:1.35;color:#0f172a;font-weight:900;">%s</h1>
-                      <p style="margin:0 0 16px;color:#334155;font-size:14px;line-height:1.6;font-weight:700;">설정한 조건과 채널을 한 번에 확인하세요.</p>
+                <body style="margin:0;background:#f7f2e8;color:#1c1917;font-family:'Apple SD Gothic Neo','Malgun Gothic',sans-serif;">
+                  <div style="max-width:520px;margin:0 auto;padding:20px 14px;">
+                    <div style="background:#fffdf7;border:1px solid #e6d9c3;border-radius:20px;padding:22px;box-shadow:0 12px 32px rgba(61,46,26,0.08);">
+                      <span style="display:inline-block;background:%s;color:#ffffff;border-radius:999px;padding:7px 12px;font-size:12px;line-height:1;font-weight:800;letter-spacing:-0.01em;">%s</span>
+                      <h1 style="margin:14px 0 16px;font-size:22px;line-height:1.35;color:#211a12;font-weight:900;letter-spacing:-0.04em;">%s</h1>
 
-                      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:14px;margin-bottom:14px;">
-                        <p style="margin:0 0 8px;color:#1d4ed8;font-size:12px;line-height:1.2;font-weight:900;">감시 대상</p>
-                        <p style="margin:0;font-size:16px;line-height:1.45;font-weight:900;color:#0f172a;">%s</p>
+                      <div style="background:#ffffff;border:1px solid #e8dcc7;border-radius:16px;padding:16px;margin-bottom:14px;">
+                        <p style="margin:0 0 8px;color:#7a5a24;font-size:12px;line-height:1.2;font-weight:800;">요청</p>
+                        <p style="margin:0;font-size:17px;line-height:1.45;font-weight:900;color:#111827;letter-spacing:-0.03em;">%s</p>
                       </div>
 
-                      <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-bottom:16px;">
+                      <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 0;margin-bottom:16px;">
                         <tr>
-                          <th style="text-align:left;padding:10px 0;border-top:1px solid #e2e8f0;color:#475569;font-size:13px;font-weight:800;">감시 영역</th>
-                          <td style="text-align:right;padding:10px 0;border-top:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:900;">%s</td>
-                        </tr>
-                        <tr>
-                          <th style="text-align:left;padding:10px 0;border-top:1px solid #e2e8f0;color:#475569;font-size:13px;font-weight:800;">발송 조건</th>
-                          <td style="text-align:right;padding:10px 0;border-top:1px solid #e2e8f0;color:#0f172a;font-size:13px;font-weight:900;">%s</td>
+                          <td style="width:50%%;vertical-align:top;padding-right:6px;">
+                            <div style="background:#f5eedf;border-radius:14px;padding:14px;">
+                              <p style="margin:0 0 7px;color:#7a5a24;font-size:12px;line-height:1.2;font-weight:800;">감시 영역</p>
+                              <p style="margin:0;color:#211a12;font-size:15px;line-height:1.35;font-weight:800;">%s</p>
+                            </div>
+                          </td>
+                          <td style="width:50%%;vertical-align:top;padding-left:6px;">
+                            <div style="background:#f5eedf;border-radius:14px;padding:14px;">
+                              <p style="margin:0 0 7px;color:#7a5a24;font-size:12px;line-height:1.2;font-weight:800;">알림 방식</p>
+                              <p style="margin:0;color:#211a12;font-size:15px;line-height:1.35;font-weight:800;">%s</p>
+                            </div>
+                          </td>
                         </tr>
                       </table>
 
-                      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;">
-                        <p style="margin:0 0 6px;color:#1d4ed8;font-size:12px;line-height:1.2;font-weight:900;">앞으로 이렇게 알려드려요</p>
-                        <p style="margin:0;color:#334155;font-size:14px;line-height:1.6;font-weight:700;">%s</p>
-                      </div>
+                      <p style="margin:0;color:#4d4033;font-size:14px;line-height:1.55;font-weight:700;">%s</p>
                     </div>
                   </div>
                 </body>

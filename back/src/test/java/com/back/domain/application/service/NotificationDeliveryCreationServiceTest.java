@@ -2,6 +2,7 @@ package com.back.domain.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.back.domain.application.port.out.IssueBaselinePromoteTokenPort;
 import com.back.domain.application.port.out.LoadEnabledNotificationPreferencePort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.port.out.SaveNotificationDeliveryPort;
@@ -25,6 +26,10 @@ import org.junit.jupiter.api.Test;
 @DisplayName("Application: 알림 Delivery 생성 테스트")
 class NotificationDeliveryCreationServiceTest {
 
+    // baseline 갱신 토큰 발급은 항상 고정 토큰을 반환해 메시지 내 promoteUrl 검증을 단순화한다.
+    private static final IssueBaselinePromoteTokenPort FAKE_ISSUE_TOKEN_PORT =
+            (subscriptionId, paramsHash, userId, notificationId, ttl) -> "test-token-" + subscriptionId;
+
     @Test
     @DisplayName("Application: Telegram DM은 모바일에서 빠르게 읽히는 짧은 실제 데이터 알림 본문을 생성한다")
     void createsTelegramOptimizedDeliveryMessage() {
@@ -46,7 +51,8 @@ class NotificationDeliveryCreationServiceTest {
                         "123456789",
                         true
                 )),
-                savePort
+                savePort,
+                FAKE_ISSUE_TOKEN_PORT
         );
 
         List<NotificationDelivery> deliveries = service.createFor(alertEvent);
@@ -107,7 +113,8 @@ class NotificationDeliveryCreationServiceTest {
                         "123456789",
                         true
                 )),
-                new FakeSaveNotificationDeliveryPort()
+                new FakeSaveNotificationDeliveryPort(),
+                FAKE_ISSUE_TOKEN_PORT
         );
 
         NotificationDelivery delivery = service.createFor(alertEvent).get(0);
@@ -157,7 +164,8 @@ class NotificationDeliveryCreationServiceTest {
                         "user@example.com",
                         true
                 )),
-                new FakeSaveNotificationDeliveryPort()
+                new FakeSaveNotificationDeliveryPort(),
+                FAKE_ISSUE_TOKEN_PORT
         );
 
         NotificationDelivery delivery = service.createFor(alertEvent).get(0);
@@ -198,7 +206,8 @@ class NotificationDeliveryCreationServiceTest {
                         "987654321012345678",
                         true
                 )),
-                new FakeSaveNotificationDeliveryPort()
+                new FakeSaveNotificationDeliveryPort(),
+                FAKE_ISSUE_TOKEN_PORT
         );
 
         NotificationDelivery delivery = service.createFor(alertEvent).get(0);
@@ -237,7 +246,8 @@ class NotificationDeliveryCreationServiceTest {
                         "user@example.com",
                         true
                 )),
-                new FakeSaveNotificationDeliveryPort()
+                new FakeSaveNotificationDeliveryPort(),
+                FAKE_ISSUE_TOKEN_PORT
         );
 
         NotificationDelivery delivery = service.createFor(alertEvent).get(0);
@@ -284,7 +294,8 @@ class NotificationDeliveryCreationServiceTest {
                         true
                 )),
                 (userId, channel) -> Optional.empty(),
-                savePort
+                savePort,
+                FAKE_ISSUE_TOKEN_PORT
         );
 
         List<NotificationDelivery> deliveries = service.createFor(alertEvent);
