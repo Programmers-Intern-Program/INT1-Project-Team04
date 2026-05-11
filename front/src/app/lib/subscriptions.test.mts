@@ -186,16 +186,16 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes("테스트 알림 실행"), false);
   });
 
-  it("renders temporary json request and response snapshots below the chat form", () => {
+  it("does not leak raw json request or response snapshots into the user-facing chat form", () => {
     const source = readFileSync(
       new URL("../components/subscription-chat.tsx", import.meta.url),
       "utf8",
     );
 
-    assert.equal(source.includes("debugJson"), true);
-    assert.equal(source.includes("요청 JSON"), true);
-    assert.equal(source.includes("응답 JSON"), true);
-    assert.equal(source.includes("formatDebugJson"), true);
+    assert.equal(source.includes("debugJson"), false);
+    assert.equal(source.includes("요청 JSON"), false);
+    assert.equal(source.includes("응답 JSON"), false);
+    assert.equal(source.includes("formatDebugJson"), false);
   });
 
   it("maps backend domain names to product labels and examples", () => {
