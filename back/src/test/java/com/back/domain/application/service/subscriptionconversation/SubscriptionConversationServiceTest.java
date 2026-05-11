@@ -13,9 +13,12 @@ import com.back.domain.adapter.out.persistence.subscriptionconversation.Subscrip
 import com.back.domain.adapter.out.persistence.subscriptionconversation.SubscriptionMonitoringConfigJpaRepository;
 import com.back.domain.application.command.ContinueParseCommand;
 import com.back.domain.application.command.CreateSubscriptionCommand;
+import com.back.domain.application.command.GrantTokenCommand;
 import com.back.domain.application.command.ParseTaskCommand;
+import com.back.domain.application.command.UseTokenCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.in.ParseTaskUseCase;
+import com.back.domain.application.port.in.TokenManagementUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
@@ -24,6 +27,8 @@ import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
+import com.back.domain.application.result.TokenUsageHistoryResult;
+import com.back.domain.application.result.UserTokenResult;
 import com.back.domain.application.service.SubscriptionContext;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.mcp.McpServer;
@@ -1836,6 +1841,7 @@ class SubscriptionConversationServiceTest {
                 parseTaskUseCase,
                 new ParsedTaskNormalizer(new FakeNormalizeSubscriptionDraftPort()),
                 createSubscriptionUseCase,
+                new FakeTokenManagementUseCase(),
                 loadDomainPort,
                 loadMcpToolPort,
                 endpointPort,
@@ -2219,5 +2225,30 @@ class SubscriptionConversationServiceTest {
                     new Domain(4L, "auction")
             );
         }
+    }
+
+    private static class FakeTokenManagementUseCase implements TokenManagementUseCase {
+        @Override
+        public UserTokenResult getBalance(Long userId) {
+            return new UserTokenResult(userId, 1000, 1000, 0, LocalDateTime.now());
+        }
+
+        @Override
+        public UserTokenResult useToken(UseTokenCommand command) {
+            return new UserTokenResult(command.userId(), 990, 1000, 10, LocalDateTime.now());
+        }
+
+        @Override
+        public UserTokenResult grantToken(GrantTokenCommand command) {
+            return new UserTokenResult(command.userId(), 1000, 1000, 0, LocalDateTime.now());
+        }
+
+        @Override
+        public List<TokenUsageHistoryResult> getUsageHistory(Long userId, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public void initializeTokenIfAbsent(Long userId) {}
     }
 }

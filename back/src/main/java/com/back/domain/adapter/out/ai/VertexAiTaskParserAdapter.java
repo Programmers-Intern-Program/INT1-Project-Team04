@@ -29,7 +29,7 @@ import org.springframework.stereotype.Component;
  * RestClient + GLM API 직접 호출 방식의 이력 보존용으로 남겨 두었다.
  */
 @Slf4j
-@Profile("!test") // AiConfig의 parserChatClient도 !test이므로 프로파일 맞춤
+@Profile("vertex")
 @Component
 public class VertexAiTaskParserAdapter implements ParseNaturalLanguagePort {
 

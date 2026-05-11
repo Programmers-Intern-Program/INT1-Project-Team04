@@ -42,29 +42,6 @@ public class ParseTaskService implements ParseTaskUseCase {
     public ParseResult parse(ParseTaskCommand command) {
         log.info("자연어 파싱 시작 - userId: {}, input: {}", command.userId(), command.input());
 
-        // Step 0: 토큰 차감 (10 토큰)
-        String inputPreview = command.input().length() > 50 
-                ? command.input().substring(0, 50) + "..." 
-                : command.input();
-        
-        try {
-            tokenManagementUseCase.useToken(new UseTokenCommand(
-                command.userId(),
-                10,
-                "AI 자연어 파싱: " + inputPreview,
-                null
-            ));
-            log.info("토큰 차감 완료 - userId: {}, amount: 10", command.userId());
-        } catch (ApiException e) {
-            if (e.getErrorCode() == ErrorCode.INSUFFICIENT_TOKEN) {
-                log.warn("토큰 부족으로 파싱 실패 - userId: {}", command.userId());
-                throw e;
-            }
-            // TOKEN_NOT_FOUND의 경우 초기 토큰이 없는 것이므로 계속 진행하지 않음
-            log.error("토큰 차감 실패 - userId: {}, error: {}", command.userId(), e.getMessage());
-            throw e;
-        }
-
         // Step 1: AI로 자연어 파싱
         List<ParsedTask> tasks = parseNaturalLanguagePort.parse(command.input());
         
@@ -135,32 +112,7 @@ public class ParseTaskService implements ParseTaskUseCase {
             return new ParseResult(saved.getId(), saved.getCurrentResult());
         }
 
-        // Step 5: 토큰 차감 (5 토큰)
-        String responsePreview = command.response().length() > 50 
-                ? command.response().substring(0, 50) + "..." 
-                : command.response();
-        
-        try {
-            tokenManagementUseCase.useToken(new UseTokenCommand(
-                command.userId(),
-                5,
-                "AI 후속 파싱: " + responsePreview,
-                command.sessionId()
-            ));
-            log.info("토큰 차감 완료 - userId: {}, sessionId: {}, amount: 5", 
-                    command.userId(), command.sessionId());
-        } catch (ApiException e) {
-            if (e.getErrorCode() == ErrorCode.INSUFFICIENT_TOKEN) {
-                log.warn("토큰 부족으로 후속 파싱 실패 - userId: {}, sessionId: {}", 
-                        command.userId(), command.sessionId());
-                throw e;
-            }
-            log.error("토큰 차감 실패 - userId: {}, sessionId: {}, error: {}", 
-                    command.userId(), command.sessionId(), e.getMessage());
-            throw e;
-        }
-
-        // Step 6: 사용자 응답 추가
+        // Step 5: 사용자 응답 추가
         session.addMessage("user", command.response());
 
         // Step 7: AI 후속 파싱 (대화 이력 포함)

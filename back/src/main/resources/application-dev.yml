@@ -21,9 +21,8 @@ spring:
         gemini:
           project-id: ${GOOGLE_CLOUD_PROJECT_ID:project-0642120c-b67a-4a76-a64}
           location: ${VERTEX_AI_LOCATION:us-central1}
-          # 💡 핵심: .env에서 가져온 C:/... 앞에 file:/// 를 강제로 붙여줍니다.
-          # 결과적으로 "file:///C:/Users/sayho/..." 가 완성됩니다.
-          #credentials-uri: "file:///${GOOGLE_APPLICATION_CREDENTIALS}"
+          # 💡 .env.dev 의 GOOGLE_APPLICATION_CREDENTIALS(절대 경로, 슬래시 권장) + file:/// 로 Vertex 자격 증명 전달
+          credentials-uri: "file:///${GOOGLE_APPLICATION_CREDENTIALS}"
           chat:
             options:
               model: gemini-2.5-flash
@@ -42,6 +41,11 @@ spring:
     mcp:
       client:
         enabled: ${MCP_ENABLED:false}   # MCP 서버 없이 기동할 때 false (기본값)
+
+ai-gateway:
+  base-url: ${AI_BASE_URL:https://aigw.alpha.grepp.co/v1}
+  api-key: ${AI_API_KEY:}
+  model: ${AI_MODEL:glm-4.5}
 
 langfuse:
   otlp-endpoint: ${LANGFUSE_OTLP_ENDPOINT:http://localhost:3001/api/public/otel/v1/traces}
