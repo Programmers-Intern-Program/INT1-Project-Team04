@@ -1,0 +1,88 @@
+"""Alembic 마이그레이션 환경.
+
+- DB URL 은 alembic.ini 에 하드코딩하지 않고 `mcp_server.config.get_settings().pg_url`
+  에서 주입한다 (비밀값 환경 변수 원칙 — CLAUDE.md).
+- `target_metadata` 는 `mcp_server.db.base.Base.metadata` 이며, `--autogenerate` /
+  `alembic check` 가 ORM 모델과 실제 스키마 차이를 비교하는 기준이 된다.
+- asyncpg 드라이버를 그대로 쓰는 async 엔진 구성.
+"""
+
+import asyncio
+import sys
+from logging.config import fileConfig
+from pathlib import Path
+
+from alembic import context
+from sqlalchemy import pool
+from sqlalchemy.engine import Connection
+from sqlalchemy.ext.asyncio import async_engine_from_config
+
+# alembic 은 mcp-server/ 디렉터리에서 실행되므로 src/ 를 import path 에 추가.
+# (pyproject 의 pytest pythonpath 설정은 alembic 에 적용되지 않는다.)
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from mcp_server.config import get_settings  # noqa: E402
+from mcp_server.db import models  # noqa: E402,F401  # Base.metadata 에 테이블 등록
+from mcp_server.db.base import Base  # noqa: E402
+
+config = context.config
+
+# alembic.ini 의 sqlalchemy.url 플레이스홀더를 settings 의 실제 URL 로 덮어쓴다.
+config.set_main_option("sqlalchemy.url", get_settings().pg_url)
+
+if config.config_file_name is not None:
+    fileConfig(config.config_file_name)
+
+target_metadata = Base.metadata
+
+
+def run_migrations_offline() -> None:
+    """오프라인('--sql') 모드: 엔진 없이 URL 만으로 SQL 출력."""
+    url = config.get_main_option("sqlalchemy.url")
+    context.configure(
+        url=url,
+        target_metadata=target_metadata,
+        literal_binds=True,
+        dialect_opts={"paramstyle": "named"},
+        compare_type=True,
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+def do_run_migrations(connection: Connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        compare_type=True,
+    )
+
+    with context.begin_transaction():
+        context.run_migrations()
+
+
+async def run_async_migrations() -> None:
+    """온라인 모드: async 엔진을 만들어 커넥션을 컨텍스트에 연결."""
+    connectable = async_engine_from_config(
+        config.get_section(config.config_ini_section, {}),
+        prefix="sqlalchemy.",
+        poolclass=pool.NullPool,
+    )
+
+    async with connectable.connect() as connection:
+        await connection.run_sync(do_run_migrations)
+
+    await connectable.dispose()
+
+
+def run_migrations_online() -> None:
+    asyncio.run(run_async_migrations())
+
+
+if context.is_offline_mode():
+    run_migrations_offline()
+else:
+    run_migrations_online()
