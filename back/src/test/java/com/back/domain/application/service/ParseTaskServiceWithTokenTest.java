@@ -1,7 +1,6 @@
 package com.back.domain.application.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.back.domain.application.command.ContinueParseCommand;
 import com.back.domain.application.command.GrantTokenCommand;
@@ -55,11 +54,10 @@ class ParseTaskServiceWithTokenTest {
     }
 
     @Test
-    @DisplayName("성공: 초기 파싱 시 10 토큰 차감")
-    void deducts10TokensForInitialParse() {
+    @DisplayName("성공: 초기 파싱 시 토큰 차감 없음 (0 토큰)")
+    void noTokenDeductionForInitialParse() {
         // Given
         Long userId = 1L;
-        fakeTokenManagement.grantToken(new GrantTokenCommand(userId, 100, "초기 토큰"));
 
         ParsedTask task = new ParsedTask(
                 "create", "부동산", "강남 아파트", "5% 상승", "0 9 * * *",
@@ -72,45 +70,41 @@ class ParseTaskServiceWithTokenTest {
         // When
         ParseResult result = service.parse(command);
 
-        // Then
+        // Then - 파싱은 성공하지만 토큰 차감 없음
         assertThat(result).isNotNull();
-        assertThat(fakeTokenManagement.tokenUsed).containsEntry(userId, 10);
-
-        UserTokenResult balance = fakeTokenManagement.getBalance(userId);
-        assertThat(balance.balance()).isEqualTo(90);
-        assertThat(balance.totalUsed()).isEqualTo(10);
+        assertThat(fakeTokenManagement.totalTokenUsed).doesNotContainKey(userId);
     }
 
     @Test
-    @DisplayName("실패: 토큰 부족으로 초기 파싱 실패")
-    void failsToParseWhenInsufficientTokens() {
+    @DisplayName("성공: info intent 파싱 시 토큰 차감 없음")
+    void noTokenDeductionForInfoIntent() {
         // Given
         Long userId = 1L;
-        fakeTokenManagement.grantToken(new GrantTokenCommand(userId, 5, "초기 토큰"));
 
-        ParseTaskCommand command = new ParseTaskCommand(userId, "강남 집값 알려줘");
+        ParsedTask task = new ParsedTask(
+                "info", "기타", "", "", "",
+                "", "", "", List.of(), 0.15, false,
+                "안녕하세요! 저는 '지켜봐줄게' AI 도우미예요."
+        );
+        fakeParsePort.setParseResult(List.of(task));
 
-        // When & Then
-        assertThatThrownBy(() -> service.parse(command))
-                .isInstanceOf(ApiException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INSUFFICIENT_TOKEN);
+        ParseTaskCommand command = new ParseTaskCommand(userId, "안녕");
 
-        // AI 파싱이 호출되지 않았는지 확인
-        assertThat(fakeParsePort.parseCalled).isFalse();
+        // When
+        ParseResult result = service.parse(command);
 
-        // 토큰이 차감되지 않았는지 확인
-        UserTokenResult balance = fakeTokenManagement.getBalance(userId);
-        assertThat(balance.balance()).isEqualTo(5);
+        // Then - info intent도 토큰 차감 없음
+        assertThat(result).isNotNull();
+        assertThat(result.tasks().getFirst().intent()).isEqualTo("info");
+        assertThat(fakeTokenManagement.totalTokenUsed).doesNotContainKey(userId);
     }
 
     @Test
-    @DisplayName("성공: 후속 파싱 시 5 토큰 차감")
-    void deducts5TokensForContinueParse() {
+    @DisplayName("성공: 후속 파싱 시 토큰 차감 없음 (0 토큰)")
+    void noTokenDeductionForContinueParse() {
         // Given
         Long userId = 1L;
         String sessionId = "session-123";
-
-        fakeTokenManagement.grantToken(new GrantTokenCommand(userId, 100, "초기 토큰"));
 
         ParsedTask ambiguousTask = new ParsedTask(
                 "create", "부동산", "", "", "",
@@ -131,53 +125,16 @@ class ParseTaskServiceWithTokenTest {
         // When
         ParseResult result = service.continueParse(command);
 
-        // Then
+        // Then - 후속 파싱도 토큰 차감 없음
         assertThat(result).isNotNull();
-        assertThat(fakeTokenManagement.tokenUsed).containsEntry(userId, 5);
-
-        UserTokenResult balance = fakeTokenManagement.getBalance(userId);
-        assertThat(balance.balance()).isEqualTo(95);
-        assertThat(balance.totalUsed()).isEqualTo(5);
+        assertThat(fakeTokenManagement.totalTokenUsed).doesNotContainKey(userId);
     }
 
     @Test
-    @DisplayName("실패: 토큰 부족으로 후속 파싱 실패")
-    void failsToContinueParseWhenInsufficientTokens() {
+    @DisplayName("성공: 여러 번의 파싱해도 토큰 차감 없음")
+    void noTokenDeductionForMultipleParsing() {
         // Given
         Long userId = 1L;
-        String sessionId = "session-123";
-
-        fakeTokenManagement.grantToken(new GrantTokenCommand(userId, 3, "초기 토큰"));
-
-        ParsedTask ambiguousTask = new ParsedTask(
-                "create", "부동산", "", "", "",
-                "", "", "", List.of(), 0.3, true, "어느 지역인가요?"
-        );
-
-        ParseSession session = new ParseSession(sessionId, userId, "집값 알려줘", List.of(ambiguousTask));
-        fakeLoadSessionPort.save(session);
-
-        ContinueParseCommand command = new ContinueParseCommand(userId, sessionId, "강남");
-
-        // When & Then
-        assertThatThrownBy(() -> service.continueParse(command))
-                .isInstanceOf(ApiException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.INSUFFICIENT_TOKEN);
-
-        // AI 파싱이 호출되지 않았는지 확인
-        assertThat(fakeParsePort.continueParseCalled).isFalse();
-
-        // 토큰이 차감되지 않았는지 확인
-        UserTokenResult balance = fakeTokenManagement.getBalance(userId);
-        assertThat(balance.balance()).isEqualTo(3);
-    }
-
-    @Test
-    @DisplayName("성공: 여러 번의 파싱으로 누적 토큰 차감")
-    void deductsTokensForMultipleParsing() {
-        // Given
-        Long userId = 1L;
-        fakeTokenManagement.grantToken(new GrantTokenCommand(userId, 100, "초기 토큰"));
 
         ParsedTask task = new ParsedTask(
                 "create", "부동산", "강남 아파트", "5% 상승", "0 9 * * *",
@@ -190,10 +147,8 @@ class ParseTaskServiceWithTokenTest {
         service.parse(new ParseTaskCommand(userId, "서초 전세 알려줘"));
         service.parse(new ParseTaskCommand(userId, "용산 매매 알려줘"));
 
-        // Then
-        UserTokenResult balance = fakeTokenManagement.getBalance(userId);
-        assertThat(balance.balance()).isEqualTo(70); // 100 - 10*3
-        assertThat(balance.totalUsed()).isEqualTo(30);
+        // Then - 토큰 차감 없음
+        assertThat(fakeTokenManagement.totalTokenUsed).doesNotContainKey(userId);
     }
 
     // Fake Implementations
@@ -251,8 +206,7 @@ class ParseTaskServiceWithTokenTest {
     static class FakeTokenManagementUseCase implements TokenManagementUseCase {
         private final Map<Long, Integer> balances = new HashMap<>();
         private final Map<Long, Integer> totalGranted = new HashMap<>();
-        private final Map<Long, Integer> totalUsed = new HashMap<>();
-        final Map<Long, Integer> tokenUsed = new HashMap<>();
+        final Map<Long, Integer> totalTokenUsed = new HashMap<>();
 
         @Override
         public UserTokenResult getBalance(Long userId) {
@@ -260,7 +214,7 @@ class ParseTaskServiceWithTokenTest {
                     userId,
                     balances.getOrDefault(userId, 0),
                     totalGranted.getOrDefault(userId, 0),
-                    totalUsed.getOrDefault(userId, 0),
+                    totalTokenUsed.getOrDefault(userId, 0),
                     LocalDateTime.now()
             );
         }
@@ -273,8 +227,7 @@ class ParseTaskServiceWithTokenTest {
             }
 
             balances.put(command.userId(), currentBalance - command.amount());
-            totalUsed.merge(command.userId(), command.amount(), Integer::sum);
-            tokenUsed.put(command.userId(), command.amount());
+            totalTokenUsed.merge(command.userId(), command.amount(), Integer::sum);
 
             return getBalance(command.userId());
         }

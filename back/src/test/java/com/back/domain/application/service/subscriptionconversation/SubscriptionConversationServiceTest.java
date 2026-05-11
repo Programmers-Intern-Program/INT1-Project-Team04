@@ -1,6 +1,7 @@
 package com.back.domain.application.service.subscriptionconversation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,9 +14,12 @@ import com.back.domain.adapter.out.persistence.subscriptionconversation.Subscrip
 import com.back.domain.adapter.out.persistence.subscriptionconversation.SubscriptionMonitoringConfigJpaRepository;
 import com.back.domain.application.command.ContinueParseCommand;
 import com.back.domain.application.command.CreateSubscriptionCommand;
+import com.back.domain.application.command.GrantTokenCommand;
 import com.back.domain.application.command.ParseTaskCommand;
+import com.back.domain.application.command.UseTokenCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.in.ParseTaskUseCase;
+import com.back.domain.application.port.in.TokenManagementUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
@@ -24,6 +28,8 @@ import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
+import com.back.domain.application.result.TokenUsageHistoryResult;
+import com.back.domain.application.result.UserTokenResult;
 import com.back.domain.application.service.SubscriptionContext;
 import com.back.domain.model.domain.Domain;
 import com.back.domain.model.mcp.McpServer;
@@ -1643,8 +1649,8 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("baseline 초기화가 실패해도 구독 확정 응답은 성공으로 처리한다")
-    void confirmStillCreatesSubscriptionWhenBaselineInitializationFails() {
+    @DisplayName("baseline 초기화가 실패하면 구독 확정 성공으로 응답하지 않는다")
+    void confirmDoesNotReportCreatedWhenBaselineInitializationFails() {
         SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
         readyConversation.updateParsedDraft(
                 "parse-1",
@@ -1681,16 +1687,15 @@ class SubscriptionConversationServiceTest {
         runSubscriptionExecutionPort.failure = new RuntimeException("baseline failed");
         SubscriptionConversationService service = service(connectedDiscord);
 
-        SubscriptionConversationService.Response response = service.handle(
-                1L,
-                readyConversation.getId(),
-                null,
-                new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
-        );
+        assertThatThrownBy(() -> service.handle(
+                        1L,
+                        readyConversation.getId(),
+                        null,
+                        new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
+                ))
+                .isSameAs(runSubscriptionExecutionPort.failure);
 
-        assertThat(response.status()).isEqualTo("CREATED");
-        assertThat(response.subscription().id()).isEqualTo("sub-1");
-        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.CREATED);
+        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.READY_FOR_CONFIRMATION);
         verify(monitoringConfigRepository).save(any());
     }
 
@@ -1836,6 +1841,7 @@ class SubscriptionConversationServiceTest {
                 parseTaskUseCase,
                 new ParsedTaskNormalizer(new FakeNormalizeSubscriptionDraftPort()),
                 createSubscriptionUseCase,
+                new FakeTokenManagementUseCase(),
                 loadDomainPort,
                 loadMcpToolPort,
                 endpointPort,
@@ -2219,5 +2225,30 @@ class SubscriptionConversationServiceTest {
                     new Domain(4L, "auction")
             );
         }
+    }
+
+    private static class FakeTokenManagementUseCase implements TokenManagementUseCase {
+        @Override
+        public UserTokenResult getBalance(Long userId) {
+            return new UserTokenResult(userId, 1000, 1000, 0, LocalDateTime.now());
+        }
+
+        @Override
+        public UserTokenResult useToken(UseTokenCommand command) {
+            return new UserTokenResult(command.userId(), 990, 1000, 10, LocalDateTime.now());
+        }
+
+        @Override
+        public UserTokenResult grantToken(GrantTokenCommand command) {
+            return new UserTokenResult(command.userId(), 1000, 1000, 0, LocalDateTime.now());
+        }
+
+        @Override
+        public List<TokenUsageHistoryResult> getUsageHistory(Long userId, int limit) {
+            return List.of();
+        }
+
+        @Override
+        public void initializeTokenIfAbsent(Long userId) {}
     }
 }

@@ -13,6 +13,8 @@ from typing import Any
 import httpx
 
 from mcp_server.config import Settings
+from mcp_server.notifications.briefing_models import NotificationBriefing
+from mcp_server.notifications.briefing_renderers import render_for_channel
 from mcp_server.notifications.delivery import NotificationDeliveryService
 from mcp_server.notifications.models import NotificationChannel, NotificationRequest
 
@@ -172,7 +174,41 @@ async def test_discord_dm_success_uses_two_provider_calls() -> None:
     assert requests[0].headers["authorization"] == "Bot discord-token"
     assert json.loads(requests[0].read().decode()) == {"recipient_id": "user-1"}
     assert json.loads(requests[1].read().decode()) == {
-        "content": "조건 충족\n채용 공고가 새로 올라왔습니다.",
+        "content": "**조건 충족**\n\n채용 공고가 새로 올라왔습니다.",
+    }
+
+
+async def test_discord_dm_plain_request_formats_title_as_markdown_block() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/users/@me/channels":
+            return httpx.Response(200, json={"id": "channel-1"})
+        if request.url.path == "/channels/channel-1/messages":
+            return httpx.Response(200, json={"id": "message-1"})
+        return httpx.Response(404)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = NotificationDeliveryService(
+            _settings(
+                notification_discord_enabled=True,
+                notification_discord_bot_token="discord-token",
+                notification_discord_api_base_url="https://discord.test",
+            ),
+            http_client=client,
+        )
+
+        result = await service.send(NotificationRequest(
+            channel=NotificationChannel.DISCORD_DM,
+            target="user-1",
+            title="공공기관 채용 새 공고",
+            message="국토연구원 신규 공고가 1건 감지되었습니다.",
+        ))
+
+    assert result.sent is True
+    assert json.loads(requests[1].read().decode()) == {
+        "content": "**공공기관 채용 새 공고**\n\n국토연구원 신규 공고가 1건 감지되었습니다.",
     }
 
 
@@ -433,3 +469,75 @@ async def test_email_recruitment_change_notification_uses_job_template(monkeypat
     assert "대한적십자사 인천사할린동포복지회관 직원(간호사) 채용 공고" in html_body
     assert "href=\"https://www.jejunuh.co.kr/news/recruit/_/22869/view.do\"" in html_body
     assert "href=\"https://www.redcross.or.kr/redrecruit\"" in html_body
+
+
+async def test_email_channel_v1_keeps_friendly_plain_fallback(monkeypatch) -> None:
+    sent_messages: list[Any] = []
+
+    class FakeSMTP:
+        def __init__(self, host: str, port: int, timeout: float) -> None:
+            pass
+
+        def __enter__(self) -> FakeSMTP:
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            pass
+
+        def starttls(self) -> None:
+            pass
+
+        def login(self, username: str, password: str) -> None:
+            pass
+
+        def send_message(self, message) -> None:
+            sent_messages.append(message)
+
+    monkeypatch.setattr(smtplib, "SMTP", FakeSMTP)
+
+    rendered = render_for_channel(NotificationBriefing.model_validate({
+        "domain": "채용",
+        "title": "공공기관 간호사 채용 새 공고",
+        "summary": "새로운 간호사 채용 공고가 2건 올라왔습니다.",
+        "changes": [
+            {"label": "신규 공고", "value": "2건"},
+            {"label": "진행중 공고", "value": "2건"},
+        ],
+        "watchInfo": {
+            "target": "공공기관 간호사 채용",
+            "condition": "새 공고 1건 이상 증가",
+            "keyword": "간호사",
+            "dataSource": "공공채용",
+        },
+        "sources": [
+            {
+                "label": "제주대학교병원 사업인력 계약직 간호사 모집공고",
+                "url": "https://www.jejunuh.co.kr/news/recruit/_/22869/view.do",
+            },
+            {
+                "label": "대한적십자사 인천사할린동포복지회관 직원(간호사) 채용 공고",
+                "url": "https://www.redcross.or.kr/redrecruit",
+            },
+        ],
+        "interpretation": "마감일과 지원 자격을 확인한 뒤 지원 여부를 판단하세요.",
+    }), NotificationChannel.EMAIL)
+
+    service = NotificationDeliveryService(_settings(
+        notification_email_enabled=True,
+        notification_email_from="noreply@example.com",
+        notification_email_host="smtp.example.com",
+    ))
+
+    result = await service.send(NotificationRequest(
+        channel=NotificationChannel.EMAIL,
+        target="user@example.com",
+        title=rendered.provider_title,
+        message=rendered.message,
+    ))
+
+    assert result.sent is True
+    plain_body = sent_messages[0].get_body(preferencelist=("plain",)).get_content()
+    assert "핵심 변화" in plain_body
+    assert "채용 리스트" in plain_body
+    assert "제주대학교병원 사업인력 계약직 간호사 모집공고" in plain_body
+    assert "https://www.jejunuh.co.kr/news/recruit/_/22869/view.do" in plain_body

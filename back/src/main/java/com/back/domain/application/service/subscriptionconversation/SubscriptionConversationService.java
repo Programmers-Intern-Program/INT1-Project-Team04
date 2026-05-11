@@ -7,8 +7,10 @@ import com.back.domain.adapter.out.persistence.subscriptionconversation.Subscrip
 import com.back.domain.application.command.ContinueParseCommand;
 import com.back.domain.application.command.CreateSubscriptionCommand;
 import com.back.domain.application.command.ParseTaskCommand;
+import com.back.domain.application.command.UseTokenCommand;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.in.ParseTaskUseCase;
+import com.back.domain.application.port.in.TokenManagementUseCase;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
@@ -66,6 +68,7 @@ public class SubscriptionConversationService {
     private final ParseTaskUseCase parseTaskUseCase;
     private final ParsedTaskNormalizer parsedTaskNormalizer;
     private final CreateSubscriptionUseCase createSubscriptionUseCase;
+    private final TokenManagementUseCase tokenManagementUseCase;
     private final LoadDomainPort loadDomainPort;
     private final LoadMcpToolPort loadMcpToolPort;
     private final LoadNotificationEndpointPort loadNotificationEndpointPort;
@@ -140,6 +143,7 @@ public class SubscriptionConversationService {
 
     private boolean isUnsupportedConversation(SubscriptionConversationJpaEntity conversation) {
         return "reject".equals(conversation.getDraftIntent())
+                || "info".equals(conversation.getDraftIntent())
                 || "unsupportedDomain".equals(conversation.getDraftIntent())
                 || (isBlank(conversation.getDraftIntent()) && isBlank(conversation.getDraftToolName()))
                 || (conversation.getDraftDomainId() == null && isBlank(conversation.getDraftToolName()));
@@ -160,6 +164,18 @@ public class SubscriptionConversationService {
         }
 
         ParsedTask task = parseResult.tasks().getFirst();
+
+        // info intent: 서비스 소개/일반 대화 → 자연어 응답만 반환 (구독 draft 생성 없음)
+        if ("info".equals(task.intent())) {
+            String infoMessage = task.confirmationQuestion();
+            if (isBlank(infoMessage)) {
+                infoMessage = "궁금한 게 있으시면 언제든 물어보세요!";
+            }
+            conversation.updateStatus(SubscriptionConversationStatus.COLLECTING, infoMessage);
+            conversationRepository.save(conversation);
+            return needsInput(conversation, infoMessage, List.of());
+        }
+
         SubscriptionDraft draft = parsedTaskNormalizer.normalize(task, userMessage, previousDraft(conversation));
         Long domainId = findDomainId(draft.domainName()).orElse(null);
         // toolName은 SubscriptionMonitorService(Spring AI)가 MCP server에 위임하므로 더 이상 여기서 세팅 불필요
@@ -286,6 +302,23 @@ public class SubscriptionConversationService {
             return needsInput(conversation, message, actionsForMissing(missing, conversation.getUserId()));
         }
 
+        // 구독 확정 시 10 토큰 차감
+        try {
+            String queryPreview = conversation.getDraftQuery() != null && conversation.getDraftQuery().length() > 50
+                    ? conversation.getDraftQuery().substring(0, 50) + "..."
+                    : conversation.getDraftQuery();
+            tokenManagementUseCase.useToken(new UseTokenCommand(
+                    userId,
+                    10,
+                    "구독 생성: " + queryPreview,
+                    null
+            ));
+            log.info("구독 생성 토큰 차감 완료 - userId: {}, amount: 10", userId);
+        } catch (ApiException e) {
+            log.warn("구독 생성 토큰 차감 실패 - userId: {}, error: {}", userId, e.getMessage());
+            throw e;
+        }
+
         SubscriptionResult result = createSubscriptionUseCase.createForUser(userId, new CreateSubscriptionCommand(
                 conversation.getDraftDomainId(),
                 conversation.getDraftQuery(),
@@ -321,25 +354,17 @@ public class SubscriptionConversationService {
             SubscriptionConversationJpaEntity conversation,
             SubscriptionResult result
     ) {
-        // 초기 기준값 수집은 다음 스케줄에서도 재시도되므로 구독 생성 응답을 실패시키지 않는다.
-        try {
-            runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
-                    result.id(),
-                    conversation.getDraftDomainName(),
-                    result.query(),
-                    baselineParams(conversation),
-                    conversation.getDraftNotificationChannel() != null
-                            ? conversation.getDraftNotificationChannel().name()
-                            : null,
-                    notificationTarget(userId, conversation)
-            )));
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "[SubscriptionConversationService] baseline 초기화 실패 - 구독 생성은 유지합니다. subscriptionId={}",
-                    result.id(),
-                    exception
-            );
-        }
+        // 구독 확정 응답은 첫 baseline 수집까지 성공해야 실제로 감시가 시작됐다고 본다.
+        runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
+                result.id(),
+                conversation.getDraftDomainName(),
+                result.query(),
+                baselineParams(conversation),
+                conversation.getDraftNotificationChannel() != null
+                        ? conversation.getDraftNotificationChannel().name()
+                        : null,
+                notificationTarget(userId, conversation)
+        )));
     }
 
     private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {

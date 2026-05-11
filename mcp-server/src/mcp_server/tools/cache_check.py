@@ -109,11 +109,13 @@ async def check_api_cache(tool_name: str, params: dict[str, Any] | None = None) 
 # ─────────────────────────────────────────────
 
 
+@mcp.tool()
 @traced("get_cached_data")
 async def get_cached_data(tool_name: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
-    """캐시에서 데이터를 직접 읽어 반환한다. MCP tool로 노출하지 않음.
+    """캐시에서 데이터를 직접 읽어 반환한다. 외부 API를 호출하지 않는다.
 
-    check_api_cache 내부에서만 사용. 외부 AI는 check_api_cache를 통해 cached_data를 받는다.
+    AI 구독 실행은 check_api_cache로 신선한 캐시를 확인한 뒤 이 도구로
+    구조화된 캐시 payload를 받아 compare_subscription_change에 전달한다.
     """
     if tool_name in _PARAM_KEY_FIELDS and not params:
         required = list(_PARAM_KEY_FIELDS[tool_name])
@@ -532,4 +534,4 @@ _missing_formatters = _SEARCH_TOOLS - _FORMATTER_REGISTRY.keys()
 if _missing_formatters:
     logger.warning("_FORMATTER_REGISTRY 미등록 tool: %s — cached_data가 null로 반환됩니다.", _missing_formatters)
 
-__all__ = ["check_api_cache"]
+__all__ = ["check_api_cache", "get_cached_data"]

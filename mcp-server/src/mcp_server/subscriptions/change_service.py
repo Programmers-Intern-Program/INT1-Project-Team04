@@ -79,6 +79,11 @@ COUNT_FIELDS = COUNT_KEYS | ONGOING_COUNT_KEYS | frozenset({
     "removed_count",
     "ongoing_removed_count",
 })
+REAL_ESTATE_DOMAINS = frozenset({"real-estate", "real_estate", "부동산"})
+INVALID_REAL_ESTATE_MONEY_BASELINE_REASON = "invalid real-estate money baseline reinitialized"
+IMPLAUSIBLE_MONEY_BASELINE_MAX_MANWON = 1000
+IMPLAUSIBLE_MONEY_CURRENT_MIN_MANWON = 1000
+IMPLAUSIBLE_MONEY_JUMP_RATIO = 100
 
 
 def stable_params_hash(params: dict[str, Any]) -> str:
@@ -409,6 +414,34 @@ class SubscriptionChangeService:
                         condition_reason="baseline initialized",
                     )
 
+            if should_reinitialize_invalid_real_estate_money_baseline(
+                input_model.domain,
+                row.baseline_summary,
+                current_summary,
+            ):
+                row.baseline_summary = current_summary
+                row.baseline_content = current_content
+                row.baseline_captured_at = now
+                row.latest_summary = current_summary
+                row.latest_content = current_content
+                row.latest_captured_at = now
+                await session.commit()
+                return SubscriptionChangeResult(
+                    baseline_initialized=True,
+                    changed=False,
+                    subscription_id=input_model.subscription_id,
+                    domain=input_model.domain,
+                    params_hash=params_hash,
+                    baseline_summary=current_summary,
+                    current_summary=current_summary,
+                    diffs=[],
+                    briefing_facts=[],
+                    briefing_postings_by_source=empty_briefing_postings_by_source(),
+                    condition_satisfied=None,
+                    requires_ai_analysis=False,
+                    condition_reason=INVALID_REAL_ESTATE_MONEY_BASELINE_REASON,
+                )
+
             comparison_summary = snapshot_comparison_summary(input_model.domain, row)
             diffs = summary_diffs(comparison_summary, current_summary)
             briefing_postings_by_source = build_briefing_postings_by_source(
@@ -463,6 +496,38 @@ def snapshot_comparison_summary(domain: str, row: SubscriptionSnapshotState) -> 
     return row.baseline_summary
 
 
+def should_reinitialize_invalid_real_estate_money_baseline(
+    domain: str,
+    baseline_summary: dict[str, Any],
+    current_summary: dict[str, Any],
+) -> bool:
+    """만원 단위 부동산 baseline 이 1만원처럼 깨진 값이면 알림 대신 최신값으로 재기준화한다."""
+    if domain.strip().lower() not in REAL_ESTATE_DOMAINS:
+        return False
+    for field in MONEY_MANWON_FIELDS & set(baseline_summary) & set(current_summary):
+        baseline_value = baseline_summary[field]
+        current_value = current_summary[field]
+        if _is_implausibly_small_money_baseline(baseline_value, current_value):
+            return True
+    return False
+
+
+def _is_implausibly_small_money_baseline(baseline_value: Any, current_value: Any) -> bool:
+    if not _is_number(baseline_value) or not _is_number(current_value):
+        return False
+
+    baseline_number = float(baseline_value)
+    current_number = float(current_value)
+    if current_number < IMPLAUSIBLE_MONEY_CURRENT_MIN_MANWON:
+        return False
+    if baseline_number <= 0:
+        return True
+    return (
+        baseline_number < IMPLAUSIBLE_MONEY_BASELINE_MAX_MANWON
+        and current_number / baseline_number >= IMPLAUSIBLE_MONEY_JUMP_RATIO
+    )
+
+
 def summary_diffs(
     baseline_summary: dict[str, Any],
     current_summary: dict[str, Any],
@@ -474,6 +539,8 @@ def summary_diffs(
             continue
         baseline_value = baseline_summary[field]
         current_value = current_summary[field]
+        if not _is_comparable_summary_value(baseline_value) or not _is_comparable_summary_value(current_value):
+            continue
         if baseline_value == current_value:
             continue
         diffs.append(build_diff(field, baseline_value, current_value))
@@ -684,6 +751,11 @@ def _briefing_facts(diffs: list[SummaryDiff]) -> list[str]:
 
 def _is_number(value: Any) -> bool:
     return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _is_comparable_summary_value(value: Any) -> bool:
+    """요약 diff는 알림에 표시 가능한 단순 값만 비교 대상으로 삼는다."""
+    return value is None or isinstance(value, int | float | str | bool)
 
 
 def _format_number(value: float) -> str:
