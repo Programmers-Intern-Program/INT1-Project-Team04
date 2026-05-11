@@ -282,6 +282,31 @@ async def test_diff_meeting_structured_condition_requires_ai_analysis(
     assert result.diffs[0].change_rate == 6.0
 
 
+async def test_real_estate_implausible_money_baseline_reinitializes_without_notification(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+    await service.compare(_structured_condition_input(1))
+
+    result = await service.compare(_structured_condition_input(265926))
+
+    assert result.baseline_initialized is True
+    assert result.changed is False
+    assert result.condition_satisfied is None
+    assert result.requires_ai_analysis is False
+    assert result.condition_reason == "invalid real-estate money baseline reinitialized"
+    assert result.baseline_summary == {"count": 20, "avg_deal_amount": 265926}
+    assert result.current_summary == {"count": 20, "avg_deal_amount": 265926}
+    assert result.diffs == []
+    assert result.briefing_facts == []
+
+    async with patched_session_factory() as session:
+        row = (await session.execute(select(SubscriptionSnapshotState))).scalar_one()
+
+    assert row.baseline_summary == {"count": 20, "avg_deal_amount": 265926}
+    assert row.latest_summary == {"count": 20, "avg_deal_amount": 265926}
+
+
 async def test_rent_deposit_metric_meeting_condition_requires_ai_analysis(
     patched_session_factory,
 ) -> None:
@@ -347,6 +372,36 @@ async def test_recruitment_count_increase_meeting_condition_requires_ai_analysis
     assert result.condition_reason == "condition satisfied"
     assert result.diffs[0].field == "count"
     assert result.diffs[0].delta == 1
+
+
+async def test_recruitment_list_summary_fields_do_not_break_new_posting_diff(
+    patched_session_factory,
+) -> None:
+    service = SubscriptionChangeService()
+    baseline = _recruitment_input(
+        count=0,
+        ongoing_count=0,
+        metric="COUNT",
+        postings=[],
+    )
+    baseline.current["structured"]["summary"]["institutes"] = []
+    current = _recruitment_input(
+        count=1,
+        ongoing_count=1,
+        metric="COUNT",
+        postings=[_posting("300196")],
+    )
+    current.current["structured"]["summary"]["institutes"] = ["국토연구원"]
+
+    await service.compare(baseline)
+    result = await service.compare(current)
+
+    assert result.baseline_initialized is False
+    assert result.changed is True
+    assert result.condition_satisfied is True
+    assert result.requires_ai_analysis is True
+    assert {diff.field for diff in result.diffs} >= {"added_count", "ongoing_added_count"}
+    assert "institutes" not in {diff.field for diff in result.diffs}
 
 
 async def test_recruitment_ongoing_count_increase_meeting_condition_requires_ai_analysis(

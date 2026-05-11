@@ -147,7 +147,7 @@ class NotificationDeliveryService:
             message_response = await self._post_json(
                 f"{base_url}/channels/{channel_id}/messages",
                 headers=headers,
-                json={"content": _notification_text(request)},
+                json={"content": _discord_notification_text(request)},
             )
         except httpx.HTTPError as exc:
             return self._failure(request, provider, str(exc), retryable=True)
@@ -274,6 +274,19 @@ def _notification_text(request: NotificationRequest) -> str:
     if request.title:
         return f"{request.title}\n{request.message}"
     return request.message
+
+
+def _discord_notification_text(request: NotificationRequest) -> str:
+    """Discord DM은 Markdown 블록 제목과 본문 사이 여백을 고정한다."""
+    body = request.message.strip()
+    if not request.title:
+        return body
+
+    title = request.title.strip()
+    markdown_title = f"**{title}**"
+    if body.startswith(markdown_title) or body.startswith(title):
+        return body
+    return f"{markdown_title}\n\n{body}"
 
 
 def _set_email_body(message: EmailMessage, body: str, title: str | None = None) -> None:

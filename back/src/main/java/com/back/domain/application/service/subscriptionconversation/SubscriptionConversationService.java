@@ -321,25 +321,17 @@ public class SubscriptionConversationService {
             SubscriptionConversationJpaEntity conversation,
             SubscriptionResult result
     ) {
-        // 초기 기준값 수집은 다음 스케줄에서도 재시도되므로 구독 생성 응답을 실패시키지 않는다.
-        try {
-            runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
-                    result.id(),
-                    conversation.getDraftDomainName(),
-                    result.query(),
-                    baselineParams(conversation),
-                    conversation.getDraftNotificationChannel() != null
-                            ? conversation.getDraftNotificationChannel().name()
-                            : null,
-                    notificationTarget(userId, conversation)
-            )));
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "[SubscriptionConversationService] baseline 초기화 실패 - 구독 생성은 유지합니다. subscriptionId={}",
-                    result.id(),
-                    exception
-            );
-        }
+        // 구독 확정 응답은 첫 baseline 수집까지 성공해야 실제로 감시가 시작됐다고 본다.
+        runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
+                result.id(),
+                conversation.getDraftDomainName(),
+                result.query(),
+                baselineParams(conversation),
+                conversation.getDraftNotificationChannel() != null
+                        ? conversation.getDraftNotificationChannel().name()
+                        : null,
+                notificationTarget(userId, conversation)
+        )));
     }
 
     private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {
