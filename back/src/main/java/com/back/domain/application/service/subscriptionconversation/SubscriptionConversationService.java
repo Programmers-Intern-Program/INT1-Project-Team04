@@ -355,7 +355,7 @@ public class SubscriptionConversationService {
             SubscriptionResult result
     ) {
         // 구독 확정 응답은 첫 baseline 수집까지 성공해야 실제로 감시가 시작됐다고 본다.
-        runSubscriptionExecutionPort.execute(List.of(new SubscriptionContext(
+        runSubscriptionExecutionPort.execute(new SubscriptionContext(
                 result.id(),
                 conversation.getDraftDomainName(),
                 result.query(),
@@ -364,7 +364,7 @@ public class SubscriptionConversationService {
                         ? conversation.getDraftNotificationChannel().name()
                         : null,
                 notificationTarget(userId, conversation)
-        )));
+        ));
     }
 
     private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {

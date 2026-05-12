@@ -11,9 +11,9 @@ import com.back.domain.model.subscription.SubscriptionMonitoringConfig;
 import com.back.domain.model.user.User;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -148,7 +148,7 @@ class SubscriptionMonitorServiceTest {
     }
 
     private static class CapturingSubscriptionExecutionPort implements RunSubscriptionExecutionPort {
-        private final List<SubscriptionContext> contexts = new ArrayList<>();
+        private final List<SubscriptionContext> contexts = new CopyOnWriteArrayList<>();
         private final List<String> failedSubscriptionIds;
 
         CapturingSubscriptionExecutionPort(String... failedSubscriptionIds) {
@@ -156,21 +156,17 @@ class SubscriptionMonitorServiceTest {
         }
 
         @Override
-        public void execute(List<SubscriptionContext> subscriptions) {
-            contexts.clear();
-            contexts.addAll(subscriptions);
-            boolean hasFailedSubscription = subscriptions.stream()
-                    .map(SubscriptionContext::subscriptionId)
-                    .anyMatch(failedSubscriptionIds::contains);
-            if (hasFailedSubscription) {
+        public void execute(SubscriptionContext subscription) {
+            contexts.add(subscription);
+            if (failedSubscriptionIds.contains(subscription.subscriptionId())) {
                 throw new RuntimeException("execution failed");
             }
         }
     }
 
     private static class CapturingSaveSchedulePort implements SaveSchedulePort {
-        private final List<Schedule> savedSchedules = new ArrayList<>();
-        private Schedule savedSchedule;
+        private final List<Schedule> savedSchedules = new CopyOnWriteArrayList<>();
+        private volatile Schedule savedSchedule;
 
         @Override
         public Schedule save(Schedule schedule) {
