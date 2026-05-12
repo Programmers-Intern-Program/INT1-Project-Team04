@@ -208,8 +208,7 @@ public class SubscriptionConversationService {
                     log.info("[info intent] fetch result present={}", dataResult.isPresent());
                     if (dataResult.isPresent()) {
                         FetchInfoDataPort.InfoDataResult data = dataResult.get();
-                        infoMessage = data.summary() + "\n\n변동 사항을 알림으로 받아보시겠어요? " +
-                                "'" + task.query() + " 시세 바뀌면 알려줘'라고 말씀하시면 바로 설정할 수 있어요!";
+                        infoMessage = data.summary() + "\n\n" + buildInfoFollowUp(resolvedDomain, task.query());
                         conversation.updateInfoContext(data.rawContent());
                     }
                 } catch (Exception e) {
@@ -1477,6 +1476,38 @@ public class SubscriptionConversationService {
         }
         return INFO_DOMAIN_KOREAN_MAP.getOrDefault(domainName, null);
     }
+
+    private String buildInfoFollowUp(String resolvedDomain, String query) {
+        if ("채용".equals(resolvedDomain)) {
+            String keyword = extractRecruitmentKeyword(query);
+            String followUpKeyword = isBlank(keyword) ? "관심 있는 직무" : keyword;
+            return "새로운 공고가 올라오면 알림으로 받아보시겠어요? " +
+                    "'" + followUpKeyword + " 채용 새 공고 뜨면 알려줘'라고 말씀하시면 바로 설정할 수 있어요!";
+        }
+        if ("부동산".equals(resolvedDomain)) {
+            return "가격 변동을 알림으로 받아보시겠어요? " +
+                    "'" + query + " 시세 바뀌면 알려줘'라고 말씀하시면 바로 설정할 수 있어요!";
+        }
+        return "변동 사항을 알림으로 받아보시겠어요? " +
+                "'" + query + " 바뀌면 알려줘'라고 말씀하시면 바로 설정할 수 있어요!";
+    }
+
+    private String extractRecruitmentKeyword(String query) {
+        if (isBlank(query)) return null;
+        String cleaned = query.trim();
+        for (String stop : RECRUITMENT_FOLLOWUP_STOPWORDS) {
+            cleaned = cleaned.replace(stop, "");
+        }
+        cleaned = cleaned.replaceAll("\\s+", " ").strip();
+        return isBlank(cleaned) ? null : cleaned;
+    }
+
+    private static final List<String> RECRUITMENT_FOLLOWUP_STOPWORDS = List.of(
+            "채용", "공고", "구인", "일자리", "워크넷", "공공기관", "공기업", "기관",
+            "알려줘", "검색", "조회", "확인", "어때", "어떻게", "뭐", "뭐야", "많아",
+            "많은지", "현황", "목록", "요즘", "지금", "현재", "있어", "없어",
+            "검색해줘", "보여줘", "찾아줘", "전체", "있나요", "없나요"
+    );
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
