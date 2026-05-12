@@ -21,8 +21,8 @@ spring:
         gemini:
           project-id: ${GOOGLE_CLOUD_PROJECT_ID:project-0642120c-b67a-4a76-a64}
           location: ${VERTEX_AI_LOCATION:us-central1}
-          # 💡 .env.dev 의 GOOGLE_APPLICATION_CREDENTIALS(절대 경로, 슬래시 권장) + file:/// 로 Vertex 자격 증명 전달
-          credentials-uri: "file:///${GOOGLE_APPLICATION_CREDENTIALS}"
+          # Google SDK가 GOOGLE_APPLICATION_CREDENTIALS OS 환경변수를 ADC로 직접 읽으므로 credentials-uri 불필요
+          # (credentials-uri에 Windows 백슬래시 경로가 들어가면 RFC 3986 URI 파싱 오류)
           chat:
             options:
               model: gemini-2.5-flash
