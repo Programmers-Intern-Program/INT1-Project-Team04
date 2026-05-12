@@ -101,8 +101,8 @@ docker exec local-db psql -U <postgres-superuser> -d postgres -c \
 docker exec local-db psql -U <postgres-superuser> -d postgres -c \
   "CREATE DATABASE mcp_dev OWNER devuser;"
 
-# 3) 스키마 생성 (현재 활성: api_source / api_cache. crawl_* 는 DDL만 생성 — §14)
-uv run python scripts/create_tables.py
+# 3) 스키마 마이그레이션 (alembic — 5개 테이블 생성)
+uv run alembic upgrade head
 
 # 4) 도메인별 시드 (멱등 — 두 번 실행해도 안전)
 uv run python scripts/seed_real_estate_source.py
@@ -289,7 +289,7 @@ McpSchema.CallToolResult result = clientFor(tool.name()).callTool(
 
 ## 7. MCP 서버에 새 작업 추가하기
 
-내 작업이 어떤 영역(스냅샷·알림·새 도메인·새 도구 무엇이든)이든, 이 섹션 하나만 따라 하면 된다. **영역별 추측은 본 가이드에 박지 않고**, "어디에 무엇을 어떻게 두는지"만 일반화해 안내한다. 영역별 세부 결정은 각 담당자가 ADR(§7.7)에 기록한다.
+내 작업이 어떤 영역(스냅샷·알림·새 도메인·새 도구 무엇이든)이든, 이 섹션 하나만 따라 하면 된다. **영역별 추측은 본 가이드에 박지 않고**, "어디에 무엇을 어떻게 두는지"만 일반화해 안내한다.
 
 ### 7.1 0단계 — 내 작업이 MCP 서버에 들어갈 일인가?
 
@@ -302,8 +302,6 @@ McpSchema.CallToolResult result = clientFor(tool.name()).callTool(
 | MCP 서버만 알아야 할 데이터 (캐시, 외부 호출 메타) | 발송 멱등키·재시도 정책이 메인 DB와 묶이는 기능 (보통 백엔드 어댑터가 더 적합) |
 | 도구 응답을 가공·정규화하는 도메인 로직 | 프론트가 직접 호출하는 REST API |
 
-확신이 안 서면 **ADR을 먼저 한 장 쓰는 것**이 가장 빠른 길 (§7.7).
-
 ### 7.2 어디에 무엇을 추가하는가 (디렉토리·파일 매핑)
 
 작업 종류와 무관하게, 추가할 것 ↔ 둘 위치는 다음 표 하나로 결정된다.
@@ -313,7 +311,7 @@ McpSchema.CallToolResult result = clientFor(tool.name()).callTool(
 | **MCP 도구** (LLM/백엔드가 호출) | `src/mcp_server/tools/<영역>.py` | 함수에 `@mcp.tool()` + `@traced("이름")` 두 데코레이터. 도구 이름은 동사+명사. |
 | **도구 입력 스키마** | 같은 파일 안 `pydantic.BaseModel` 클래스 | 모든 필드에 `description`. **비밀값(`*_api_key`, `serviceKey` 등) 절대 포함 금지** — Langfuse `@traced`가 입력을 자동 캡처하므로 평문 노출. |
 | **도구 응답** | 함수 반환 dict | §6 공통 스키마(`text`/`structured`/`source_url`/`metadata`) 준수. |
-| **새 DB 테이블** | `src/mcp_server/db/models.py` | `class Foo(Base)`. JSONB 필요하면 기존 `JsonColumn` 패턴 재사용. `scripts/create_tables.py`가 자동으로 함께 생성한다(`Base.metadata.create_all()`). |
+| **새 DB 테이블 / 컬럼** | `src/mcp_server/db/models.py` | `class Foo(Base)`. JSONB 필요하면 기존 `JsonColumn` 패턴 재사용. 모델 수정 후 `uv run alembic revision --autogenerate -m "..."` → 생성된 리비전 리뷰/정리 → commit `alembic check`로 모델↔마이그레이션 일치 확인. |
 | **DB 시드 데이터** (정적 메타) | `scripts/seed_<영역>_source.py` 새 파일 | 멱등 upsert. 기존 `seed_real_estate_source.py`가 참고용. |
 | **도메인 로직** (정규화/판정/임베딩 등) | `src/mcp_server/domains/<영역>/` 새 디렉토리 | `__init__.py`, `errors.py`, 기능별 모듈(예: `normalizer.py`, `embedding.py`, `similarity.py` …). |
 | **도메인 전용 에러** | `src/mcp_server/domains/<영역>/errors.py` | `<영역>Error` 베이스 + 세부 에러(`ConfigError`, `NormalizationError`, …). **`sources/errors.py`의 `SourceError`와 분리할 것** — 외부 호출 실패와 도메인 의미 실패는 다른 종류 (§9). |
@@ -339,9 +337,8 @@ McpSchema.CallToolResult result = clientFor(tool.name()).callTool(
 
 위에서 아래로 순서대로. 각 단계는 빌드/테스트가 그린 상태를 유지하도록 짜였다.
 
-- [ ] **(0) ADR 작성** — `/docs/adr/NNNN-<주제>.md`. 이 작업이 MCP 서버에 들어가는 이유, 결정 사항, 영향. 코드 시작 전 (§7.7).
 - [ ] **(1) 환경변수 필요하면 추가** — `Settings` + `.env.example` 동시 갱신.
-- [ ] **(2) DB 테이블 필요하면 추가** — `db/models.py`에 클래스. `scripts/create_tables.py`는 그대로 작동.
+- [ ] **(2) DB 테이블/컬럼 필요하면 추가** — `db/models.py`에 클래스/필드. 이어서 `uv run alembic revision --autogenerate -m "..."` → 리비전 리뷰 → commit
 - [ ] **(3) 도메인 로직 필요하면 추가** — `domains/<영역>/` 새 디렉토리 + `errors.py` + 기능 모듈.
 - [ ] **(4) 외부 호출 필요하면 서비스 레이어 추가** — `sources/<영역>_service.py` 또는 도메인 내부 `service.py`. `httpx`/SDK는 여기서만 import.
 - [ ] **(5) 도구 함수 작성** — `tools/<영역>.py`에 `@mcp.tool()` + `@traced("이름")`. 입력 스키마 BaseModel + 응답은 §6 공통 스키마.
@@ -510,7 +507,7 @@ uv run pytest tests/tools/test_real_estate.py::test_X  # 특정 케이스
 |---|---|
 | `<영역>ConfigError: <KEY> 미설정` | `.env`에 환경변수 누락. 키 발급 또는 값 확인 후 채우기. |
 | **SSE 클라이언트가 `list_tools`에서 빈 배열 받음** | `python -m mcp_server.server`로 띄웠을 가능성 (§4.2). 표준 명령 `python -m mcp_server` 또는 `uv run mcp-server` 사용. |
-| `relation "..." does not exist` | §3.4의 `create_tables.py` 미실행. 새 모델 추가했으면 다시 실행. |
+| `relation "..." does not exist` | §3.4의 `alembic upgrade head` 미실행. 새 모델 추가 후 마이그레이션 리비전을 안 만들었거나 `upgrade head`를 안 했을 수 있음. |
 | `SourceNotFoundError: api_source.tool_name=... 등록되지 않음` | 시드 누락. 해당 영역 `seed_*.py` 실행. |
 | 외부 API `resultCode != "000"` 또는 4xx/5xx | 활용 신청 미승인 / 일일 호출 한도 초과 / 키 만료. 해당 사이트 마이페이지 확인. |
 | `password authentication failed for user "devuser"` | §3.4의 롤 비밀번호와 `.env`의 `PG_URL` 비밀번호 불일치. `ALTER ROLE devuser WITH PASSWORD 'devpass';`로 동기화. |
@@ -543,12 +540,16 @@ mcp-server/
         errors.py           # 도메인 전용 에러
         region.py           # 자연어 region → LAWD_CD
     db/                     # SQLAlchemy 모델 / 세션 (§3.4)
-      models.py             # ApiSource / ApiCache (CrawlSource/CrawlCache 는 DDL 골격만 — §14)
+      models.py             # ApiSource / ApiCache / CrawlSource / CrawlCache / SubscriptionSnapshotState
+      base.py               # DeclarativeBase (alembic target_metadata)
       session.py            # async session factory
     observability/
       tracing.py            # @traced (Langfuse 래퍼)
+  alembic/                  # DB 마이그레이션 
+    env.py                  # PG_URL 은 mcp_server.config.get_settings() 에서 주입
+    versions/               # 리비전 스크립트 (initial schema = 5개 테이블)
+  alembic.ini
   scripts/
-    create_tables.py        # MCP 내부 DB 스키마 생성 (§3.4)
     seed_*.py               # 영역별 시드 (참고: seed_real_estate_source.py)
     export_tool_schema.py   # mcp_tool.input_schema 마이그레이션용 JSON Schema export
   tests/
@@ -562,7 +563,6 @@ mcp-server/
   .env.example
   docs/
     team-guide.md           # 본 문서
-    adr/                    # ADR (§7.7)
 ```
 
 ---
@@ -584,7 +584,7 @@ mcp-server/
 | 위치 | 내용 | 상태 |
 |---|---|---|
 | `src/mcp_server/sources/crawl_source_service.py` | `fetch(source_id, params) → RawResult` 시그니처와 흐름 골격 | `_render()` 미구현 → `SourceNotImplementedError` |
-| `src/mcp_server/db/models.py` | `CrawlSource` (base_url, css_selector, headers, is_active) / `CrawlCache` 모델 | `create_tables.py` 가 DDL 생성 |
+| `src/mcp_server/db/models.py` | `CrawlSource` (base_url, css_selector, headers, is_active) / `CrawlCache` 모델 | alembic initial schema 에 이미 포함 (테이블 생성됨, read/write 는 §14.2에서) |
 | `pyproject.toml` | `playwright`, `beautifulsoup4`, `trafilatura` 의존성 | `uv sync` 시 함께 설치됨 |
 | `sources/result.py:RawResult.source_type` | `Literal["api", "crawl"]` — 타입 시스템에 이미 반영 | — |
 
@@ -595,8 +595,7 @@ mcp-server/
 3. `crawl_cache` read/write 활성화
 4. 영역별 시드 스크립트에 `CrawlSource` upsert 추가
 5. 도구 작성 시 `crawl_source_service.fetch()` 경유 (§8 패턴 동일)
-6. **봇 방지 대응** — User-Agent 로테이션 / 요청 간격 / 캡차 회피 정책 결정 
-7. ADR 작성: 어떤 사이트를 어떤 방식(Playwright vs httpx)으로 크롤링하는지
+6. **봇 방지 대응** — User-Agent 로테이션 / 요청 간격 / 캡차 회피 정책 결정
 
 활성화 전까지는 본 문서 §1~§13이 단일 진실 원천. 코드에서 `CrawlSource` / `crawl_source_service` / `playwright` 등을 마주쳐도 **현재는 사용하지 않는 코드**라고 이해하면 됨.
 
