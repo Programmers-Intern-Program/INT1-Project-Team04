@@ -253,6 +253,15 @@ jobs:
             done
             echo "MCP 서버 정상 확인"
 
+            # ── MCP 서버 배포 ───────────────────────────────────
+            docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
+              --env-file ~/app/infra/docker/prod/.env \
+              pull mcp-server
+            docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
+              --env-file ~/app/infra/docker/prod/.env \
+              up -d --force-recreate mcp-server
+            echo "MCP 서버 기동/업데이트 완료"
+
             # ── Blue/Green 슬롯 판정 ───────────────────────────
             if docker ps --format '{{.Names}}' | grep -q "^be_a$"; then
               BLUE_BE="be_a"; GREEN_BE="be_b"
