@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -62,7 +63,10 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
         }
         log.info("[SubscriptionMonitorService] 구독 실행 시작 - {}건", dueSchedules.size());
 
-        dueSchedules.forEach(schedule -> executeSchedule(schedule, now));
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            dueSchedules.forEach(schedule ->
+                    executor.submit(() -> executeSchedule(schedule, now)));
+        }
     }
 
     private void executeSchedule(Schedule schedule, LocalDateTime now) {
