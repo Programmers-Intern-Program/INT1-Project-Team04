@@ -2143,9 +2143,9 @@ class SubscriptionConversationServiceTest {
         private RuntimeException failure;
 
         @Override
-        public void execute(List<SubscriptionContext> subscriptions) {
+        public void execute(SubscriptionContext subscription) {
             contexts.clear();
-            contexts.addAll(subscriptions);
+            contexts.add(subscription);
             if (failure != null) {
                 throw failure;
             }
