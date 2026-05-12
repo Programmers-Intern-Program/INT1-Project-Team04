@@ -283,7 +283,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         // 캐시 확인만 성공한 상태는 실제 current 데이터가 없으므로 dataToolName 기반 조회를 다시 유도한다.
         return !hasSuccessfulDataToolExecution(executions)
                 && executions.stream()
-                        .anyMatch(execution -> !execution.failed() && isTool(execution, "check_api_cache"));
+                        .anyMatch(execution -> isTool(execution, "check_api_cache"));
     }
 
     private boolean shouldRetryMissingCompare(
@@ -418,6 +418,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         // cache hit 여부와 무관하게 compare에는 실제 data tool payload가 필요하므로 누락된 조회를 보강한다.
         return """
                 이전 구독 실행에서 check_api_cache만 호출되고 실제 데이터 도구 호출이 누락되었습니다.
+                check_api_cache가 실패했더라도 이번 턴에서는 캐시 확인을 반복하지 말고 데이터 도구 호출로 복구하세요.
                 이번 턴의 목표는 자연어 설명이 아니라 누락된 데이터 도구 MCP tool call 실행입니다.
 
                 원래 구독 JSON:
@@ -854,11 +855,14 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     }
 
     private String abbreviatedForLog(String content) {
+        return abbreviatedForLog(content, 500);
+    }
+
+    private String abbreviatedForLog(String content, int maxLength) {
         String value = content
                 .replaceAll("[\\r\\n\\t]+", " ")
                 .replaceAll("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "<email>")
                 .replaceAll("(\"(?:target|notificationTarget)\"\\s*:\\s*\")[^\"]+", "$1<target>");
-        int maxLength = 500;
         if (value.length() <= maxLength) {
             return value;
         }
@@ -902,6 +906,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
                 .map(execution -> {
                     Map<String, Object> item = new HashMap<>();
                     item.put("failed", execution.failed());
+                    item.put("input", abbreviatedForLog(execution.input(), 3000));
                     item.put("output", abbreviatedForLog(execution.output()));
                     return item;
                 })

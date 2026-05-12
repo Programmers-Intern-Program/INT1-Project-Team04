@@ -40,7 +40,7 @@ final class GeminiToolSchemaAdapter {
                 .description(definition.description())
                 .inputSchema(adaptSchema(definition.inputSchema(), objectMapper))
                 .build();
-        return new DelegatingToolCallback(callback, adaptedDefinition);
+        return new DelegatingToolCallback(callback, adaptedDefinition, objectMapper);
     }
 
     private static String adaptSchema(String inputSchema, ObjectMapper objectMapper) {
@@ -148,7 +148,8 @@ final class GeminiToolSchemaAdapter {
 
     private record DelegatingToolCallback(
             ToolCallback delegate,
-            ToolDefinition toolDefinition
+            ToolDefinition toolDefinition,
+            ObjectMapper objectMapper
     ) implements ToolCallback {
 
         @Override
@@ -178,9 +179,32 @@ final class GeminiToolSchemaAdapter {
                 McpToolExecutionRecorder.record(toolName, input, output, false);
                 return output;
             } catch (RuntimeException e) {
-                McpToolExecutionRecorder.record(toolName, input, e.getMessage(), true);
-                throw e;
+                String output = toolErrorPayload(toolName, e);
+                McpToolExecutionRecorder.record(toolName, input, output, true);
+                return output;
             }
+        }
+
+        private String toolErrorPayload(String toolName, RuntimeException exception) {
+            ObjectNode payload = objectMapper.createObjectNode();
+            String message = exception.getMessage() == null ? exception.getClass().getName() : exception.getMessage();
+            payload.put("error", "tool_call_failed");
+            payload.put("tool_name", toolName);
+            payload.put("message", message);
+            payload.put("retryable", isRetryableToolFailure(message));
+            try {
+                return objectMapper.writeValueAsString(payload);
+            } catch (JsonProcessingException ignored) {
+                return "{\"error\":\"tool_call_failed\",\"tool_name\":\"" + toolName + "\"}";
+            }
+        }
+
+        private boolean isRetryableToolFailure(String message) {
+            return message.contains("TimeoutException")
+                    || message.contains("timeout")
+                    || message.contains("Connection refused")
+                    || message.contains("503")
+                    || message.contains("429");
         }
 
         private Optional<String> originalToolName(ToolCallback callback) {

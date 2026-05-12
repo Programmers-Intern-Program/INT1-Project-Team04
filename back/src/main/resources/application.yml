@@ -17,6 +17,7 @@ spring:
   ai:
     mcp:
       client:
+        request-timeout: ${MCP_CLIENT_REQUEST_TIMEOUT:60s}
         sse:
           connections:
             python-mcp:

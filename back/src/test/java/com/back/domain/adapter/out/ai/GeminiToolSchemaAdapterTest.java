@@ -47,6 +47,22 @@ class GeminiToolSchemaAdapterTest {
                 .containsExactly("TELEGRAM_DM", "DISCORD_DM", "EMAIL");
     }
 
+    @Test
+    @DisplayName("MCP 도구 예외는 Vertex 함수 응답으로 안전한 JSON 에러를 반환한다")
+    void returnsJsonErrorPayloadWhenToolCallbackThrows() throws Exception {
+        ToolCallbackProvider provider = ToolCallbackProvider.from(new ThrowingToolCallback("""
+                {"type":"object","properties":{}}
+                """));
+
+        ToolCallback adaptedCallback = GeminiToolSchemaAdapter.adapt(provider, objectMapper).getToolCallbacks()[0];
+        String output = adaptedCallback.call("{}");
+        JsonNode payload = objectMapper.readTree(output);
+
+        assertThat(payload.path("error").asText()).isEqualTo("tool_call_failed");
+        assertThat(payload.path("tool_name").asText()).isEqualTo("check_api_cache");
+        assertThat(payload.path("message").asText()).contains("TimeoutException");
+    }
+
     private record StubToolCallback(String schema) implements ToolCallback {
 
         @Override
@@ -61,6 +77,23 @@ class GeminiToolSchemaAdapterTest {
         @Override
         public String call(String input) {
             return "ok";
+        }
+    }
+
+    private record ThrowingToolCallback(String schema) implements ToolCallback {
+
+        @Override
+        public ToolDefinition getToolDefinition() {
+            return ToolDefinition.builder()
+                    .name("check_api_cache")
+                    .description("캐시 확인")
+                    .inputSchema(schema)
+                    .build();
+        }
+
+        @Override
+        public String call(String input) {
+            throw new RuntimeException("java.util.concurrent.TimeoutException: Did not observe any item");
         }
     }
 }
