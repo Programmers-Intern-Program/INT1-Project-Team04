@@ -31,6 +31,8 @@ RUN playwright install --with-deps chromium
 # 7. 프로젝트 소스 복사 및 최종 설치
 COPY src/ ./src/
 COPY data/ ./data/
+COPY alembic/ ./alembic/
+COPY alembic.ini ./
 RUN uv sync --frozen --no-dev
 
 # 8. 포트 노출 및 실행

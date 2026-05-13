@@ -227,9 +227,41 @@ jobs:
             # ── MCP 이미지 Pull + 인프라 기동 ───────────────────
             docker pull "${MCP_IMAGE}:${IMAGE_TAG}"
 
+            # mcp-server 제외하고 인프라 먼저 기동 (DB 초기화 후 MCP 기동)
             docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
               --env-file ~/app/infra/docker/prod/.env \
-              up -d postgres redis minio langfuse-clickhouse langfuse-web langfuse-worker mcp-server
+              up -d postgres redis minio langfuse-clickhouse langfuse-web langfuse-worker
+
+            # postgres 준비 대기 (mcp_dev DB 생성 전)
+            PG_USER_VAL=$(env_value PG_USER)
+            PG_DB_WAIT=0
+            until docker exec prod-postgres pg_isready -U "${PG_USER_VAL}" >/dev/null 2>&1; do
+              if [ "$PG_DB_WAIT" -ge 60 ]; then
+                echo "Postgres 준비 실패 (60s 초과)"; exit 1
+              fi
+              sleep 3; PG_DB_WAIT=$((PG_DB_WAIT + 3))
+            done
+
+            # mcp_dev DB + pgvector 초기화 (멱등 — 이미 존재하면 건너뜀)
+            docker exec prod-postgres psql -U "${PG_USER_VAL}" \
+              -c "SELECT 'CREATE DATABASE mcp_dev' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname='mcp_dev')\gexec"
+            docker exec prod-postgres psql -U "${PG_USER_VAL}" -d mcp_dev \
+              -c "CREATE EXTENSION IF NOT EXISTS vector;"
+            echo "mcp_dev DB 초기화 완료"
+
+            # Alembic 마이그레이션 (멱등 — 이미 적용된 revision은 건너뜀)
+            PG_PASSWORD_VAL=$(env_value PG_PASSWORD)
+            docker run --rm --network prod-net \
+              -e PG_URL="postgresql+asyncpg://${PG_USER_VAL}:${PG_PASSWORD_VAL}@prod-postgres:5432/mcp_dev" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              alembic upgrade head
+            echo "Alembic 마이그레이션 완료"
+
+            # ── MCP 서버 기동/업데이트 ──────────────────────────
+            docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
+              --env-file ~/app/infra/docker/prod/.env \
+              up -d --force-recreate mcp-server
+            echo "MCP 서버 기동/업데이트 완료"
 
             # ── MCP 헬스체크 ───────────────────────────────────
             echo "MCP 서버 헬스체크 대기..."
@@ -252,15 +284,6 @@ jobs:
               MCP_ELAPSED=$((MCP_ELAPSED + MCP_INTERVAL))
             done
             echo "MCP 서버 정상 확인"
-
-            # ── MCP 서버 배포 ───────────────────────────────────
-            docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
-              --env-file ~/app/infra/docker/prod/.env \
-              pull mcp-server
-            docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
-              --env-file ~/app/infra/docker/prod/.env \
-              up -d --force-recreate mcp-server
-            echo "MCP 서버 기동/업데이트 완료"
 
             # ── Blue/Green 슬롯 판정 ───────────────────────────
             if docker ps --format '{{.Names}}' | grep -q "^be_a$"; then
