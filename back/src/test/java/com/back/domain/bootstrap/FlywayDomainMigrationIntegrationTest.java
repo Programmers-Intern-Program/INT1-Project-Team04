@@ -64,9 +64,7 @@ class FlywayDomainMigrationIntegrationTest {
                     .dataSource(testDs)
                     .locations("classpath:db/migration")
                     .placeholderReplacement(false)
-                    .cleanDisabled(false)
                     .load();
-            flyway.clean();
             flyway.migrate();
 
             JdbcTemplate jdbcTemplate = new JdbcTemplate(testDs);
