@@ -177,6 +177,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   langfuse-worker:
     image: ghcr.io/langfuse/langfuse-worker:latest
@@ -215,6 +217,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
 
   # ── Reverse Proxy ─────────────────────────────────────────
   nginx-proxy-manager:
