@@ -8,6 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -15,7 +16,10 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "notification_preference")
+// 스케줄러가 구독마다 findBySubscriptionIdAndEnabledTrue 로 조회
+@Table(name = "notification_preference", indexes = {
+        @Index(name = "idx_notif_pref_subscription", columnList = "subscription_id, enabled")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class NotificationPreferenceJpaEntity {
 

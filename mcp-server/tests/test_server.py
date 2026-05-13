@@ -33,7 +33,7 @@ async def test_registered_tools_include_search_house_price() -> None:
 
 
 async def test_lifespan_calls_shutdown_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
-    called = {"reset": False, "flush": False}
+    called = {"reset": False, "flush": False, "http_close": False}
 
     async def fake_reset() -> None:
         called["reset"] = True
@@ -41,14 +41,19 @@ async def test_lifespan_calls_shutdown_hooks(monkeypatch: pytest.MonkeyPatch) ->
     def fake_flush() -> None:
         called["flush"] = True
 
+    async def fake_http_close() -> None:
+        called["http_close"] = True
+
     monkeypatch.setattr(server_mod, "reset_engine", fake_reset)
     monkeypatch.setattr(server_mod, "flush_langfuse", fake_flush)
+    monkeypatch.setattr(server_mod, "aclose_http_client", fake_http_close)
 
     async with server_mod.server_lifespan(server_mod.mcp):
         pass
 
     assert called["reset"] is True
     assert called["flush"] is True
+    assert called["http_close"] is True
 
 
 def test_settings_rejects_unknown_transport(monkeypatch: pytest.MonkeyPatch) -> None:

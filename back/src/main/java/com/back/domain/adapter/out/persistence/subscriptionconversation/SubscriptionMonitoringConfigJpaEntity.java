@@ -6,6 +6,7 @@ import com.back.global.common.UuidGenerator;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -13,7 +14,10 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "subscription_monitoring_config")
+// 스케줄러가 구독마다 findBySubscriptionId 로 조회 → subscription_id 인덱스 필수
+@Table(name = "subscription_monitoring_config", indexes = {
+        @Index(name = "idx_smc_subscription_id", columnList = "subscription_id")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SubscriptionMonitoringConfigJpaEntity extends BaseTimeEntity {
 

@@ -9,6 +9,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import java.time.LocalDateTime;
 import lombok.AccessLevel;
@@ -17,7 +18,11 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "notification_delivery")
+// 디스패처가 5초마다 findDispatchable(status, nextRetryAt) ... order by createdAt 로 폴링
+@Table(name = "notification_delivery", indexes = {
+        @Index(name = "idx_notif_delivery_status_retry", columnList = "status, next_retry_at"),
+        @Index(name = "idx_notif_delivery_created_at", columnList = "created_at")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class NotificationDeliveryJpaEntity {
 

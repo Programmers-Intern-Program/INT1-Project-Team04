@@ -8,6 +8,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -23,7 +24,10 @@ import org.hibernate.annotations.ColumnTransformer;
  */
 @Getter
 @Entity
-@Table(name = "ai_data_hub")
+// findByUserIdAndMcpToolIdOrderByCreatedAtDescIdDesc 로 최근 실행 결과 조회
+@Table(name = "ai_data_hub", indexes = {
+        @Index(name = "idx_ai_data_hub_user_tool_created", columnList = "user_id, mcp_tool_id, created_at")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class AiDataHubJpaEntity extends BaseTimeEntity {
 
