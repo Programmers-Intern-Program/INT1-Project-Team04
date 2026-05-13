@@ -15,7 +15,7 @@ import com.back.domain.application.port.out.FetchInfoDataPort;
 import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
-import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
+import com.back.domain.application.event.BaselineInitializationRequested;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
@@ -44,13 +44,19 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+/**
+ * 채팅 응답 경로의 트랜잭션 정책
+ * 클래스 레벨 @Transactional은 의도적으로 두지 않는다.
+ * LLM/MCP 호출이 DB 트랜잭션 내부에서 실행되면 커넥션 풀 장기 점유 + 응답 지연 누적이 발생하기 때문
+ * 다건 DB 쓰기가 원자적이어야 하는 메서드에만 메서드 단위로 @Transactional을 부착한다.
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class SubscriptionConversationService {
 
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
@@ -76,7 +82,7 @@ public class SubscriptionConversationService {
     private final SubscriptionConversationJpaRepository conversationRepository;
     private final SubscriptionMonitoringConfigJpaRepository monitoringConfigRepository;
     private final ObjectMapper objectMapper;
-    private final RunSubscriptionExecutionPort runSubscriptionExecutionPort;
+    private final ApplicationEventPublisher applicationEventPublisher;
     private final FetchInfoDataPort fetchInfoDataPort;
 
     public Response handle(Long userId, String conversationId, String message, ActionRequest action) {
@@ -332,7 +338,8 @@ public class SubscriptionConversationService {
                 ));
     }
 
-    private Response confirm(Long userId, SubscriptionConversationJpaEntity conversation) {
+    @Transactional
+    public Response confirm(Long userId, SubscriptionConversationJpaEntity conversation) {
         if (conversation.getStatus() != SubscriptionConversationStatus.READY_FOR_CONFIRMATION) {
             throw new ApiException(ErrorCode.INVALID_REQUEST);
         }
@@ -380,7 +387,13 @@ public class SubscriptionConversationService {
                 conversation.getDraftIntent(),
                 conversation.getDraftMonitoringParams()
         ));
-        initializeBaseline(userId, conversation, result);
+
+        // baseline 수집은 LLM + MCP 다단계 호출이라 HTTP 응답 경로에서 분리한다.
+        // AFTER_COMMIT 단계의 @Async 리스너가 가상 스레드로 처리한다. 실패 시 cron이 다음 회차에서 재시도.
+        applicationEventPublisher.publishEvent(
+                new BaselineInitializationRequested(buildBaselineContext(userId, conversation, result))
+        );
+
         conversation.updateStatus(SubscriptionConversationStatus.CREATED, "알림을 시작했어요.");
         conversationRepository.save(conversation);
 
@@ -394,13 +407,12 @@ public class SubscriptionConversationService {
         );
     }
 
-    private void initializeBaseline(
+    private SubscriptionContext buildBaselineContext(
             Long userId,
             SubscriptionConversationJpaEntity conversation,
             SubscriptionResult result
     ) {
-        // 구독 확정 응답은 첫 baseline 수집까지 성공해야 실제로 감시가 시작됐다고 본다.
-        runSubscriptionExecutionPort.execute(new SubscriptionContext(
+        return new SubscriptionContext(
                 result.id(),
                 conversation.getDraftDomainName(),
                 result.query(),
@@ -409,7 +421,7 @@ public class SubscriptionConversationService {
                         ? conversation.getDraftNotificationChannel().name()
                         : null,
                 notificationTarget(userId, conversation)
-        ));
+        );
     }
 
     private Map<String, Object> baselineParams(SubscriptionConversationJpaEntity conversation) {
