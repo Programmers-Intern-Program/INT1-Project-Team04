@@ -25,12 +25,37 @@ class FlywayDomainMigrationIntegrationTest {
     @Test
     @DisplayName("Flyway 마이그레이션 이력이 기록되고 기본 도메인 4개가 준비된다")
     void migratesDefaultDomainsWithFlyway() {
+        try {
+            Class.forName("org.postgresql.Driver");
+        } catch (ClassNotFoundException e) {
+            System.err.println("[DEBUG] PostgreSQL JDBC Driver NOT FOUND on classpath");
+        }
+        try {
+            Class.forName("org.flywaydb.database.postgresql.PostgreSQLDatabaseType");
+        } catch (ClassNotFoundException e) {
+            System.err.println("[DEBUG] Flyway PostgreSQL DatabaseType NOT FOUND on classpath");
+        }
+        System.err.println("[DEBUG] JDBC URL: " + postgres.getJdbcUrl());
+        System.err.println("[DEBUG] TC ClassLoader: " + Thread.currentThread().getContextClassLoader());
+        System.err.println("[DEBUG] TC CL urls: " + java.util.Arrays.toString(
+                ((java.net.URLClassLoader) Thread.currentThread().getContextClassLoader()).getURLs()));
+
         Flyway flyway = Flyway.configure()
                 .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .locations("classpath:db/migration")
                 .placeholderReplacement(false)
                 .load();
-        flyway.migrate();
+        try {
+            flyway.migrate();
+        } catch (Exception e) {
+            System.err.println("[DEBUG] Flyway migrate FAILED");
+            System.err.println("[DEBUG] Exception type: " + e.getClass().getName());
+            System.err.println("[DEBUG] Message: " + e.getMessage());
+            for (Throwable t = e.getCause(); t != null; t = t.getCause()) {
+                System.err.println("[DEBUG] Caused by: " + t.getClass().getName() + ": " + t.getMessage());
+            }
+            throw e;
+        }
 
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         Integer appliedCount = jdbcTemplate.queryForObject(
