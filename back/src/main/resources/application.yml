@@ -74,6 +74,7 @@ app:
   notification:
     max-attempts: ${APP_NOTIFICATION_MAX_ATTEMPTS:3}
     retry-delay-seconds: ${APP_NOTIFICATION_RETRY_DELAY_SECONDS:300}
+    dispatch-concurrency-limit: ${APP_NOTIFICATION_DISPATCH_CONCURRENCY_LIMIT:20}
     telegram:
       bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
     baseline-promote:

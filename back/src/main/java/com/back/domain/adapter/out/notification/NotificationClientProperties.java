@@ -9,6 +9,8 @@ public class NotificationClientProperties {
 
     private int maxAttempts = 3;
     private long retryDelaySeconds = 300;
+    // 디스패처 한 틱에서 동시에 발송할 수 있는 알림 수 상한. 외부 채널 rate limit 보호용.
+    private int dispatchConcurrencyLimit = 20;
     private final Telegram telegram = new Telegram();
 
     public int getMaxAttempts() {
@@ -25,6 +27,14 @@ public class NotificationClientProperties {
 
     public void setRetryDelaySeconds(long retryDelaySeconds) {
         this.retryDelaySeconds = retryDelaySeconds;
+    }
+
+    public int getDispatchConcurrencyLimit() {
+        return dispatchConcurrencyLimit;
+    }
+
+    public void setDispatchConcurrencyLimit(int dispatchConcurrencyLimit) {
+        this.dispatchConcurrencyLimit = dispatchConcurrencyLimit;
     }
 
     public Telegram getTelegram() {

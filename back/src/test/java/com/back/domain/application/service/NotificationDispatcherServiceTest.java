@@ -12,8 +12,10 @@ import com.back.domain.model.notification.NotificationDeliveryStatus;
 import com.back.domain.model.notification.NotificationSendResult;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -122,8 +124,64 @@ class NotificationDispatcherServiceTest {
         assertThat(saved.failureReason()).contains("No notification sender");
     }
 
+    @Test
+    @DisplayName("Application: 다건 Delivery를 병렬 발송하고 동시 발송 수는 설정 한도를 넘지 않는다")
+    void dispatchesDeliveriesConcurrentlyWithinConfiguredLimit() {
+        LocalDateTime now = LocalDateTime.of(2026, 4, 23, 10, 0);
+        int deliveryCount = 30;
+        int concurrencyLimit = 5;
+        List<NotificationDelivery> pending = IntStream.range(0, deliveryCount)
+                .mapToObj(index -> pendingDelivery("delivery-" + index, 0))
+                .toList();
+        FakeSaveNotificationDeliveryPort savePort = new FakeSaveNotificationDeliveryPort();
+        NotificationClientProperties properties = new NotificationClientProperties();
+        properties.setDispatchConcurrencyLimit(concurrencyLimit);
+
+        AtomicInteger inFlight = new AtomicInteger();
+        AtomicInteger maxObserved = new AtomicInteger();
+        SendNotificationDeliveryPort slowSender = new SendNotificationDeliveryPort() {
+            @Override
+            public boolean supports(NotificationChannel channel) {
+                return true;
+            }
+
+            @Override
+            public NotificationSendResult send(NotificationDelivery delivery) {
+                int current = inFlight.incrementAndGet();
+                maxObserved.accumulateAndGet(current, Math::max);
+                try {
+                    Thread.sleep(20);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                inFlight.decrementAndGet();
+                return NotificationSendResult.success("provider-" + delivery.id());
+            }
+        };
+
+        NotificationDispatcherService service = new NotificationDispatcherService(
+                listLoader(pending),
+                List.of(slowSender),
+                savePort,
+                properties,
+                new SimpleMeterRegistry()
+        );
+
+        int dispatched = service.dispatchPending(now);
+
+        assertThat(dispatched).isEqualTo(deliveryCount);
+        assertThat(savePort.saved).hasSize(deliveryCount);
+        assertThat(savePort.saved)
+                .allSatisfy(saved -> assertThat(saved.status()).isEqualTo(NotificationDeliveryStatus.SENT));
+        assertThat(maxObserved.get()).isBetween(2, concurrencyLimit);
+    }
+
     private static LoadDispatchableNotificationDeliveryPort fixedLoader(NotificationDelivery delivery) {
         return now -> List.of(delivery);
+    }
+
+    private static LoadDispatchableNotificationDeliveryPort listLoader(List<NotificationDelivery> deliveries) {
+        return now -> deliveries;
     }
 
     private static SendNotificationDeliveryPort fixedSender(NotificationSendResult result) {
@@ -141,8 +199,12 @@ class NotificationDispatcherServiceTest {
     }
 
     private static NotificationDelivery pendingDelivery(int attemptCount) {
+        return pendingDelivery("delivery-1", attemptCount);
+    }
+
+    private static NotificationDelivery pendingDelivery(String id, int attemptCount) {
         return new NotificationDelivery(
-                "delivery-1",
+                id,
                 "alert-1",
                 "sub-1",
                 1L,
@@ -162,7 +224,7 @@ class NotificationDispatcherServiceTest {
 
     private static class FakeSaveNotificationDeliveryPort implements SaveNotificationDeliveryPort {
 
-        private final List<NotificationDelivery> saved = new ArrayList<>();
+        private final List<NotificationDelivery> saved = new CopyOnWriteArrayList<>();
 
         @Override
         public NotificationDelivery save(NotificationDelivery delivery) {
