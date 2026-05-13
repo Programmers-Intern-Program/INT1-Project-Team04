@@ -174,7 +174,7 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes("삭제"), true);
   });
 
-  it("explains that Discord DM requires the notification bot in the server", () => {
+  it("shows Discord as a two-step setup with bot install as the primary action", () => {
     const source = readFileSync(
       new URL("../components/subscription-chat.tsx", import.meta.url),
       "utf8",
@@ -182,8 +182,11 @@ describe("subscription form helpers", () => {
 
     assert.equal(
       source.includes("Discord 서버에 알림 봇을 초대한 뒤 다시 시도해 주세요."),
-      true,
+      false,
     );
+    assert.equal(source.includes('statusBadge="서버 추가 필요"'), true);
+    assert.equal(source.includes('primaryActionLabel="서버에 봇 추가"'), true);
+    assert.equal(source.includes('actionLabel="계정 변경"'), true);
   });
 
   it("does not render dev-only test controls for active subscription summaries", () => {
@@ -441,7 +444,12 @@ describe("subscription API client", () => {
 
       return new Response(
         JSON.stringify([
-          { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
+          {
+            channel: "DISCORD_DM",
+            connected: true,
+            targetLabel: "계정 확인됨",
+            connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+          },
           { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
           { channel: "EMAIL", connected: false, targetLabel: null },
         ]),
@@ -457,9 +465,14 @@ describe("subscription API client", () => {
     assert.deepEqual(result, {
       ok: true,
       data: [
-        { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
-        { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
-        { channel: "EMAIL", connected: false, targetLabel: null },
+        {
+          channel: "DISCORD_DM",
+          connected: true,
+          targetLabel: "계정 확인됨",
+          connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+        },
+        { channel: "TELEGRAM_DM", connected: false, targetLabel: null, connectUrl: null },
+        { channel: "EMAIL", connected: false, targetLabel: null, connectUrl: null },
       ],
     });
   });

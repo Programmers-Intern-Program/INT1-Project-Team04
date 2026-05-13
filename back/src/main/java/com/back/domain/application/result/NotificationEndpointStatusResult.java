@@ -5,6 +5,7 @@ import com.back.domain.model.notification.NotificationChannel;
 public record NotificationEndpointStatusResult(
         NotificationChannel channel,
         boolean connected,
-        String targetLabel
+        String targetLabel,
+        String connectUrl
 ) {
 }

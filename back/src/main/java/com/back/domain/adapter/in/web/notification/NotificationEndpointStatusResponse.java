@@ -6,13 +6,15 @@ import com.back.domain.model.notification.NotificationChannel;
 public record NotificationEndpointStatusResponse(
         NotificationChannel channel,
         boolean connected,
-        String targetLabel
+        String targetLabel,
+        String connectUrl
 ) {
     public static NotificationEndpointStatusResponse from(NotificationEndpointStatusResult result) {
         return new NotificationEndpointStatusResponse(
                 result.channel(),
                 result.connected(),
-                result.targetLabel()
+                result.targetLabel(),
+                result.connectUrl()
         );
     }
 }

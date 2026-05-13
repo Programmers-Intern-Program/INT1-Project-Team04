@@ -12,6 +12,7 @@ public class NotificationClientProperties {
     // 디스패처 한 틱에서 동시에 발송할 수 있는 알림 수 상한. 외부 채널 rate limit 보호용.
     private int dispatchConcurrencyLimit = 20;
     private final Telegram telegram = new Telegram();
+    private final Discord discord = new Discord();
 
     public int getMaxAttempts() {
         return maxAttempts;
@@ -41,6 +42,10 @@ public class NotificationClientProperties {
         return telegram;
     }
 
+    public Discord getDiscord() {
+        return discord;
+    }
+
     public static class Telegram {
         private String botUsername = "";
 
@@ -50,6 +55,18 @@ public class NotificationClientProperties {
 
         public void setBotUsername(String botUsername) {
             this.botUsername = botUsername;
+        }
+    }
+
+    public static class Discord {
+        private String botInviteUrl = "";
+
+        public String getBotInviteUrl() {
+            return botInviteUrl;
+        }
+
+        public void setBotInviteUrl(String botInviteUrl) {
+            this.botInviteUrl = botInviteUrl;
         }
     }
 }

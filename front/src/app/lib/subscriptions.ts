@@ -198,6 +198,7 @@ export type NotificationEndpointStatus = {
   channel: NotificationChannelId;
   connected: boolean;
   targetLabel: string | null;
+  connectUrl: string | null;
 };
 
 export type NotificationConnectionResponse = {
@@ -538,6 +539,7 @@ function readNotificationEndpointStatuses(
         channel,
         connected,
         targetLabel: getNullableStringField(item, "targetLabel"),
+        connectUrl: getNullableStringField(item, "connectUrl"),
       },
     ];
   });
