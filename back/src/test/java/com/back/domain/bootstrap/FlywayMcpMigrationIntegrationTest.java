@@ -2,72 +2,40 @@ package com.back.domain.bootstrap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.back.domain.application.port.out.ParseNaturalLanguagePort;
-import com.back.support.TestOAuthProviderConfiguration;
-import com.back.support.TestcontainersConfiguration;
 import com.zaxxer.hikari.HikariDataSource;
-import java.sql.Connection;
-import java.sql.Statement;
-import java.time.Clock;
 import java.util.List;
-import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
+@Testcontainers
 @DisplayName("Bootstrap: Flyway MCP 마이그레이션 테스트")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@ActiveProfiles("test")
-@Import({TestcontainersConfiguration.class, TestOAuthProviderConfiguration.class})
 class FlywayMcpMigrationIntegrationTest {
 
-    @MockitoBean
-    private ParseNaturalLanguagePort parseNaturalLanguagePort;
-
-    @MockitoBean
-    private Clock clock;
-
-    @Autowired
-    private DataSource dataSource;
+    @Container
+    static PostgreSQLContainer<?> pg = new PostgreSQLContainer<>("postgres:16-alpine");
 
     @Test
     @DisplayName("MCP 마이그레이션은 mcp_server / mcp_tool 테이블과 부동산 도구 시드를 적재한다")
-    void migratesMcpTablesAndSeedsSearchHousePrice() throws Exception {
-        String testDbName = "flyway_mcp_test";
-
-        try (Connection conn = dataSource.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("DROP DATABASE IF EXISTS " + testDbName);
-            stmt.execute("CREATE DATABASE " + testDbName);
-        }
-
-        HikariDataSource original = (HikariDataSource) dataSource;
-        String originalUrl = original.getJdbcUrl();
-        int dbStart = originalUrl.lastIndexOf('/');
-        int queryStart = originalUrl.indexOf('?', dbStart);
-        String testUrl = originalUrl.substring(0, dbStart + 1) + testDbName
-                + (queryStart >= 0 ? originalUrl.substring(queryStart) : "");
-
-        HikariDataSource testDs = new HikariDataSource();
-        testDs.setJdbcUrl(testUrl);
-        testDs.setUsername(original.getUsername());
-        testDs.setPassword(original.getPassword());
+    void migratesMcpTablesAndSeedsSearchHousePrice() {
+        HikariDataSource ds = new HikariDataSource();
+        ds.setJdbcUrl(pg.getJdbcUrl());
+        ds.setUsername(pg.getUsername());
+        ds.setPassword(pg.getPassword());
 
         try {
             Flyway flyway = Flyway.configure()
-                    .dataSource(testDs)
+                    .dataSource(ds)
                     .locations("classpath:db/migration")
                     .placeholderReplacement(false)
                     .load();
             flyway.migrate();
 
-            JdbcTemplate jdbcTemplate = new JdbcTemplate(testDs);
+            JdbcTemplate jdbcTemplate = new JdbcTemplate(ds);
 
             Integer v2Applied = jdbcTemplate.queryForObject(
                     "select count(*) from flyway_schema_history where version = '2' and success = true",
@@ -131,11 +99,7 @@ class FlywayMcpMigrationIntegrationTest {
             assertThat(hasRegion).isTrue();
             assertThat(hasDealYmd).isTrue();
         } finally {
-            testDs.close();
-            try (Connection conn = dataSource.getConnection();
-                 Statement stmt = conn.createStatement()) {
-                stmt.execute("DROP DATABASE IF EXISTS " + testDbName);
-            }
+            ds.close();
         }
     }
 }
