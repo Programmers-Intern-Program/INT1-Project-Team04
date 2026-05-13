@@ -251,13 +251,31 @@ jobs:
               -c "CREATE EXTENSION IF NOT EXISTS vector;"
             echo "DB 초기화 완료 (langfuse, mcp_dev)"
 
-            # Alembic 마이그레이션 (멱등 — 이미 적용된 revision은 건너뜀)
+            # Alembic 마이그레이션 + 시드 (멱등)
             PG_PASSWORD_VAL=$(env_value PG_PASSWORD)
+            MCP_PG_URL="postgresql+asyncpg://${PG_USER_VAL}:${PG_PASSWORD_VAL}@prod-postgres:5432/mcp_dev"
             docker run --rm --network prod-net \
-              -e PG_URL="postgresql+asyncpg://${PG_USER_VAL}:${PG_PASSWORD_VAL}@prod-postgres:5432/mcp_dev" \
+              -e PG_URL="${MCP_PG_URL}" \
               "${MCP_IMAGE}:${IMAGE_TAG}" \
               alembic upgrade head
             echo "Alembic 마이그레이션 완료"
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_real_estate_source.py
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_auction_source.py
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_jobs_source.py
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_law_source.py
+            echo "시드 완료"
 
             # ── MCP 서버 기동/업데이트 ──────────────────────────
             docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
