@@ -6,8 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   connectEmailNotification,
   connectDiscordNotification,
+  disconnectNotificationEndpoint,
   getNotificationEndpoints,
-  reconnectDiscordNotification,
   startTelegramNotificationConnect,
   type NotificationChannelId,
   type NotificationEndpointStatus,
@@ -37,6 +37,7 @@ import {
 type SubmitState = "idle" | "sending";
 
 const PENDING_CHANNEL_KEY = "subscription-chat-pending-channel";
+const PENDING_ENDPOINT_CHANNEL_KEY = "subscription-chat-pending-endpoint-channel";
 
 const INITIAL_MESSAGES: ChatMessage[] = [
   {
@@ -157,11 +158,15 @@ export function SubscriptionChat({
     }
     setNotificationEndpoints(endpointResult.data);
 
-    const connected = endpointResult.data.some(
+    const connectedEndpoint = endpointResult.data.find(
       (endpoint) => endpoint.channel === pending.channel && endpoint.connected,
     );
-    if (!connected) {
+    if (!connectedEndpoint) {
       return;
+    }
+
+    if (pending.channel === "DISCORD_DM") {
+      openConnectionUrl(connectedEndpoint.connectUrl);
     }
 
     sessionStorage.removeItem(PENDING_CHANNEL_KEY);
@@ -184,6 +189,32 @@ export function SubscriptionChat({
 
     await applyConversationResponse(response.data);
   }, [applyConversationResponse, onUnauthenticated, resetExpiredConversation]);
+
+  const resumePendingEndpointChannel = useCallback(async () => {
+    const pending = readPendingEndpointChannel();
+    if (!pending) {
+      return;
+    }
+
+    const endpointResult = await getNotificationEndpoints();
+    if (!endpointResult.ok) {
+      if (endpointResult.error.code === "UNAUTHENTICATED") {
+        onUnauthenticated?.();
+      }
+      return;
+    }
+    setNotificationEndpoints(endpointResult.data);
+
+    const connectedEndpoint = endpointResult.data.find(
+      (endpoint) => endpoint.channel === pending && endpoint.connected,
+    );
+    if (!connectedEndpoint) {
+      return;
+    }
+
+    sessionStorage.removeItem(PENDING_ENDPOINT_CHANNEL_KEY);
+    openConnectionUrl(connectedEndpoint.connectUrl);
+  }, [onUnauthenticated]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -226,15 +257,18 @@ export function SubscriptionChat({
   useEffect(() => {
     const timer = window.setTimeout(() => {
       void resumePendingChannel();
+      void resumePendingEndpointChannel();
     }, 0);
     window.addEventListener("focus", resumePendingChannel);
+    window.addEventListener("focus", resumePendingEndpointChannel);
     window.addEventListener("focus", reloadNotificationEndpoints);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener("focus", resumePendingChannel);
+      window.removeEventListener("focus", resumePendingEndpointChannel);
       window.removeEventListener("focus", reloadNotificationEndpoints);
     };
-  }, [reloadNotificationEndpoints, resumePendingChannel]);
+  }, [reloadNotificationEndpoints, resumePendingChannel, resumePendingEndpointChannel]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ block: "end" });
@@ -390,6 +424,7 @@ export function SubscriptionChat({
     setStatusMessage(response.data.message);
 
     if (response.data.connected) {
+      openConnectionUrl(response.data.connectUrl);
       await reloadNotificationEndpoints();
       await resumePendingChannel();
       return;
@@ -399,20 +434,22 @@ export function SubscriptionChat({
       return;
     }
     if (response.data.connectUrl) {
-      window.open(response.data.connectUrl, "_blank", "noopener,noreferrer");
+      openConnectionUrl(response.data.connectUrl);
     }
   }
 
-  async function handleEndpointChange(channel: Exclude<NotificationChannelId, "EMAIL">) {
+  async function handleEndpointAction(channel: Exclude<NotificationChannelId, "EMAIL">) {
     if (updatingEndpointChannel) {
       return;
     }
 
+    const endpoint = notificationEndpoints.find((item) => item.channel === channel);
     setStatusMessage("");
     setUpdatingEndpointChannel(channel);
-    const response =
-      channel === "DISCORD_DM"
-        ? await reconnectDiscordNotification()
+    const response = endpoint?.connected
+      ? await disconnectNotificationEndpoint(channel)
+      : channel === "DISCORD_DM"
+        ? await connectDiscordNotification()
         : await startTelegramNotificationConnect();
     setUpdatingEndpointChannel(null);
 
@@ -425,16 +462,26 @@ export function SubscriptionChat({
     }
 
     setStatusMessage(response.data.message);
+
+    if (endpoint?.connected) {
+      await reloadNotificationEndpoints();
+      return;
+    }
+
     if (response.data.connected) {
+      openConnectionUrl(response.data.connectUrl);
       await reloadNotificationEndpoints();
       return;
     }
     if (response.data.authorizationUrl) {
+      if (channel === "DISCORD_DM") {
+        sessionStorage.setItem(PENDING_ENDPOINT_CHANNEL_KEY, channel);
+      }
       window.location.assign(response.data.authorizationUrl);
       return;
     }
     if (response.data.connectUrl) {
-      window.open(response.data.connectUrl, "_blank", "noopener,noreferrer");
+      openConnectionUrl(response.data.connectUrl);
     }
   }
 
@@ -591,7 +638,7 @@ export function SubscriptionChat({
                 actionLabel={endpointActionLabel(notificationEndpoints, "DISCORD_DM")}
                 disabled={updatingEndpointChannel !== null}
                 busy={updatingEndpointChannel === "DISCORD_DM"}
-                onAction={() => void handleEndpointChange("DISCORD_DM")}
+                onAction={() => void handleEndpointAction("DISCORD_DM")}
               />
               <ChannelEndpointRow
                 label="Telegram"
@@ -599,7 +646,7 @@ export function SubscriptionChat({
                 actionLabel={endpointActionLabel(notificationEndpoints, "TELEGRAM_DM")}
                 disabled={updatingEndpointChannel !== null}
                 busy={updatingEndpointChannel === "TELEGRAM_DM"}
-                onAction={() => void handleEndpointChange("TELEGRAM_DM")}
+                onAction={() => void handleEndpointAction("TELEGRAM_DM")}
               />
               <form onSubmit={handleEmailEndpointSubmit} className="grid gap-2 rounded-xl bg-white/6 p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -745,7 +792,15 @@ function endpointActionLabel(
   channel: NotificationChannelId,
 ): string {
   const endpoint = endpoints.find((item) => item.channel === channel);
-  return endpoint?.connected ? "변경" : "연결";
+  return endpoint?.connected ? "연동 해제" : "연결";
+}
+
+function openConnectionUrl(connectUrl: string | null) {
+  if (!connectUrl) {
+    return;
+  }
+
+  window.open(connectUrl, "_blank", "noopener,noreferrer");
 }
 
 function readPendingChannel():
@@ -757,6 +812,17 @@ function readPendingChannel():
     sessionStorage.removeItem(PENDING_CHANNEL_KEY);
   }
   return pending;
+}
+
+function readPendingEndpointChannel(): Exclude<NotificationChannelId, "EMAIL"> | null {
+  const raw = sessionStorage.getItem(PENDING_ENDPOINT_CHANNEL_KEY);
+  if (raw === "DISCORD_DM" || raw === "TELEGRAM_DM") {
+    return raw;
+  }
+  if (raw) {
+    sessionStorage.removeItem(PENDING_ENDPOINT_CHANNEL_KEY);
+  }
+  return null;
 }
 
 function readChatSession(): SubscriptionChatSessionSnapshot | null {

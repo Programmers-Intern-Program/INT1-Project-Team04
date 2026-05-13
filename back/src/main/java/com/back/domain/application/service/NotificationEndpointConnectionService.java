@@ -280,7 +280,11 @@ public class NotificationEndpointConnectionService {
     }
 
     private String statusConnectUrl(NotificationChannel channel) {
-        // 상태 조회는 저장된 알림 endpoint만 표현하고, Discord 앱 설치 보조 링크는 연결 액션 응답에서만 제공한다.
+        // 프론트가 OAuth 복귀 직후 Discord 봇 초대 링크를 한 번 열 수 있도록 보조 URL만 함께 제공한다.
+        if (channel == NotificationChannel.DISCORD_DM) {
+            return discordBotInviteUrl();
+        }
+
         return null;
     }
 
