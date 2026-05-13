@@ -174,6 +174,18 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes("삭제"), true);
   });
 
+  it("explains that Discord DM requires the notification bot in the server", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(
+      source.includes("Discord 서버에 알림 봇을 초대한 뒤 다시 시도해 주세요."),
+      true,
+    );
+  });
+
   it("does not render dev-only test controls for active subscription summaries", () => {
     const source = readFileSync(
       new URL("../components/subscription-chat.tsx", import.meta.url),

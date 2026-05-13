@@ -588,6 +588,7 @@ export function SubscriptionChat({
               <ChannelEndpointRow
                 label="Discord"
                 status={endpointStatusLabel(notificationEndpoints, "DISCORD_DM")}
+                hint="Discord 서버에 알림 봇을 초대한 뒤 다시 시도해 주세요."
                 actionLabel={endpointActionLabel(notificationEndpoints, "DISCORD_DM")}
                 disabled={updatingEndpointChannel !== null}
                 busy={updatingEndpointChannel === "DISCORD_DM"}
@@ -690,6 +691,7 @@ function SummaryRow({
 function ChannelEndpointRow({
   label,
   status,
+  hint,
   actionLabel,
   disabled,
   busy,
@@ -697,6 +699,7 @@ function ChannelEndpointRow({
 }: {
   label: string;
   status: string;
+  hint?: string;
   actionLabel: string;
   disabled: boolean;
   busy: boolean;
@@ -707,6 +710,11 @@ function ChannelEndpointRow({
       <div>
         <p className="text-sm font-black">{label}</p>
         <p className="mt-1 text-xs font-bold text-emerald-100">{status}</p>
+        {hint ? (
+          <p className="mt-1 max-w-44 text-xs font-bold leading-5 text-emerald-50/80">
+            {hint}
+          </p>
+        ) : null}
       </div>
       <button
         type="button"
