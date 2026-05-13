@@ -64,6 +64,9 @@ public class SubscriptionConversationJpaEntity extends BaseTimeEntity {
     @Column(name = "last_assistant_message", columnDefinition = "TEXT")
     private String lastAssistantMessage;
 
+    @Column(name = "info_context", columnDefinition = "TEXT")
+    private String infoContext;
+
     public SubscriptionConversationJpaEntity(Long userId) {
         this.id = UuidGenerator.create();
         this.userId = userId;
@@ -110,5 +113,9 @@ public class SubscriptionConversationJpaEntity extends BaseTimeEntity {
     public void updateStatus(SubscriptionConversationStatus status, String lastAssistantMessage) {
         this.status = status;
         this.lastAssistantMessage = lastAssistantMessage;
+    }
+
+    public void updateInfoContext(String infoContext) {
+        this.infoContext = infoContext;
     }
 }
