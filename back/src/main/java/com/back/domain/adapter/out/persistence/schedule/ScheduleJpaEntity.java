@@ -7,6 +7,7 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -22,7 +23,12 @@ import lombok.NoArgsConstructor;
  */
 @Getter
 @Entity
-@Table(name = "schedule")
+@Table(name = "schedule", indexes = {
+        // 스케줄러가 매 주기 도는 핵심 쿼리(findDueActiveSubscriptionSchedules) 의 nextRun 필터용
+        @Index(name = "idx_schedule_next_run", columnList = "next_run"),
+        // findFirstBySubscriptionIdOrderByNextRunAsc + FK(sub_id) 조인용
+        @Index(name = "idx_schedule_sub_id_next_run", columnList = "sub_id, next_run")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ScheduleJpaEntity {
 
