@@ -20,16 +20,17 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
  * [Domain Service] 자연어 파싱 유스케이스 구현
  * 사용자의 자연어 입력을 AI로 파싱하고 멀티턴 대화를 관리합니다.
+ *
+ * 트랜잭션 정책: Vertex AI 호출을 DB 트랜잭션에 묶지 않기 위해 클래스 레벨 @Transactional을 두지 않는다.
+ * 세션 저장은 Spring Data JPA repository의 자체 트랜잭션으로 처리된다.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
-@Transactional
 public class ParseTaskService implements ParseTaskUseCase {
 
     private final ParseNaturalLanguagePort parseNaturalLanguagePort;
