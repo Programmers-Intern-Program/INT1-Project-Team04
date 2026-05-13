@@ -3,42 +3,36 @@ package com.back.domain.bootstrap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
-import com.back.domain.application.port.out.ParseNaturalLanguagePort;
-import com.back.support.TestOAuthProviderConfiguration;
-import com.back.support.TestcontainersConfiguration;
-import java.time.Clock;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 @DisplayName("Bootstrap: Flyway 도메인 마이그레이션 테스트")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@ActiveProfiles("test")
-@TestPropertySource(properties = {
-        "spring.flyway.enabled=true",
-        "spring.jpa.hibernate.ddl-auto=none"
-})
-@Import({TestcontainersConfiguration.class, TestOAuthProviderConfiguration.class})
+@Testcontainers
 class FlywayDomainMigrationIntegrationTest {
 
-    @MockitoBean
-    private ParseNaturalLanguagePort parseNaturalLanguagePort;
-
-    @MockitoBean
-    private Clock clock;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    @Container
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+            .withDatabaseName("int1_flyway_seed_test")
+            .withUsername("test")
+            .withPassword("test");
 
     @Test
     @DisplayName("Flyway 마이그레이션 이력이 기록되고 기본 도메인 4개가 준비된다")
     void migratesDefaultDomainsWithFlyway() {
+        Flyway flyway = Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations("classpath:db/migration")
+                .placeholderReplacement(false)
+                .load();
+        flyway.migrate();
+
+        JdbcTemplate jdbcTemplate = jdbcTemplate();
         Integer appliedCount = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '1' and success = true",
                 Integer.class
@@ -55,5 +49,13 @@ class FlywayDomainMigrationIntegrationTest {
                         tuple(3L, "recruitment"),
                         tuple(4L, "auction")
                 );
+    }
+
+    private JdbcTemplate jdbcTemplate() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setUrl(postgres.getJdbcUrl());
+        dataSource.setUsername(postgres.getUsername());
+        dataSource.setPassword(postgres.getPassword());
+        return new JdbcTemplate(dataSource);
     }
 }

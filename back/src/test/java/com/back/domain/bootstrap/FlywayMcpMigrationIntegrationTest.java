@@ -2,43 +2,38 @@ package com.back.domain.bootstrap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import com.back.domain.application.port.out.ParseNaturalLanguagePort;
-import com.back.support.TestOAuthProviderConfiguration;
-import com.back.support.TestcontainersConfiguration;
-import java.time.Clock;
 import java.util.List;
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 @DisplayName("Bootstrap: Flyway MCP 마이그레이션 테스트")
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
-@ActiveProfiles("test")
-@TestPropertySource(properties = {
-        "spring.flyway.enabled=true",
-        "spring.jpa.hibernate.ddl-auto=none"
-})
-@Import({TestcontainersConfiguration.class, TestOAuthProviderConfiguration.class})
+@Testcontainers
 class FlywayMcpMigrationIntegrationTest {
 
-    @MockitoBean
-    private ParseNaturalLanguagePort parseNaturalLanguagePort;
-
-    @MockitoBean
-    private Clock clock;
-
-    @Autowired
-    private JdbcTemplate jdbcTemplate;
+    @Container
+    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+            .withDatabaseName("int1_flyway_mcp_test")
+            .withUsername("test")
+            .withPassword("test");
 
     @Test
     @DisplayName("MCP 마이그레이션은 mcp_server / mcp_tool 테이블과 부동산 도구 시드를 적재한다")
     void migratesMcpTablesAndSeedsSearchHousePrice() {
+        Flyway flyway = Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations("classpath:db/migration")
+                .placeholderReplacement(false)
+                .load();
+        flyway.migrate();
+
+        JdbcTemplate jdbcTemplate = jdbcTemplate();
+
         Integer v2Applied = jdbcTemplate.queryForObject(
                 "select count(*) from flyway_schema_history where version = '2' and success = true",
                 Integer.class
@@ -100,5 +95,13 @@ class FlywayMcpMigrationIntegrationTest {
         );
         assertThat(hasRegion).isTrue();
         assertThat(hasDealYmd).isTrue();
+    }
+
+    private JdbcTemplate jdbcTemplate() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource();
+        dataSource.setUrl(postgres.getJdbcUrl());
+        dataSource.setUsername(postgres.getUsername());
+        dataSource.setPassword(postgres.getPassword());
+        return new JdbcTemplate(dataSource);
     }
 }
