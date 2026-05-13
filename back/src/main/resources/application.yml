@@ -81,6 +81,8 @@ app:
     dispatch-concurrency-limit: ${APP_NOTIFICATION_DISPATCH_CONCURRENCY_LIMIT:20}
     telegram:
       bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
+    discord:
+      bot-invite-url: ${APP_NOTIFICATION_DISCORD_BOT_INVITE_URL:${MCP_NOTIFICATION_DISCORD_BOT_INVITE_URL:}}
     baseline-promote:
       # 알림 메시지에 포함되는 GET 링크의 base URL (사용자가 직접 클릭).
       # 외부 노출 도메인이 백엔드 8080 과 다를 수 있으므로 별도 prop.

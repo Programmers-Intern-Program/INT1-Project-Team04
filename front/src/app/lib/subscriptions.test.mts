@@ -174,6 +174,48 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes("삭제"), true);
   });
 
+  it("does not show Discord login or bot install as persistent channel status", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(
+      source.includes("Discord 서버에 알림 봇을 초대한 뒤 다시 시도해 주세요."),
+      false,
+    );
+    assert.equal(source.includes('statusBadge="서버 추가 필요"'), false);
+    assert.equal(source.includes('primaryActionLabel="서버에 봇 추가"'), false);
+    assert.equal(
+      source.includes('actionLabel={endpointActionLabel(notificationEndpoints, "DISCORD_DM")}'),
+      true,
+    );
+  });
+
+  it("uses only connect or disconnect actions for linked chat notification channels", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("reconnectDiscordNotification"), false);
+    assert.equal(source.includes("disconnectNotificationEndpoint"), true);
+    assert.equal(source.includes("PENDING_ENDPOINT_CHANNEL_KEY"), true);
+    assert.equal(source.includes('return endpoint?.connected ? "연동 해제" : "연결";'), true);
+    assert.equal(source.includes('"변경"'), false);
+  });
+
+  it("opens the Discord bot install URL during the connection flow instead of the persistent channel row", () => {
+    const source = readFileSync(
+      new URL("../components/subscription-chat.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("function openConnectionUrl"), true);
+    assert.equal(source.includes("openConnectionUrl(response.data.connectUrl);"), true);
+    assert.equal(source.includes("openConnectionUrl(connectedEndpoint.connectUrl);"), true);
+  });
+
   it("does not render dev-only test controls for active subscription summaries", () => {
     const source = readFileSync(
       new URL("../components/subscription-chat.tsx", import.meta.url),
@@ -429,7 +471,12 @@ describe("subscription API client", () => {
 
       return new Response(
         JSON.stringify([
-          { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
+          {
+            channel: "DISCORD_DM",
+            connected: true,
+            targetLabel: "연결됨",
+            connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+          },
           { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
           { channel: "EMAIL", connected: false, targetLabel: null },
         ]),
@@ -445,9 +492,14 @@ describe("subscription API client", () => {
     assert.deepEqual(result, {
       ok: true,
       data: [
-        { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
-        { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
-        { channel: "EMAIL", connected: false, targetLabel: null },
+        {
+          channel: "DISCORD_DM",
+          connected: true,
+          targetLabel: "연결됨",
+          connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+        },
+        { channel: "TELEGRAM_DM", connected: false, targetLabel: null, connectUrl: null },
+        { channel: "EMAIL", connected: false, targetLabel: null, connectUrl: null },
       ],
     });
   });

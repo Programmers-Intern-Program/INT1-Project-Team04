@@ -24,7 +24,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.TestPropertySource;
 
-@TestPropertySource(properties = "app.notification.telegram.bot-username=int1_test_bot")
+@TestPropertySource(properties = {
+        "app.notification.telegram.bot-username=int1_test_bot",
+        "app.oauth.discord.client-id=discord-client-1"
+})
 @DisplayName("Web: 알림 채널 연결 API 테스트")
 class NotificationEndpointControllerTest extends IntegrationTestBase {
 
@@ -63,10 +66,33 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(response.body()).contains("\"channel\":\"DISCORD_DM\"");
         assertThat(response.body()).contains("\"connected\":true");
+        assertThat(response.body()).contains("\"targetLabel\":\"연결됨\"");
+        assertThat(response.body()).contains("\"connectUrl\":\"https://discord.com/oauth2/authorize?client_id=discord-client-1&scope=bot&permissions=0\"");
         assertThat(endpointRepository.findByUserIdAndChannelAndEnabledTrue(user.getId(), NotificationChannel.DISCORD_DM))
                 .get()
                 .extracting("targetAddress")
                 .isEqualTo("discord-user-1");
+    }
+
+    @Test
+    @DisplayName("Web: Discord 상태는 저장된 알림 연결과 봇 초대 보조 링크를 내려준다")
+    void loadsDiscordStatusWithBotInviteSupportUrl() throws Exception {
+        UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("discord-status@example.com", "웹사용자"));
+        endpointRepository.save(new NotificationEndpointJpaEntity(
+                user.getId(),
+                NotificationChannel.DISCORD_DM,
+                "discord-user-1",
+                true
+        ));
+        String cookieHeader = createSession(user, "discord-status-session");
+
+        HttpResponse<String> response = get("/api/notification-endpoints", cookieHeader);
+
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        assertThat(response.body()).contains("\"channel\":\"DISCORD_DM\"");
+        assertThat(response.body()).contains("\"connected\":true");
+        assertThat(response.body()).contains("\"targetLabel\":\"연결됨\"");
+        assertThat(response.body()).contains("\"connectUrl\":\"https://discord.com/oauth2/authorize?client_id=discord-client-1&scope=bot&permissions=0\"");
     }
 
     @Test

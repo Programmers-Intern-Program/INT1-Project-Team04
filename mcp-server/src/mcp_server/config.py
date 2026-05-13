@@ -153,6 +153,13 @@ class Settings(BaseSettings):
             "NOTIFICATION_DISCORD_API_BASE_URL",
         ),
     )
+    notification_discord_bot_invite_url: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "MCP_NOTIFICATION_DISCORD_BOT_INVITE_URL",
+            "NOTIFICATION_DISCORD_BOT_INVITE_URL",
+        ),
+    )
 
     notification_email_enabled: bool = Field(
         default=False,
