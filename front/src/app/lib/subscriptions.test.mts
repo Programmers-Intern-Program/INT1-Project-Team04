@@ -174,7 +174,7 @@ describe("subscription form helpers", () => {
     assert.equal(source.includes("삭제"), true);
   });
 
-  it("shows Discord as a two-step setup with bot install as the primary action", () => {
+  it("does not show Discord login or bot install as persistent channel status", () => {
     const source = readFileSync(
       new URL("../components/subscription-chat.tsx", import.meta.url),
       "utf8",
@@ -184,9 +184,12 @@ describe("subscription form helpers", () => {
       source.includes("Discord 서버에 알림 봇을 초대한 뒤 다시 시도해 주세요."),
       false,
     );
-    assert.equal(source.includes('statusBadge="서버 추가 필요"'), true);
-    assert.equal(source.includes('primaryActionLabel="서버에 봇 추가"'), true);
-    assert.equal(source.includes('actionLabel="계정 변경"'), true);
+    assert.equal(source.includes('statusBadge="서버 추가 필요"'), false);
+    assert.equal(source.includes('primaryActionLabel="서버에 봇 추가"'), false);
+    assert.equal(
+      source.includes('actionLabel={endpointActionLabel(notificationEndpoints, "DISCORD_DM")}'),
+      true,
+    );
   });
 
   it("does not render dev-only test controls for active subscription summaries", () => {
@@ -447,8 +450,8 @@ describe("subscription API client", () => {
           {
             channel: "DISCORD_DM",
             connected: true,
-            targetLabel: "계정 확인됨",
-            connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+            targetLabel: "연결됨",
+            connectUrl: null,
           },
           { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
           { channel: "EMAIL", connected: false, targetLabel: null },
@@ -468,8 +471,8 @@ describe("subscription API client", () => {
         {
           channel: "DISCORD_DM",
           connected: true,
-          targetLabel: "계정 확인됨",
-          connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+          targetLabel: "연결됨",
+          connectUrl: null,
         },
         { channel: "TELEGRAM_DM", connected: false, targetLabel: null, connectUrl: null },
         { channel: "EMAIL", connected: false, targetLabel: null, connectUrl: null },

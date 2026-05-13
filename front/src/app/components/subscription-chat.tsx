@@ -585,14 +585,10 @@ export function SubscriptionChat({
           <section className="rounded-2xl border border-white/10 bg-white/8 p-4">
             <h3 className="text-sm font-black">알림 채널</h3>
             <div className="mt-3 grid gap-3">
-              {/* Discord는 계정 확인과 봇 서버 설치가 별도 단계라 액션을 분리한다. */}
               <ChannelEndpointRow
                 label="Discord"
                 status={endpointStatusLabel(notificationEndpoints, "DISCORD_DM")}
-                statusBadge="서버 추가 필요"
-                primaryActionLabel="서버에 봇 추가"
-                primaryActionUrl={endpointConnectUrl(notificationEndpoints, "DISCORD_DM")}
-                actionLabel="계정 변경"
+                actionLabel={endpointActionLabel(notificationEndpoints, "DISCORD_DM")}
                 disabled={updatingEndpointChannel !== null}
                 busy={updatingEndpointChannel === "DISCORD_DM"}
                 onAction={() => void handleEndpointChange("DISCORD_DM")}
@@ -695,9 +691,6 @@ function ChannelEndpointRow({
   label,
   status,
   hint,
-  statusBadge,
-  primaryActionLabel,
-  primaryActionUrl,
   actionLabel,
   disabled,
   busy,
@@ -706,9 +699,6 @@ function ChannelEndpointRow({
   label: string;
   status: string;
   hint?: string;
-  statusBadge?: string;
-  primaryActionLabel?: string;
-  primaryActionUrl?: string | null;
   actionLabel: string;
   disabled: boolean;
   busy: boolean;
@@ -718,14 +708,7 @@ function ChannelEndpointRow({
     <div className="flex items-start justify-between gap-3 rounded-xl bg-white/6 p-3">
       <div>
         <p className="text-sm font-black">{label}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          <p className="text-xs font-bold text-emerald-100">{status}</p>
-          {statusBadge ? (
-            <span className="rounded-full bg-amber-300/15 px-2 py-0.5 text-[11px] font-black text-amber-100">
-              {statusBadge}
-            </span>
-          ) : null}
-        </div>
+        <p className="mt-1 text-xs font-bold text-emerald-100">{status}</p>
         {hint ? (
           <p className="mt-1 max-w-44 text-xs font-bold leading-5 text-emerald-50/80">
             {hint}
@@ -733,16 +716,6 @@ function ChannelEndpointRow({
         ) : null}
       </div>
       <div className="flex shrink-0 flex-col gap-2">
-        {primaryActionLabel && primaryActionUrl ? (
-          <a
-            href={primaryActionUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded-full bg-emerald-50 px-3 py-1 text-center text-xs font-black text-emerald-950 transition hover:bg-white"
-          >
-            {primaryActionLabel}
-          </a>
-        ) : null}
         <button
           type="button"
           onClick={onAction}
@@ -773,13 +746,6 @@ function endpointActionLabel(
 ): string {
   const endpoint = endpoints.find((item) => item.channel === channel);
   return endpoint?.connected ? "변경" : "연결";
-}
-
-function endpointConnectUrl(
-  endpoints: NotificationEndpointStatus[],
-  channel: NotificationChannelId,
-): string | null {
-  return endpoints.find((item) => item.channel === channel)?.connectUrl ?? null;
 }
 
 function readPendingChannel():

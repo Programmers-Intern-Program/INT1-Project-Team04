@@ -66,7 +66,7 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(response.body()).contains("\"channel\":\"DISCORD_DM\"");
         assertThat(response.body()).contains("\"connected\":true");
-        assertThat(response.body()).contains("\"targetLabel\":\"계정 확인됨\"");
+        assertThat(response.body()).contains("\"targetLabel\":\"연결됨\"");
         assertThat(response.body()).contains("\"connectUrl\":\"https://discord.com/oauth2/authorize?client_id=discord-client-1&scope=bot&permissions=0\"");
         assertThat(endpointRepository.findByUserIdAndChannelAndEnabledTrue(user.getId(), NotificationChannel.DISCORD_DM))
                 .get()
@@ -75,8 +75,8 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
     }
 
     @Test
-    @DisplayName("Web: Discord 상태는 계정 확인과 봇 초대 링크를 함께 내려준다")
-    void loadsDiscordStatusWithBotInviteUrl() throws Exception {
+    @DisplayName("Web: Discord 상태는 저장된 알림 연결 여부만 내려준다")
+    void loadsDiscordStatusWithoutBotInviteUrl() throws Exception {
         UserJpaEntity user = userJpaRepository.save(new UserJpaEntity("discord-status@example.com", "웹사용자"));
         endpointRepository.save(new NotificationEndpointJpaEntity(
                 user.getId(),
@@ -91,8 +91,8 @@ class NotificationEndpointControllerTest extends IntegrationTestBase {
         assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
         assertThat(response.body()).contains("\"channel\":\"DISCORD_DM\"");
         assertThat(response.body()).contains("\"connected\":true");
-        assertThat(response.body()).contains("\"targetLabel\":\"계정 확인됨\"");
-        assertThat(response.body()).contains("\"connectUrl\":\"https://discord.com/oauth2/authorize?client_id=discord-client-1&scope=bot&permissions=0\"");
+        assertThat(response.body()).contains("\"targetLabel\":\"연결됨\"");
+        assertThat(response.body()).contains("\"connectUrl\":null");
     }
 
     @Test

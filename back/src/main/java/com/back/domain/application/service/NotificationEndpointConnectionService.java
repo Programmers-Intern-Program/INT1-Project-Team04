@@ -51,13 +51,13 @@ public class NotificationEndpointConnectionService {
                                 channel,
                                 true,
                                 targetLabel(channel, endpoint.targetAddress()),
-                                connectUrl(channel)
+                                statusConnectUrl(channel)
                         ))
                         .orElseGet(() -> new NotificationEndpointStatusResult(
                                 channel,
                                 false,
                                 null,
-                                connectUrl(channel)
+                                statusConnectUrl(channel)
                         )))
                 .toList();
     }
@@ -273,16 +273,14 @@ public class NotificationEndpointConnectionService {
             return maskedEmail(targetAddress);
         }
         if (channel == NotificationChannel.DISCORD_DM) {
-            return "계정 확인됨";
+            return "연결됨";
         }
 
         return "연결됨";
     }
 
-    private String connectUrl(NotificationChannel channel) {
-        if (channel == NotificationChannel.DISCORD_DM) {
-            return discordBotInviteUrl();
-        }
+    private String statusConnectUrl(NotificationChannel channel) {
+        // 상태 조회는 저장된 알림 endpoint만 표현하고, Discord 앱 설치 보조 링크는 연결 액션 응답에서만 제공한다.
         return null;
     }
 
