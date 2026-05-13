@@ -22,6 +22,29 @@ from mcp_server.db.session import get_session
 from mcp_server.sources.errors import SourceFetchError, SourceNotFoundError
 from mcp_server.sources.result import RawResult
 
+# 공유 httpx 클라이언트 (프로세스당 1개) — 매 fetch() 마다 새로 만들면 커넥션 풀·keep-alive 가
+# 버려져 도메인 도구 호출 1회 = TCP+TLS 핸드셰이크 1회가 된다. lazy singleton 으로 재사용.
+_http_client: httpx.AsyncClient | None = None
+_HTTP_TIMEOUT = 10.0
+
+
+def _get_http_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(
+            timeout=_HTTP_TIMEOUT,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        )
+    return _http_client
+
+
+async def aclose_http_client() -> None:
+    """서버 lifespan 종료 시 호출. 열린 커넥션 정리."""
+    global _http_client
+    if _http_client is not None:
+        await _http_client.aclose()
+    _http_client = None
+
 
 async def fetch(
     source_id: int,
@@ -248,11 +271,8 @@ async def _call_external_api(
 ) -> str:
     """url_template + params 로 GET. JSON 응답은 정렬·직렬화, 그 외는 .text 그대로."""
     try:
-        if http_client is None:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(endpoint, params=params)
-        else:
-            response = await http_client.get(endpoint, params=params)
+        client = http_client if http_client is not None else _get_http_client()
+        response = await client.get(endpoint, params=params)
         response.raise_for_status()
     except httpx.HTTPError as exc:
         raise SourceFetchError(f"API 호출 실패: {endpoint} ({exc})") from exc
@@ -268,6 +288,7 @@ __all__ = [
     "peek_cached_at",
     "peek_cached_content",
     "resolve_source_id_by_tool_name",
+    "aclose_http_client",
     "_PARAM_KEY_FIELDS",
     "_CACHEABLE_TOOLS",
 ]

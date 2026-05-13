@@ -16,11 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.StreamSupport;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -56,6 +52,8 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     @Nullable
     private final ChatClient monitorChatClient;
     private final ObjectMapper objectMapper;
+    // bean 필드로 선언해 모든 서비스 VT가 동일한 permit pool을 공유한다.
+    // 호출 단위로 new Semaphore()를 만들면 VT마다 별도 제한이 생겨 전역 제어가 풀린다.
     private final Semaphore semaphore;
 
     // [레버 1] system prompt로 tool 호출 순서/조건 유도
@@ -94,48 +92,30 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
                 .content();
     }
 
-    // 구독 실행 흐름: 스케줄러가 due 구독 목록을 넘기면 MCP server에 위임
+    // 서비스 레이어 VT에서 1건씩 호출된다.
+    // Semaphore: proactive guard — 동시 세션 수를 제한해 429 발생 자체를 줄인다.
+    // requestMonitorExecution() retry: reactive fallback — 429가 나면 backoff 후 재시도.
+    // 둘은 역할이 다르다. retry만으로는 동시 구독이 많을 때 thundering herd를 막지 못한다.
     @Override
-    public void execute(List<SubscriptionContext> subscriptions) {
+    public void execute(SubscriptionContext subscription) {
         if (monitorChatClient == null) {
-            log.warn("[SpringAiMonitorAdapter] ChatClient 미구성 — 구독 실행 스킵 ({}건)", subscriptions.size());
+            log.warn("[SpringAiMonitorAdapter] ChatClient 미구성 — 구독 실행 스킵. subscriptionId={}", subscription.subscriptionId());
             throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
         }
-        if (subscriptions.isEmpty()) {
-            return;
-        }
-        log.info("[SpringAiMonitorAdapter] 구독 실행 요청 - {}건", subscriptions.size());
-        AtomicBoolean cancelled = new AtomicBoolean(false);
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            for (SubscriptionContext subscription : subscriptions) {
-                futures.add(CompletableFuture.runAsync(
-                        () -> processSubscription(subscription, cancelled),
-                        executor
-                ));
-            }
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        } catch (CompletionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof ApiException ae) throw ae;
-            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+        // acquireUninterruptibly: 서비스 VT의 Runnable 람다는 checked exception 불가
+        semaphore.acquireUninterruptibly();
+        try {
+            processSubscription(subscription);
+        } finally {
+            semaphore.release();
         }
     }
 
+    // AI 실행 로직만 담당. 동시성 관련 코드 없음 — Semaphore는 execute()가 처리.
     // package-private: 테스트에서 동기 직접 호출 가능
-    void processSubscription(SubscriptionContext subscription, AtomicBoolean cancelled) {
-        if (cancelled.get()) {
-            log.info("[SpringAiMonitorAdapter] 구독 {} 취소 플래그 확인 — 스킵", subscription.subscriptionId());
-            return;
-        }
-        // acquireUninterruptibly: Runnable 람다는 checked exception 불가, soft-cancel은 AtomicBoolean으로 처리
-        semaphore.acquireUninterruptibly();
+    void processSubscription(SubscriptionContext subscription) {
+        log.info("[SpringAiMonitorAdapter] 구독 {} 실행", subscription.subscriptionId());
         try {
-            if (cancelled.get()) {
-                log.info("[SpringAiMonitorAdapter] 구독 {} 취소 플래그 확인 — 스킵", subscription.subscriptionId());
-                return;
-            }
-            log.info("[SpringAiMonitorAdapter] 구독 {} 실행", subscription.subscriptionId());
             List<SubscriptionContext> asList = List.of(subscription);
             String payload = objectMapper.writeValueAsString(asList);
             ExecutionResult result = requestMonitorExecution(payload);
@@ -201,19 +181,14 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
             verifyExecutionResponse(content, asList, executions);
         } catch (JsonProcessingException e) {
             log.error("[SpringAiMonitorAdapter] 구독 {} 직렬화 실패", subscription.subscriptionId(), e);
-            cancelled.set(true);
             throw new ApiException(ErrorCode.AI_PARSE_FAILED);
-        } catch (ApiException e) {
-            cancelled.set(true);
-            throw e;
-        } finally {
-            semaphore.release();
         }
     }
 
+    // Semaphore를 유지하면서도 rate limit이 발생하면 해당 호출만 재시도한다.
+    // 이전 tool 실행 결과는 보존되므로 retry가 처음부터 다시 시작하지 않는다.
+    // Gemini가 도구 호출 후 최종 text를 비우는 경우가 있어 MCP 콜백 실행 기록도 함께 본다.
     private ExecutionResult requestMonitorExecution(String userPrompt) {
-        // Gemini가 도구 호출 후 최종 text를 비우는 경우가 있어 MCP 콜백 실행 기록도 함께 본다.
-        // rate limit 시 해당 호출만 재시도 — 이전 호출 결과는 보존
         for (int attempt = 0; ; attempt++) {
             McpToolExecutionRecorder.start();
             String content = null;
@@ -283,7 +258,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         // 캐시 확인만 성공한 상태는 실제 current 데이터가 없으므로 dataToolName 기반 조회를 다시 유도한다.
         return !hasSuccessfulDataToolExecution(executions)
                 && executions.stream()
-                        .anyMatch(execution -> !execution.failed() && isTool(execution, "check_api_cache"));
+                        .anyMatch(execution -> isTool(execution, "check_api_cache"));
     }
 
     private boolean shouldRetryMissingCompare(
@@ -418,6 +393,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
         // cache hit 여부와 무관하게 compare에는 실제 data tool payload가 필요하므로 누락된 조회를 보강한다.
         return """
                 이전 구독 실행에서 check_api_cache만 호출되고 실제 데이터 도구 호출이 누락되었습니다.
+                check_api_cache가 실패했더라도 이번 턴에서는 캐시 확인을 반복하지 말고 데이터 도구 호출로 복구하세요.
                 이번 턴의 목표는 자연어 설명이 아니라 누락된 데이터 도구 MCP tool call 실행입니다.
 
                 원래 구독 JSON:
@@ -854,11 +830,14 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     }
 
     private String abbreviatedForLog(String content) {
+        return abbreviatedForLog(content, 500);
+    }
+
+    private String abbreviatedForLog(String content, int maxLength) {
         String value = content
                 .replaceAll("[\\r\\n\\t]+", " ")
                 .replaceAll("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", "<email>")
                 .replaceAll("(\"(?:target|notificationTarget)\"\\s*:\\s*\")[^\"]+", "$1<target>");
-        int maxLength = 500;
         if (value.length() <= maxLength) {
             return value;
         }
@@ -902,6 +881,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
                 .map(execution -> {
                     Map<String, Object> item = new HashMap<>();
                     item.put("failed", execution.failed());
+                    item.put("input", abbreviatedForLog(execution.input(), 3000));
                     item.put("output", abbreviatedForLog(execution.output()));
                     return item;
                 })

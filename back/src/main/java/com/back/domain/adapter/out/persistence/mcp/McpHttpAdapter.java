@@ -14,6 +14,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +31,12 @@ public class McpHttpAdapter implements ExecuteMcpToolPort {
 
     private final List<McpSyncClient> clients;
     private final ObjectMapper objectMapper;
+
+    // Tool 카탈로그(어떤 client 가 어떤 tool 을 제공하는가)는 런타임 동안 사실상 불변.
+    // 도구 실행 때마다 listTools() 를 왕복하던 것을 첫 호출 1회 스캔으로 캐싱한다.
+    private final Map<String, McpSyncClient> clientByToolName = new ConcurrentHashMap<>();
+    private final ReentrantLock catalogLock = new ReentrantLock();
+    private volatile boolean catalogLoaded = false;
 
     public McpHttpAdapter(List<McpSyncClient> clients, ObjectMapper objectMapper) {
         this.clients = clients;
@@ -55,17 +63,44 @@ public class McpHttpAdapter implements ExecuteMcpToolPort {
     }
 
     private McpSyncClient clientFor(String toolName) {
-        return clients.stream()
-                .filter(client -> hasTool(client, toolName))
-                .findFirst()
-                .orElseThrow(() -> new ApiException(ErrorCode.MCP_REQUEST_FAILED));
+        McpSyncClient cached = clientByToolName.get(toolName);
+        if (cached != null) {
+            return cached;
+        }
+        if (!catalogLoaded) {
+            loadToolCatalogOnce();
+            cached = clientByToolName.get(toolName);
+            if (cached != null) {
+                return cached;
+            }
+        }
+        throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
     }
 
-    private boolean hasTool(McpSyncClient client, String toolName) {
-        McpSchema.ListToolsResult tools = client.listTools();
-        return tools != null
-                && tools.tools() != null
-                && tools.tools().stream().anyMatch(tool -> toolName.equals(tool.name()));
+    /**
+     * 모든 MCP client 의 listTools() 를 1회씩만 호출해 tool→client 맵을 채운다.
+     * listTools() 가 실패하면 catalogLoaded 를 true 로 올리지 않으므로 다음 호출에서 재시도된다
+     * (서버 기동 직후 MCP 서버가 아직 안 떠 있는 상황 대응).
+     */
+    private void loadToolCatalogOnce() {
+        catalogLock.lock();
+        try {
+            if (catalogLoaded) {
+                return;
+            }
+            for (McpSyncClient client : clients) {
+                McpSchema.ListToolsResult tools = client.listTools();
+                if (tools == null || tools.tools() == null) {
+                    continue;
+                }
+                for (McpSchema.Tool tool : tools.tools()) {
+                    clientByToolName.putIfAbsent(tool.name(), client);
+                }
+            }
+            catalogLoaded = true;
+        } finally {
+            catalogLock.unlock();
+        }
     }
 
     private Map<String, Object> structuredContent(McpSchema.CallToolResult result) {

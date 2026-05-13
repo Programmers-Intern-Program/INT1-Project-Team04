@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -62,7 +63,13 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
         }
         log.info("[SubscriptionMonitorService] 구독 실행 시작 - {}건", dueSchedules.size());
 
-        dueSchedules.forEach(schedule -> executeSchedule(schedule, now));
+        // VT per subscription: I/O 대기(Gemini API) 중 carrier thread를 반납해 병렬도를 높인다.
+        // try-with-resources: executor.close()가 모든 VT 완료를 기다린 뒤 반환한다.
+        // 동시 Gemini 호출 수 제한은 어댑터 Semaphore가 담당한다.
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            dueSchedules.forEach(schedule ->
+                    executor.submit(() -> executeSchedule(schedule, now)));
+        }
     }
 
     private void executeSchedule(Schedule schedule, LocalDateTime now) {
@@ -70,7 +77,7 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
                 loadSubscriptionMonitoringConfigPort.loadBySubscriptionId(schedule.subscription().id());
         SubscriptionContext context = buildContext(schedule, config, now);
         try {
-            runSubscriptionExecutionPort.execute(List.of(context));
+            runSubscriptionExecutionPort.execute(context);
             advanceSchedule(schedule, now);
         } catch (RuntimeException e) {
             log.warn(

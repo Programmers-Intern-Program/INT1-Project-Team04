@@ -31,10 +31,6 @@ describe("subscription chat session persistence", () => {
         },
       ],
       draft: null,
-      debugJson: {
-        request: "{}",
-        response: "{}",
-      },
     };
 
     const encoded = encodeSubscriptionChatSession(snapshot, 1_000);
@@ -48,10 +44,6 @@ describe("subscription chat session persistence", () => {
       conversationId: null,
       actions: [],
       draft: null,
-      debugJson: {
-        request: "{}",
-        response: "{}",
-      },
     };
     const encoded = encodeSubscriptionChatSession(snapshot, 1_000);
 

@@ -104,6 +104,74 @@ def test_real_estate_email_golden_html() -> None:
     assert "평균 매매가" in rendered.message
 
 
+def test_real_estate_briefing_accepts_tool_period_alias_and_sample_count_label() -> None:
+    payload = _real_estate_briefing().model_dump(mode="json", by_alias=True)
+    payload["changes"] = [
+        {"label": "평균 매매가", "value": "27억원 → 27억 4,924만원"},
+        {"label": "변화율", "value": "+1.82%"},
+        {"label": "표본 수", "value": "100건"},
+        {"label": "데이터 출처", "value": "국토교통부 아파트 매매 실거래가"},
+    ]
+    payload["watchInfo"].pop("dealPeriod")
+    payload["watchInfo"]["deal_ymd"] = "202604"
+
+    briefing = NotificationBriefing.model_validate(payload)
+    rendered = render_for_channel(briefing, NotificationChannel.DISCORD_DM)
+
+    assert "- 조회 기간: 202604" in rendered.message
+    assert "- 표본 수: 100건" in rendered.message
+
+
+def test_real_estate_rent_briefing_accepts_natural_ai_labels() -> None:
+    payload = _real_estate_briefing().model_dump(mode="json", by_alias=True)
+    payload["title"] = "강남구 오피스텔 전월세 보증금 상승"
+    payload["summary"] = "강남구 오피스텔 평균 전월세가가 기준보다 2.31% 상승했습니다."
+    payload["changes"] = [
+        {"label": "평균 전월세가", "value": "1억 3,400만원 → 1억 3,709만원"},
+        {"label": "증감률", "value": "+2.31%"},
+        {"label": "데이터 건수", "value": "100건"},
+        {"label": "데이터 출처", "value": "국토교통부 오피스텔 전월세 실거래가"},
+    ]
+    payload["watchInfo"].pop("dealPeriod")
+    payload["watchInfo"]["dealYm"] = "202604"
+
+    briefing = NotificationBriefing.model_validate(payload)
+    rendered = render_for_channel(briefing, NotificationChannel.EMAIL)
+
+    assert "강남구 오피스텔 전월세 보증금 상승" in rendered.message
+    assert "데이터 건수" in rendered.message
+
+
+def test_real_estate_briefing_accepts_ai_payload_without_watch_target_and_numeric_diffs() -> None:
+    payload = _real_estate_briefing().model_dump(mode="json", by_alias=True)
+    payload["title"] = "강남구 오피스텔 전월세 보증금 2.31% 상승"
+    payload["summary"] = "강남구 오피스텔 평균 보증금이 1억 3,400만원에서 1억 3,709만원으로 2.31% 상승했습니다."
+    payload["changes"] = [
+        {
+            "label": "평균 보증금",
+            "value": "1억 3,400만원 → 1억 3,709만원 (2.31%)",
+            "previous": 13400.0,
+            "current": 13709.0,
+        },
+        {"label": "변화율", "value": "2.31%"},
+        {"label": "거래건수", "value": "100건"},
+        {"label": "데이터 출처", "value": "국토교통부 실거래가"},
+    ]
+    payload["watchInfo"] = {
+        "dealPeriod": "202604",
+        "dataSource": "국토교통부 실거래가",
+        "region": "강남구",
+        "condition": "강남구 오피스텔 전월세 보증금 1% 이상 상승하면 텔레그램으로 알려줘",
+    }
+    payload["interpretation"] = "거래 건수와 함께 변동 폭을 고려해 추가적인 시장 확인이 필요합니다."
+
+    briefing = NotificationBriefing.model_validate(payload)
+    rendered = render_for_channel(briefing, NotificationChannel.TELEGRAM_DM)
+
+    assert "강남구 오피스텔 전월세 보증금 2.31% 상승" in rendered.message
+    assert "평균 보증금: 1억 3,400만원 → 1억 3,709만원 (2.31%)" in rendered.message
+
+
 def test_recruitment_telegram_golden_message() -> None:
     rendered = render_for_channel(_recruitment_briefing(), NotificationChannel.TELEGRAM_DM)
 
@@ -165,3 +233,29 @@ def test_recruitment_email_accepts_www_source_url() -> None:
 
     assert "대한적십자사 인천사할린동포복지회관 직원 채용 공고" in rendered.message
     assert "https://www.redcross.or.kr/redrecruit" in rendered.message
+
+
+def test_recruitment_briefing_accepts_grouped_ai_source_value_list() -> None:
+    payload = _recruitment_briefing().model_dump(mode="json", by_alias=True)
+    payload["watchInfo"] = None
+    payload["sources"] = [
+        {
+            "label": "공공채용",
+            "value": [
+                {
+                    "label": "칠곡경북대학교병원 간호사 채용공고",
+                    "value": "https://www.knuch.kr/content/recruit/view",
+                },
+                {
+                    "label": "광주전남혈액원 간호사 채용 공고",
+                    "value": "www.redcross.or.kr/redrecruit",
+                },
+            ],
+        }
+    ]
+
+    briefing = NotificationBriefing.model_validate(payload)
+    rendered = render_for_channel(briefing, NotificationChannel.TELEGRAM_DM)
+
+    assert "- 칠곡경북대학교병원 간호사 채용공고: https://www.knuch.kr/content/recruit/view" in rendered.message
+    assert "- 광주전남혈액원 간호사 채용 공고: https://www.redcross.or.kr/redrecruit" in rendered.message

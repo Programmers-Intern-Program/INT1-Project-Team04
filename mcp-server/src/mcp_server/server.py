@@ -20,6 +20,7 @@ from starlette.responses import JSONResponse
 from mcp_server.config import get_settings
 from mcp_server.db.session import reset_engine
 from mcp_server.observability.tracing import flush_langfuse, get_langfuse
+from mcp_server.sources.api_source_service import aclose_http_client
 
 
 @asynccontextmanager
@@ -29,8 +30,9 @@ async def server_lifespan(_: FastMCP) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        # shutdown: trace 손실 방지 + DB 풀 정리
+        # shutdown: trace 손실 방지 + 공유 HTTP 클라이언트 / DB 풀 정리
         flush_langfuse()
+        await aclose_http_client()
         await reset_engine()
 
 

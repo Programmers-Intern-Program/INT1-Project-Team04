@@ -92,7 +92,7 @@ def call_api_with_history(messages: list) -> str:
 
 # ─── 단일 턴 파싱 ─────────────────────────────────────────────
 
-def parse_task(user_input: str, max_retries: int = 2) -> list:
+def parse_task(user_input: str, max_retries: int = 3) -> list:
     last_error = None
     for attempt in range(max_retries + 1):
         try:
@@ -100,9 +100,13 @@ def parse_task(user_input: str, max_retries: int = 2) -> list:
             cleaned = extract_json(raw)
             result = json.loads(cleaned)
             if isinstance(result, list):
+                if len(result) == 0:
+                    raise ValueError("empty result array")
                 return result
-            return [result]
-        except (json.JSONDecodeError, Exception) as e:
+            if isinstance(result, dict):
+                return [result]
+            raise ValueError(f"unexpected type: {type(result)}")
+        except Exception as e:
             last_error = e
             safe_print(f"  [DEBUG] 시도 {attempt+1} 실패: {e}")
             if attempt == 0:
@@ -327,34 +331,43 @@ def _fix_intent_for_monitoring(user_response: str, result: list):
     _DOMAIN_KW = {
         "부동산": ["시세", "집값", "부동산", "아파트", "월세", "전세", "원룸", "투룸"],
         "채용": ["채용", "공고", "채용공고"],
-        "법률": ["법률", "법령", "판례"],
-        "경매": ["경매", "공매"],
+        "법률": ["법률", "법령", "판례", "개정", "법 바뀌", "법 바뀜", "법 변"],
+        "경매": ["경매", "공매", "경매물건"],
     }
+    _DOMAIN_PRIORITY = ["경매", "법률", "채용", "부동산"]
     has_monitor = any(kw in user_response for kw in _MONITOR_KW)
     if not has_monitor:
         return
     for task in result:
+        detected_domains = []
+        for domain in _DOMAIN_PRIORITY:
+            keywords = _DOMAIN_KW[domain]
+            if any(kw in user_response for kw in keywords):
+                detected_domains.append(domain)
+        if not detected_domains:
+            continue
+        detected_domain = detected_domains[0]
+
+        current_domain = _normalize_domain(task.get("domain_name", ""))
+
         if task.get("intent") in ("info", "reject"):
-            detected_domain = None
-            for domain, keywords in _DOMAIN_KW.items():
-                if any(kw in user_response for kw in keywords):
-                    detected_domain = domain
-                    break
-            if detected_domain:
-                task["intent"] = "create"
-                task["domain_name"] = detected_domain
-                meta = task.get("metadata", {})
-                if not task.get("condition"):
-                    task["condition"] = ""
-                if not task.get("cron_expr"):
-                    task["cron_expr"] = "0 9 * * *"
-                if not task.get("channel"):
-                    task["channel"] = "discord"
-                if not task.get("api_type"):
-                    task["api_type"] = "crawl"
-                meta["needs_confirmation"] = True
-                if not meta.get("confirmation_question"):
-                    meta["confirmation_question"] = "모니터링 조건을 구체적으로 알려주시겠어요?"
+            task["intent"] = "create"
+            task["domain_name"] = detected_domain
+            meta = task.get("metadata", {})
+            if not task.get("condition"):
+                task["condition"] = ""
+            if not task.get("cron_expr"):
+                task["cron_expr"] = "0 9 * * *"
+            if not task.get("channel"):
+                task["channel"] = "discord"
+            if not task.get("api_type"):
+                task["api_type"] = "crawl"
+            meta["needs_confirmation"] = True
+            if not meta.get("confirmation_question"):
+                meta["confirmation_question"] = "모니터링 조건을 구체적으로 알려주시겠어요?"
+
+        elif task.get("intent") == "create" and current_domain != detected_domain:
+            task["domain_name"] = detected_domain
 
 
 # ─── Strategy A: 대화 히스토리 기반 병합 ───────────────────────

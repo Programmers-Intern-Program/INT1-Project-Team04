@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     pg_url: str = Field(
         description="MCP 내부 DB 접속 URL (asyncpg 드라이버). default 없음 — .env 미로드 시 ValidationError.",
     )
+    # fetch() 한 번에 세션을 3~4개 순차로 열고 닫는 패턴이라 동시 도구 실행 시 커넥션 압박.
+    # SQLAlchemy 기본(pool_size=5, max_overflow=10) 으로는 부족해질 수 있어 환경변수로 조정 가능.
+    db_pool_size: int = Field(
+        default=10,
+        validation_alias=AliasChoices("MCP_DB_POOL_SIZE", "DB_POOL_SIZE"),
+        description="AsyncEngine 기본 커넥션 풀 크기.",
+    )
+    db_pool_max_overflow: int = Field(
+        default=10,
+        validation_alias=AliasChoices("MCP_DB_POOL_MAX_OVERFLOW", "DB_POOL_MAX_OVERFLOW"),
+        description="AsyncEngine 풀 초과 허용 커넥션 수.",
+    )
 
     langfuse_enabled: bool = Field(default=True)
     langfuse_host: str = Field(default="http://localhost:3000")

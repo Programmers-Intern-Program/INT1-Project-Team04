@@ -8,6 +8,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -15,7 +16,10 @@ import lombok.NoArgsConstructor;
 
 @Getter
 @Entity
-@Table(name = "notification_endpoint")
+// findByUserIdAndChannelAndEnabledTrue 로 사용자별 발송 대상 주소 조회
+@Table(name = "notification_endpoint", indexes = {
+        @Index(name = "idx_notif_endpoint_user_channel", columnList = "user_id, channel, enabled")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class NotificationEndpointJpaEntity {
 

@@ -3,11 +3,25 @@ spring:
     name: back
   profiles:
     default: dev
+  # I/O 바운드(LLM·외부 API) 작업을 가상 스레드로 처리 — 플랫폼 스레드 풀 고갈 없이 대량 동시 호출.
+  # (SpringAiMonitorAdapter 가 이미 수동 가상 스레드를 쓰지만, web/scheduler/@Async 레이어도 일관되게 적용)
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    hikari:
+      # 가상 스레드로 동시성이 올라가면 기본값 10 으로는 커넥션 고갈 → 환경별 override 가능
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:30}
   jpa:
     open-in-view: false
     properties:
       hibernate:
         format_sql: true
+        # 알림 발송·스케줄 갱신 등 다건 INSERT/UPDATE 를 배치로 묶어 round-trip 절감
+        order_inserts: true
+        order_updates: true
+        jdbc:
+          batch_size: 30
   flyway:
     baseline-on-migrate: true
     baseline-version: 0
@@ -17,6 +31,7 @@ spring:
   ai:
     mcp:
       client:
+        request-timeout: ${MCP_CLIENT_REQUEST_TIMEOUT:60s}
         sse:
           connections:
             python-mcp:
@@ -59,6 +74,7 @@ app:
   notification:
     max-attempts: ${APP_NOTIFICATION_MAX_ATTEMPTS:3}
     retry-delay-seconds: ${APP_NOTIFICATION_RETRY_DELAY_SECONDS:300}
+    dispatch-concurrency-limit: ${APP_NOTIFICATION_DISPATCH_CONCURRENCY_LIMIT:20}
     telegram:
       bot-username: ${APP_NOTIFICATION_TELEGRAM_BOT_USERNAME:}
     baseline-promote:

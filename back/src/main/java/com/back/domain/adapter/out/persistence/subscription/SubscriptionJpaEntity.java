@@ -16,7 +16,10 @@ import lombok.NoArgsConstructor;
  */
 @Getter
 @Entity
-@Table(name = "subscription")
+@Table(name = "subscription", indexes = {
+        // findByUserIdAndActiveTrue / findByUserIdAndDomainIdAndActiveTrue 등 사용자별 활성 구독 조회용
+        @Index(name = "idx_subscription_user_domain_active", columnList = "user_id, domain_id, is_active")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SubscriptionJpaEntity extends BaseTimeEntity {
 
