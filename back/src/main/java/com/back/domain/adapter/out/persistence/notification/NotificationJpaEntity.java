@@ -19,7 +19,11 @@ import java.time.LocalDateTime;
  */
 @Getter
 @Entity
-@Table(name = "notification")
+@Table(name = "notification", indexes = {
+        @Index(name = "idx_notification_schedule", columnList = "schedule_id"),
+        @Index(name = "idx_notification_user", columnList = "user_id"),
+        @Index(name = "idx_notification_ai_data_hub", columnList = "ai_data_hub_id")
+})
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class NotificationJpaEntity {
 
