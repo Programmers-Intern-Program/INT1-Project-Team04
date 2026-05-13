@@ -29,6 +29,9 @@ def get_engine() -> AsyncEngine:
         settings = get_settings()
         _engine = create_async_engine(
             settings.pg_url,
+            pool_size=settings.db_pool_size,
+            max_overflow=settings.db_pool_max_overflow,
+            pool_recycle=1800,  # DB 측 idle timeout 보다 먼저 끊어 stale 커넥션 사용 방지
             pool_pre_ping=True,
             future=True,
         )
