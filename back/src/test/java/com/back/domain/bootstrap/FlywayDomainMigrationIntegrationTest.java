@@ -3,7 +3,6 @@ package com.back.domain.bootstrap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 
-import java.sql.DriverManager;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,39 +24,15 @@ class FlywayDomainMigrationIntegrationTest {
 
     @Test
     @DisplayName("Flyway 마이그레이션 이력이 기록되고 기본 도메인 4개가 준비된다")
-    void migratesDefaultDomainsWithFlyway() throws Exception {
-        System.err.println("[DEBUG] JDBC URL: " + postgres.getJdbcUrl());
-        System.err.println("[DEBUG] Attempting raw JDBC connection...");
-        try {
-            var conn = DriverManager.getConnection(
-                    postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-            System.err.println("[DEBUG] Raw JDBC connected OK: " + conn.getMetaData().getDatabaseProductName());
-            conn.close();
-        } catch (Exception e) {
-            System.err.println("[DEBUG] Raw JDBC FAILED: " + e.getClass().getName() + ": " + e.getMessage());
-        }
-
-        System.err.println("[DEBUG] Starting Flyway migration...");
-        try {
-            Flyway flyway = Flyway.configure()
-                    .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
-                    .locations("classpath:db/migration")
-                    .placeholderReplacement(false)
-                    .load();
-            var result = flyway.migrate();
-            System.err.println("[DEBUG] Flyway migrate success. Applied: " + result.migrationsExecuted);
-        } catch (Exception e) {
-            System.err.println("[DEBUG] ===== FLYWAY FAILURE =====");
-            System.err.println("[DEBUG] Exception: " + e.getClass().getName());
-            System.err.println("[DEBUG] Message: " + e.getMessage());
-            Throwable current = e.getCause();
-            while (current != null) {
-                System.err.println("[DEBUG] Caused by: " + current.getClass().getName() + ": " + current.getMessage());
-                current = current.getCause();
-            }
-            e.printStackTrace(System.err);
-            throw e;
-        }
+    void migratesDefaultDomainsWithFlyway() {
+        Flyway flyway = Flyway.configure()
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
+                .locations("classpath:db/migration")
+                .placeholderReplacement(false)
+                .cleanDisabled(false)
+                .load();
+        flyway.clean();
+        flyway.migrate();
 
         JdbcTemplate jdbcTemplate = jdbcTemplate();
         Integer appliedCount = jdbcTemplate.queryForObject(
