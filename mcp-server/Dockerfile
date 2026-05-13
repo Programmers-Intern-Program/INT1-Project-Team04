@@ -33,6 +33,7 @@ COPY src/ ./src/
 COPY data/ ./data/
 COPY alembic/ ./alembic/
 COPY alembic.ini ./
+COPY scripts/ ./scripts/
 RUN uv sync --frozen --no-dev
 
 # 8. 포트 노출 및 실행

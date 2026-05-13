@@ -230,7 +230,7 @@ jobs:
             # mcp-server 제외하고 인프라 먼저 기동 (DB 초기화 후 MCP 기동)
             docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
               --env-file ~/app/infra/docker/prod/.env \
-              up -d postgres redis minio langfuse-clickhouse langfuse-web langfuse-worker
+              up -d postgres redis minio minio-init langfuse-clickhouse langfuse-web langfuse-worker
 
             # postgres 준비 대기 (mcp_dev DB 생성 전)
             PG_USER_VAL=$(env_value PG_USER)
@@ -242,20 +242,40 @@ jobs:
               sleep 3; PG_DB_WAIT=$((PG_DB_WAIT + 3))
             done
 
-            # mcp_dev DB + pgvector 초기화 (멱등 — 이미 존재하면 건너뜀)
+            # langfuse + mcp_dev DB 초기화 (멱등 — 이미 존재하면 건너뜀)
+            docker exec prod-postgres psql -U "${PG_USER_VAL}" -d postgres \
+              -c "CREATE DATABASE langfuse;" || true
             docker exec prod-postgres psql -U "${PG_USER_VAL}" -d postgres \
               -c "CREATE DATABASE mcp_dev;" || true
             docker exec prod-postgres psql -U "${PG_USER_VAL}" -d mcp_dev \
               -c "CREATE EXTENSION IF NOT EXISTS vector;"
-            echo "mcp_dev DB 초기화 완료"
+            echo "DB 초기화 완료 (langfuse, mcp_dev)"
 
-            # Alembic 마이그레이션 (멱등 — 이미 적용된 revision은 건너뜀)
+            # Alembic 마이그레이션 + 시드 (멱등)
             PG_PASSWORD_VAL=$(env_value PG_PASSWORD)
+            MCP_PG_URL="postgresql+asyncpg://${PG_USER_VAL}:${PG_PASSWORD_VAL}@prod-postgres:5432/mcp_dev"
             docker run --rm --network prod-net \
-              -e PG_URL="postgresql+asyncpg://${PG_USER_VAL}:${PG_PASSWORD_VAL}@prod-postgres:5432/mcp_dev" \
+              -e PG_URL="${MCP_PG_URL}" \
               "${MCP_IMAGE}:${IMAGE_TAG}" \
               alembic upgrade head
             echo "Alembic 마이그레이션 완료"
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_real_estate_source.py
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_auction_source.py
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_jobs_source.py
+            docker run --rm --network prod-net \
+              -e PG_URL="${MCP_PG_URL}" \
+              "${MCP_IMAGE}:${IMAGE_TAG}" \
+              python scripts/seed_law_source.py
+            echo "시드 완료"
 
             # ── MCP 서버 기동/업데이트 ──────────────────────────
             docker compose -f ~/app/infra/docker/prod/docker-compose.yml \
