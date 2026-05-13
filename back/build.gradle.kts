@@ -54,6 +54,7 @@ dependencies {
 
     // Observability — Langfuse OTLP 연동 (Spring Boot 4.x 신규 스타터)
     implementation("org.springframework.boot:spring-boot-starter-opentelemetry")
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 
     // 테스트 환경
     testImplementation("org.springframework.boot:spring-boot-starter-test")
