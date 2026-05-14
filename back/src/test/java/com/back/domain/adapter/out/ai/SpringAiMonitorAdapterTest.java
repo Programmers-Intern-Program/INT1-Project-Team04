@@ -1,6 +1,7 @@
 package com.back.domain.adapter.out.ai;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -35,12 +36,12 @@ class SpringAiMonitorAdapterTest {
     }
 
     @Test
-    @DisplayName("ChatClient가 없으면 구독 실행을 실패로 처리한다")
+    @DisplayName("ChatClient가 없으면 구독 실행을 스킵한다")
     void failsExecuteWhenChatClientIsNull() {
         SpringAiMonitorAdapter adapter = new SpringAiMonitorAdapter(null, new ObjectMapper(), Integer.MAX_VALUE);
 
-        assertThatThrownBy(() -> adapter.execute(subscription()))
-                .isInstanceOf(RuntimeException.class);
+        assertThatCode(() -> adapter.execute(subscription()))
+                .doesNotThrowAnyException();
     }
 
     @Test

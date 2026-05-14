@@ -9,7 +9,13 @@ list_tools 가 빈 배열을 받는다.
 `mcp_server.server` 로만 import 되어 인스턴스가 단일화된다.
 """
 
+import logging
+
 from mcp_server.server import main
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     main()
