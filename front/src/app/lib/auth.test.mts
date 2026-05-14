@@ -111,7 +111,11 @@ describe("auth API helpers", () => {
 describe("auth UI source rules", () => {
   it("does not expose regular password login or registration UI", () => {
     const source =
-      readFileSync(new URL("../page.tsx", import.meta.url), "utf8") +
+      readFileSync(
+        new URL("../(auth)/login/page.tsx", import.meta.url),
+        "utf8",
+      ) +
+      readFileSync(new URL("../(app)/page.tsx", import.meta.url), "utf8") +
       readFileSync(
         new URL("../components/subscription-chat.tsx", import.meta.url),
         "utf8",
@@ -133,7 +137,7 @@ describe("auth UI source rules", () => {
 
   it("renders the three social login providers", () => {
     const source = readFileSync(
-      new URL("../page.tsx", import.meta.url),
+      new URL("../(auth)/login/page.tsx", import.meta.url),
       "utf8",
     );
 
@@ -144,7 +148,7 @@ describe("auth UI source rules", () => {
 
   it("keeps account management out of the main dashboard chrome", () => {
     const source = readFileSync(
-      new URL("../page.tsx", import.meta.url),
+      new URL("../(app)/page.tsx", import.meta.url),
       "utf8",
     );
     const bannedCopy = [

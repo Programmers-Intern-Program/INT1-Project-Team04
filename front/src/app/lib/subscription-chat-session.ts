@@ -33,6 +33,23 @@ export const STALE_CONVERSATION_MESSAGE = "이전 대화가 만료되어 새로 
 export const SUBSCRIPTION_CHAT_SESSION_KEY = "subscription-chat-session";
 export const SUBSCRIPTION_CHAT_SESSION_TTL_MS = 30 * 60 * 1000;
 
+// OAuth 라운드트립 등 외부 이동 중인 세션을 보존하기 위한 키. 새 키 추가 시
+// 같은 객체에 추가하고, 로그아웃 시에는 이 목록 기준으로만 비운다.
+export const STORAGE_KEYS = {
+  chatSession: SUBSCRIPTION_CHAT_SESSION_KEY,
+  pendingChannel: "subscription-chat-pending-channel",
+  pendingEndpointChannel: "subscription-chat-pending-endpoint-channel",
+} as const;
+
+export function clearChatStorage(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  for (const key of Object.values(STORAGE_KEYS)) {
+    sessionStorage.removeItem(key);
+  }
+}
+
 export function isStaleConversationError(
   error: { code: string },
   conversationId: string | null | undefined,
