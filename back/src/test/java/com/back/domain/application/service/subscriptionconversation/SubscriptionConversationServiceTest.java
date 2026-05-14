@@ -1,7 +1,6 @@
 package com.back.domain.application.service.subscriptionconversation;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -17,6 +16,7 @@ import com.back.domain.application.command.CreateSubscriptionCommand;
 import com.back.domain.application.command.GrantTokenCommand;
 import com.back.domain.application.command.ParseTaskCommand;
 import com.back.domain.application.command.UseTokenCommand;
+import com.back.domain.application.event.BaselineInitializationRequested;
 import com.back.domain.application.port.in.CreateSubscriptionUseCase;
 import com.back.domain.application.port.in.ParseTaskUseCase;
 import com.back.domain.application.port.in.TokenManagementUseCase;
@@ -24,7 +24,6 @@ import com.back.domain.application.port.out.LoadDomainPort;
 import com.back.domain.application.port.out.LoadMcpToolPort;
 import com.back.domain.application.port.out.LoadNotificationEndpointPort;
 import com.back.domain.application.port.out.NormalizeSubscriptionDraftPort;
-import com.back.domain.application.port.out.RunSubscriptionExecutionPort;
 import com.back.domain.application.result.ParseResult;
 import com.back.domain.application.result.ParsedTask;
 import com.back.domain.application.result.SubscriptionResult;
@@ -48,6 +47,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 @DisplayName("Application: 구독 대화 서비스 테스트")
 class SubscriptionConversationServiceTest {
@@ -61,8 +61,8 @@ class SubscriptionConversationServiceTest {
     private final LoadDomainPort loadDomainPort = new FakeLoadDomainPort();
     private final LoadNotificationEndpointPort loadNotificationEndpointPort =
             (userId, channel) -> Optional.empty();
-    private final FakeRunSubscriptionExecutionPort runSubscriptionExecutionPort =
-            new FakeRunSubscriptionExecutionPort();
+    private final RecordingApplicationEventPublisher applicationEventPublisher =
+            new RecordingApplicationEventPublisher();
 
     @Test
     @DisplayName("새 메시지는 인증 사용자 id로 파싱하고 누락된 채널을 질문한다")
@@ -1636,8 +1636,10 @@ class SubscriptionConversationServiceTest {
                 ArgumentCaptor.forClass(SubscriptionMonitoringConfigJpaEntity.class);
         verify(monitoringConfigRepository).save(captor.capture());
         assertThat(captor.getValue().getToolName()).isEqualTo("search_house_price");
-        assertThat(runSubscriptionExecutionPort.contexts).hasSize(1);
-        SubscriptionContext baselineContext = runSubscriptionExecutionPort.contexts.getFirst();
+        List<BaselineInitializationRequested> baselineEvents =
+                applicationEventPublisher.eventsOfType(BaselineInitializationRequested.class);
+        assertThat(baselineEvents).hasSize(1);
+        SubscriptionContext baselineContext = baselineEvents.getFirst().context();
         assertThat(baselineContext.subscriptionId()).isEqualTo("sub-1");
         assertThat(baselineContext.domain()).isEqualTo("real-estate");
         assertThat(baselineContext.params())
@@ -1649,8 +1651,8 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
-    @DisplayName("baseline 초기화가 실패하면 구독 확정 성공으로 응답하지 않는다")
-    void confirmDoesNotReportCreatedWhenBaselineInitializationFails() {
+    @DisplayName("baseline 초기화는 비동기 이벤트로 발행되어 confirm 응답을 지연시키지 않는다")
+    void confirmPublishesBaselineEventAndReturnsImmediately() {
         SubscriptionConversationJpaEntity readyConversation = new SubscriptionConversationJpaEntity(1L);
         readyConversation.updateParsedDraft(
                 "parse-1",
@@ -1684,19 +1686,22 @@ class SubscriptionConversationServiceTest {
         LoadNotificationEndpointPort connectedDiscord = (userId, channel) -> channel == NotificationChannel.DISCORD_DM
                 ? Optional.of(new NotificationEndpoint("endpoint-1", userId, channel, "discord-user-1", true))
                 : Optional.empty();
-        runSubscriptionExecutionPort.failure = new RuntimeException("baseline failed");
         SubscriptionConversationService service = service(connectedDiscord);
 
-        assertThatThrownBy(() -> service.handle(
-                        1L,
-                        readyConversation.getId(),
-                        null,
-                        new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
-                ))
-                .isSameAs(runSubscriptionExecutionPort.failure);
+        // baseline 수집은 AFTER_COMMIT 리스너가 가상 스레드로 처리하므로
+        // confirm()은 baseline 결과와 무관하게 즉시 응답한다 (실패해도 cron이 다음 회차에서 재시도).
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                readyConversation.getId(),
+                null,
+                new SubscriptionConversationService.ActionRequest("CONFIRM_SUBSCRIPTION", "confirm")
+        );
 
-        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.READY_FOR_CONFIRMATION);
+        assertThat(response.status()).isEqualTo("CREATED");
+        assertThat(readyConversation.getStatus()).isEqualTo(SubscriptionConversationStatus.CREATED);
         verify(monitoringConfigRepository).save(any());
+        assertThat(applicationEventPublisher.eventsOfType(BaselineInitializationRequested.class))
+                .hasSize(1);
     }
 
     @Test
@@ -1848,7 +1853,7 @@ class SubscriptionConversationServiceTest {
                 conversationRepository,
                 monitoringConfigRepository,
                 new ObjectMapper(),
-                runSubscriptionExecutionPort,
+                applicationEventPublisher,
                 (domainName, query) -> Optional.empty()
         );
     }
@@ -2139,17 +2144,19 @@ class SubscriptionConversationServiceTest {
         }
     }
 
-    private static class FakeRunSubscriptionExecutionPort implements RunSubscriptionExecutionPort {
-        private final List<SubscriptionContext> contexts = new ArrayList<>();
-        private RuntimeException failure;
+    private static class RecordingApplicationEventPublisher implements ApplicationEventPublisher {
+        private final List<Object> events = new ArrayList<>();
 
         @Override
-        public void execute(SubscriptionContext subscription) {
-            contexts.clear();
-            contexts.add(subscription);
-            if (failure != null) {
-                throw failure;
-            }
+        public void publishEvent(Object event) {
+            events.add(event);
+        }
+
+        <T> List<T> eventsOfType(Class<T> type) {
+            return events.stream()
+                    .filter(type::isInstance)
+                    .map(type::cast)
+                    .toList();
         }
     }
 
