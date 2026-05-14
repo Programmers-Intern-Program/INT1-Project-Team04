@@ -11,9 +11,12 @@
   structured.missingFields 와 structured.parameters 만 백엔드에 돌려준다.
 """
 
+import logging
 from typing import Any
 
 from mcp_server.observability.tracing import traced
+
+_log = logging.getLogger(__name__)
 from mcp_server.server import mcp
 from mcp_server.subscriptions.baseline_promote_models import (
     PromoteSubscriptionBaselineInput,
@@ -38,13 +41,34 @@ _TOOL_PROMOTE_SUBSCRIPTION_BASELINE = "promote_subscription_baseline"
 @traced(_TOOL_COMPARE_SUBSCRIPTION_CHANGE)
 async def compare_subscription_change(input: SubscriptionChangeInput) -> dict[str, Any]:
     """데이터 조회 도구 결과를 구독 기준값과 비교해 변화 여부를 반환한다."""
+    _log.info(
+        "compare_subscription_change 시작 - subscription_id=%s domain=%s",
+        input.subscription_id,
+        input.domain,
+    )
     result = await SubscriptionChangeService().compare(input)
     if result.baseline_initialized:
         text = f"구독 {result.subscription_id} baseline snapshot 초기화 완료."
+        _log.info(
+            "compare_subscription_change baseline 초기화 - subscription_id=%s params_hash=%s",
+            result.subscription_id,
+            result.params_hash,
+        )
     elif result.changed:
         text = f"구독 {result.subscription_id} 변화 감지: 변경 있음."
+        _log.info(
+            "compare_subscription_change 변화 감지 - subscription_id=%s diffs=%d condition_satisfied=%s requires_ai_analysis=%s",
+            result.subscription_id,
+            len(result.diffs),
+            result.condition_satisfied,
+            result.requires_ai_analysis,
+        )
     else:
         text = f"구독 {result.subscription_id} 변화 감지: 변경 없음."
+        _log.info(
+            "compare_subscription_change 변화 없음 - subscription_id=%s",
+            result.subscription_id,
+        )
 
     return {
         "text": text,
