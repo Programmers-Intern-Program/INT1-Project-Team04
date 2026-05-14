@@ -81,6 +81,8 @@ _RECRUITMENT_KEYWORD_SUFFIXES = (
     "공고",
     "알림",
     "정보",
+    "직무",
+    "직군",
 )
 
 
@@ -401,6 +403,10 @@ def _clean_recruitment_keyword(value: str) -> str | None:
         if keyword.endswith(f" {suffix}"):
             keyword = keyword.removesuffix(suffix).strip()
             break
+    if keyword.endswith("직군") and len(keyword) > len("직군"):
+        stem = keyword.removesuffix("직군")
+        keyword = keyword.removesuffix("군") if len(stem) <= 2 else stem
+        keyword = keyword.strip()
     return keyword or None
 
 
