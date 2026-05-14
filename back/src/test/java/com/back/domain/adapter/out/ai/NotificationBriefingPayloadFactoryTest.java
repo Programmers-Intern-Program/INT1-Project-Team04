@@ -6,6 +6,7 @@ import com.back.domain.adapter.out.ai.McpToolExecutionRecorder.Execution;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -138,5 +139,143 @@ class NotificationBriefingPayloadFactoryTest {
                 && change.has("current")).isTrue());
         assertThat(briefing.path("sources").get(0).path("label").asText()).isEqualTo("국토연구원 전산직 채용");
         assertThat(briefing.path("sources").get(0).path("url").asText()).isEqualTo("https://example.com/jobs/new");
+    }
+
+    @Test
+    @DisplayName("채용 compare 결과가 MCP text wrapper로 감싸져도 source와 change를 보강한다")
+    void enrichesRecruitmentSendNotificationInputFromMcpTextWrapper() throws Exception {
+        String rawInput = """
+                {
+                  "input": {
+                    "subscriptionId": "sub-job-wrapper",
+                    "notificationChannel": "EMAIL",
+                    "notificationTarget": "user@example.com",
+                    "title": "공공기관 채용 새 공고",
+                    "message": "새로운 채용 공고가 감지되었습니다.",
+                    "metadata": {
+                      "briefingContractVersion": "channel-v1",
+                      "briefing": {
+                        "domain": "recruitment",
+                        "title": "공공기관 채용 새 공고",
+                        "summary": "AI가 만든 요약입니다.",
+                        "changes": [
+                          {"label": "AI 누락 change", "value": "2건"}
+                        ],
+                        "sources": [],
+                        "interpretation": "마감일과 지원 자격을 확인하세요."
+                      }
+                    }
+                  }
+                }
+                """;
+        String comparePayload = """
+                {
+                  "structured": {
+                    "baseline_initialized": false,
+                    "changed": true,
+                    "subscriptionId": "sub-job-wrapper",
+                    "domain": "recruitment",
+                    "baseline_summary": {
+                      "count": 3,
+                      "ongoing_count": 2,
+                      "posting_ids": ["public_job:old"],
+                      "ongoing_posting_ids": ["public_job:old"]
+                    },
+                    "current_summary": {
+                      "count": 5,
+                      "ongoing_count": 4,
+                      "posting_ids": ["public_job:old", "public_job:new-1", "public_job:new-2"],
+                      "ongoing_posting_ids": ["public_job:old", "public_job:new-1", "public_job:new-2"]
+                    },
+                    "diffs": [
+                      {"field": "added_count", "baseline_value": 0, "current_value": 2, "delta": 2, "direction": "increase"},
+                      {"field": "ongoing_added_count", "baseline_value": 0, "current_value": 2, "delta": 2, "direction": "increase"},
+                      {"field": "count", "baseline_value": 3, "current_value": 5, "delta": 2, "change_rate": 66.67, "direction": "increase"}
+                    ],
+                    "briefing_postings_by_source": {
+                      "public_job": [
+                        {"posting_id": "public_job:new-1", "title": "국토연구원 전산직 채용", "url": "https://example.com/jobs/new-1"},
+                        {"posting_id": "public_job:new-2", "title": "한국도로공사 백엔드 채용", "url": "https://example.com/jobs/new-2"}
+                      ],
+                      "worknet_job": []
+                    },
+                    "condition_satisfied": true,
+                    "requires_ai_analysis": true
+                  }
+                }
+                """;
+        List<Execution> executions = List.of(
+                new Execution("compare_subscription_change", """
+                        {"input":{"subscriptionId":"sub-job-wrapper","domain":"recruitment","query":"공공기관 채용 새 공고","params":{"conditionMetric":"COUNT","conditionDirection":"UP","conditionOperator":"GTE","conditionThreshold":"1","conditionUnit":"COUNT","dataToolName":"search_public_job"}}}
+                        """, objectMapper.writeValueAsString(List.of(Map.of("text", comparePayload))), false)
+        );
+
+        String enriched = NotificationBriefingPayloadFactory.enrichSendNotificationInput(
+                rawInput,
+                executions,
+                objectMapper
+        );
+
+        JsonNode briefing = objectMapper.readTree(enriched).path("input").path("metadata").path("briefing");
+
+        assertThat(briefing.path("sources")).hasSize(2);
+        assertThat(briefing.path("sources").get(0).path("label").asText()).isEqualTo("국토연구원 전산직 채용");
+        assertThat(briefing.path("sources").get(0).path("url").asText()).isEqualTo("https://example.com/jobs/new-1");
+        assertThat(briefing.path("changes").findValuesAsText("label"))
+                .contains("신규 공고 수", "신규 진행중 공고 수", "전체 공고 수", "데이터 출처");
+        briefing.path("changes").forEach(change -> assertThat(change.has("label")
+                && change.has("value")
+                && change.has("previous")
+                && change.has("current")).isTrue());
+    }
+
+    @Test
+    @DisplayName("채용 신규 공고 URL이 없으면 데이터 도구 source_url을 briefing source fallback으로 사용한다")
+    void enrichesRecruitmentSourceFromDataToolSourceUrlWhenPostingUrlsAreMissing() throws Exception {
+        String rawInput = """
+                {
+                  "input": {
+                    "subscriptionId": "sub-job-source-fallback",
+                    "notificationChannel": "EMAIL",
+                    "notificationTarget": "user@example.com",
+                    "title": "공공기관 채용 새 공고",
+                    "message": "새로운 채용 공고가 감지되었습니다.",
+                    "metadata": {
+                      "briefingContractVersion": "channel-v1",
+                      "briefing": {
+                        "domain": "recruitment",
+                        "title": "공공기관 채용 새 공고",
+                        "summary": "새로운 채용 공고가 감지되었습니다.",
+                        "interpretation": "마감일과 지원 자격을 확인하세요."
+                      }
+                    }
+                  }
+                }
+                """;
+        List<Execution> executions = List.of(
+                new Execution("search_public_job", """
+                        {"input":{"page_no":1,"num_of_rows":20,"ongoing_yn":"Y"}}
+                        """, """
+                        {"structured":{"summary":{"count":20,"ongoing_count":20},"query":{"page_no":1,"num_of_rows":20,"ongoing_yn":"Y"}},"source_url":"https://apis.data.go.kr/1051000/recruitment/list?serviceKey=***","metadata":{"tool_name":"search_public_job"}}
+                        """, false),
+                new Execution("compare_subscription_change", """
+                        {"input":{"subscriptionId":"sub-job-source-fallback","domain":"recruitment","query":"공공기관 채용 새 공고","params":{"conditionMetric":"COUNT","conditionDirection":"UP","conditionOperator":"GTE","conditionThreshold":"1","conditionUnit":"COUNT","dataToolName":"search_public_job"}}}
+                        """, """
+                        {"structured":{"baseline_initialized":false,"changed":true,"subscriptionId":"sub-job-source-fallback","domain":"recruitment","baseline_summary":{"count":0,"ongoing_count":0,"posting_ids":[],"ongoing_posting_ids":[]},"current_summary":{"count":20,"ongoing_count":20,"posting_ids":["public_job:new"],"ongoing_posting_ids":["public_job:new"]},"diffs":[{"field":"added_count","baseline_value":0,"current_value":20,"delta":20,"direction":"increase"}],"briefing_postings_by_source":{"public_job":[{"posting_id":"public_job:new","title":"URL 없는 공공기관 채용","url":null}],"worknet_job":[]},"condition_satisfied":true,"requires_ai_analysis":true}}
+                        """, false)
+        );
+
+        String enriched = NotificationBriefingPayloadFactory.enrichSendNotificationInput(
+                rawInput,
+                executions,
+                objectMapper
+        );
+
+        JsonNode briefing = objectMapper.readTree(enriched).path("input").path("metadata").path("briefing");
+
+        assertThat(briefing.path("sources")).hasSize(1);
+        assertThat(briefing.path("sources").get(0).path("label").asText()).isEqualTo("공공채용");
+        assertThat(briefing.path("sources").get(0).path("url").asText())
+                .isEqualTo("https://apis.data.go.kr/1051000/recruitment/list?serviceKey=***");
     }
 }
