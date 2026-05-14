@@ -20,25 +20,22 @@
 ```mermaid
 graph TD
     User([User]) <--> Nginx[Nginx Reverse Proxy]
-    Nginx <--> Next[Next.js SSR Frontend]
-    Next <--> Spring[Spring Boot WAS 4.0]
+    
 
     subgraph "Core Engine (Node A)"
+        Nginx <--> Next[Next.js SSR Frontend]
+        Next <--> Spring[Spring Boot WAS 4.0]
         Spring <--> MCP_Client[Spring AI MCP Client]
         MCP_Client <--> MCP_Server[MCP Server - Python]
         Spring <--> PG[(PostgreSQL pgvector)]
         Spring <--> Redis[(Redis Cache)]
+        Spring --> Langfuse[Langfuse]
+        Spring --> Loki[Loki / Promtail]
     end
 
     subgraph "External Integration"
         MCP_Server <--> API[External APIs]
         MCP_Server --> Channels[Discord / Telegram / Email]
-    end
-
-    subgraph "Monitoring (Node B)"
-        Prometheus[Prometheus] --> Grafana[Grafana]
-        Spring --> Langfuse[Langfuse]
-        Spring --> Loki[Loki / Promtail]
     end
 ```
 *다이어그램 기반 정보*
@@ -60,3 +57,4 @@ graph TD
 
 ## 🚀 결과 및 회고
 * **성과**: 복잡한 계층 구현 대신 도구 설명만으로 기능을 확장하는 유연한 구조를 실현했습니다.
+* **PPT**: https://www.canva.com/design/DAHJVMseICU/5wZw-nnxPqQ1CDreUYd3KA/edit 
