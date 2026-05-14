@@ -164,25 +164,37 @@ final class GeminiToolSchemaAdapter {
 
         @Override
         public String call(String input) {
-            return callAndRecord(input, () -> delegate.call(input));
+            return callAndRecord(input, delegate::call);
         }
 
         @Override
         public String call(String input, ToolContext toolContext) {
-            return callAndRecord(input, () -> delegate.call(input, toolContext));
+            return callAndRecord(input, preparedInput -> delegate.call(preparedInput, toolContext));
         }
 
         private String callAndRecord(String input, ToolCallSupplier supplier) {
             String toolName = originalToolName(delegate).orElse(toolDefinition.name());
+            String preparedInput = prepareToolInput(toolName, input);
             try {
-                String output = supplier.call();
-                McpToolExecutionRecorder.record(toolName, input, output, false);
+                String output = supplier.call(preparedInput);
+                McpToolExecutionRecorder.record(toolName, preparedInput, output, false);
                 return output;
             } catch (RuntimeException e) {
                 String output = toolErrorPayload(toolName, e);
-                McpToolExecutionRecorder.record(toolName, input, output, true);
+                McpToolExecutionRecorder.record(toolName, preparedInput, output, true);
                 return output;
             }
+        }
+
+        private String prepareToolInput(String toolName, String input) {
+            if (!"send_notification".equals(toolName) && !toolName.endsWith("_send_notification")) {
+                return input;
+            }
+            return NotificationBriefingPayloadFactory.enrichSendNotificationInput(
+                    input,
+                    McpToolExecutionRecorder.snapshot(),
+                    objectMapper
+            );
         }
 
         private String toolErrorPayload(String toolName, RuntimeException exception) {
@@ -222,7 +234,7 @@ final class GeminiToolSchemaAdapter {
         @FunctionalInterface
         private interface ToolCallSupplier {
 
-            String call();
+            String call(String input);
         }
     }
 }
