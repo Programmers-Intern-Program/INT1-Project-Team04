@@ -8,6 +8,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -33,6 +37,8 @@ import org.springframework.stereotype.Component;
 @Component
 public class VertexAiTaskParserAdapter implements ParseNaturalLanguagePort {
 
+    private static final long PARSE_TIMEOUT_SECONDS = 300;
+
     // parserChatClient: MCP tool 없는 순수 ChatClient (AiConfig 참조)
     private final ChatClient chatClient;
     private final ObjectMapper objectMapper;
@@ -52,17 +58,15 @@ public class VertexAiTaskParserAdapter implements ParseNaturalLanguagePort {
      */
     @Override
     public List<ParsedTask> parse(String userInput) {
-        String raw;
-        try {
-            raw = chatClient.prompt()
-                    .system(PromptTemplate.SYSTEM_PROMPT)
-                    .user(PromptTemplate.buildUserPrompt(userInput))
-                    .call()
-                    .content();
-        } catch (Exception e) {
-            log.error("Vertex AI 파싱 호출 실패 - input: {}", userInput, e);
-            throw new ApiException(ErrorCode.AI_PARSE_FAILED);
-        }
+        String raw = callWithTimeout(
+                () -> chatClient.prompt()
+                        .system(PromptTemplate.SYSTEM_PROMPT)
+                        .user(PromptTemplate.buildUserPrompt(userInput))
+                        .call()
+                        .content(),
+                "parse",
+                userInput
+        );
         return parseTasks(raw);
     }
 
@@ -86,18 +90,36 @@ public class VertexAiTaskParserAdapter implements ParseNaturalLanguagePort {
                 })
                 .toList();
 
-        String raw;
+        String raw = callWithTimeout(
+                () -> chatClient.prompt()
+                        .system(PromptTemplate.CONTINUE_SYSTEM_PROMPT)
+                        .messages(messages)
+                        .call()
+                        .content(),
+                "continueParse",
+                "history size: " + history.size()
+        );
+        return parseTasks(raw);
+    }
+
+    private String callWithTimeout(java.util.concurrent.Callable<String> call, String op, String context) {
         try {
-            raw = chatClient.prompt()
-                    .system(PromptTemplate.CONTINUE_SYSTEM_PROMPT)
-                    .messages(messages)
-                    .call()
-                    .content();
-        } catch (Exception e) {
-            log.error("Vertex AI 후속 파싱 호출 실패 - history size: {}", history.size(), e);
+            return CompletableFuture.supplyAsync(() -> {
+                try {
+                    return call.call();
+                } catch (Exception e) {
+                    throw new CompletionException(e);
+                }
+            }).orTimeout(PARSE_TIMEOUT_SECONDS, TimeUnit.SECONDS).join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof TimeoutException) {
+                log.warn("Vertex AI {} 타임아웃 ({}s) - {}", op, PARSE_TIMEOUT_SECONDS, context);
+            } else {
+                log.error("Vertex AI {} 호출 실패 - {}", op, context, cause);
+            }
             throw new ApiException(ErrorCode.AI_PARSE_FAILED);
         }
-        return parseTasks(raw);
     }
 
     // ── 이하 JSON 파싱 로직 ────────────────────────────────────────────────
