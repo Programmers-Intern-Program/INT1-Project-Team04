@@ -36,10 +36,10 @@ COPY alembic.ini ./
 COPY scripts/ ./scripts/
 RUN uv sync --frozen --no-dev
 
+RUN chmod +x scripts/entrypoint.sh
+
 # 8. 포트 노출 및 실행
 EXPOSE 8090
 
-# PATH가 등록되어 있으므로 uv run 없이 직접 실행 가능 (프로세스 시그널 처리에 유리함)
-CMD ["python", "-m", "mcp_server"]
-# 만약 pyproject.toml의 [project.scripts]에 mcp-server가 등록되어 있다면 아래 명령어 사용:
-# CMD ["mcp-server"]
+# entrypoint: alembic upgrade → seed api_source → 서버 기동
+CMD ["scripts/entrypoint.sh"]
