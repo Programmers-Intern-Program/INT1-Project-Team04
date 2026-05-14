@@ -42,7 +42,7 @@ final class NotificationBriefingPayloadFactory {
             ObjectNode metadata = objectNode(request, "metadata", objectMapper);
             metadata.put("briefingContractVersion", BRIEFING_CONTRACT_VERSION);
             ObjectNode briefing = compare.get().isRecruitment()
-                    ? recruitmentBriefing(request, compare.get(), objectMapper)
+                    ? recruitmentBriefing(request, compare.get(), data, objectMapper)
                     : realEstateBriefing(request, compare.get(), data, objectMapper);
             metadata.set("briefing", briefing);
             request.set("metadata", metadata);
@@ -102,7 +102,9 @@ final class NotificationBriefingPayloadFactory {
             return Optional.of(new DataEvidence(
                     text(node.path("query"), "region"),
                     text(node.path("query"), "deal_ymd", "dealYmd", "dealPeriod"),
-                    toolNameFromOutput(node, execution.toolName())
+                    toolNameFromOutput(node, execution.toolName()),
+                    // 채용 공고별 URL이 비어도 MCP 도구의 공식 source_url을 provider 검증용 근거로 쓴다.
+                    sourceUrl(execution.output(), objectMapper)
             ));
         }
         return Optional.empty();
@@ -193,9 +195,14 @@ final class NotificationBriefingPayloadFactory {
     private static ObjectNode recruitmentBriefing(
             ObjectNode request,
             CompareEvidence compare,
+            DataEvidence data,
             ObjectMapper objectMapper
     ) {
         ArrayNode sources = recruitmentSources(compare.structured(), objectMapper);
+        // 채용 renderer는 최소 1개 URL을 요구하므로 공고 URL이 없을 때 데이터 도구 URL로 보강한다.
+        if (sources.isEmpty() && !blank(data.sourceUrl())) {
+            addRecruitmentFallbackSource(sources, data, objectMapper);
+        }
         String keyword = firstNonBlank(
                 text(compare.inputParams(), "keyword", "recrut_pbanc_ttl"),
                 text(request.path("metadata").path("briefing").path("watchInfo"), "keyword")
@@ -310,8 +317,20 @@ final class NotificationBriefingPayloadFactory {
         }
     }
 
+    private static void addRecruitmentFallbackSource(
+            ArrayNode sources,
+            DataEvidence data,
+            ObjectMapper objectMapper
+    ) {
+        ObjectNode source = objectMapper.createObjectNode();
+        source.put("label", recruitmentFallbackSourceLabel(data.toolName()));
+        source.put("url", data.sourceUrl());
+        sources.add(source);
+    }
+
     private static Optional<JsonNode> structuredNode(String content, ObjectMapper objectMapper) {
-        return readJson(content, objectMapper).flatMap(NotificationBriefingPayloadFactory::findStructuredNode);
+        return readJson(content, objectMapper)
+                .flatMap(node -> findStructuredNode(node, objectMapper));
     }
 
     private static Optional<JsonNode> toolPayloadNode(String content, ObjectMapper objectMapper) {
@@ -330,7 +349,7 @@ final class NotificationBriefingPayloadFactory {
         }
     }
 
-    private static Optional<JsonNode> findStructuredNode(JsonNode node) {
+    private static Optional<JsonNode> findStructuredNode(JsonNode node, ObjectMapper objectMapper) {
         if (node == null || node.isNull()) {
             return Optional.empty();
         }
@@ -339,23 +358,78 @@ final class NotificationBriefingPayloadFactory {
             if (structured != null && structured.isObject()) {
                 return Optional.of(structured);
             }
+            // Spring AI MCP 응답은 [{"text":"{...}"}]처럼 실제 JSON이 text 안에 한 번 더 들어올 수 있다.
+            JsonNode textNode = node.get("text");
+            if (textNode != null && textNode.isTextual()) {
+                Optional<JsonNode> nested = readJson(textNode.asText(), objectMapper);
+                if (nested.isPresent()) {
+                    Optional<JsonNode> nestedStructured = findStructuredNode(nested.get(), objectMapper);
+                    if (nestedStructured.isPresent()) {
+                        return nestedStructured;
+                    }
+                }
+            }
             if (node.has("baseline_initialized") || node.has("condition_satisfied")) {
                 return Optional.of(node);
             }
             Iterator<JsonNode> elements = node.elements();
             Iterable<JsonNode> iterable = () -> elements;
             return StreamSupport.stream(iterable.spliterator(), false)
-                    .map(NotificationBriefingPayloadFactory::findStructuredNode)
+                    .map(child -> findStructuredNode(child, objectMapper))
                     .flatMap(Optional::stream)
                     .findFirst();
         }
         if (node.isArray()) {
             return StreamSupport.stream(node.spliterator(), false)
-                    .map(NotificationBriefingPayloadFactory::findStructuredNode)
+                    .map(child -> findStructuredNode(child, objectMapper))
                     .flatMap(Optional::stream)
                     .findFirst();
         }
         return Optional.empty();
+    }
+
+    private static String sourceUrl(String content, ObjectMapper objectMapper) {
+        return readJson(content, objectMapper)
+                .map(node -> findText(node, objectMapper, "source_url", "sourceUrl"))
+                .orElse(null);
+    }
+
+    // source_url도 structured와 동일하게 MCP text wrapper 안에 숨을 수 있어 재귀적으로 찾는다.
+    private static String findText(JsonNode node, ObjectMapper objectMapper, String... names) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isObject()) {
+            String value = text(node, names);
+            if (!blank(value)) {
+                return value;
+            }
+            JsonNode textNode = node.get("text");
+            if (textNode != null && textNode.isTextual()) {
+                Optional<JsonNode> nested = readJson(textNode.asText(), objectMapper);
+                if (nested.isPresent()) {
+                    String nestedValue = findText(nested.get(), objectMapper, names);
+                    if (!blank(nestedValue)) {
+                        return nestedValue;
+                    }
+                }
+            }
+            Iterator<JsonNode> elements = node.elements();
+            Iterable<JsonNode> iterable = () -> elements;
+            return StreamSupport.stream(iterable.spliterator(), false)
+                    .map(child -> findText(child, objectMapper, names))
+                    .filter(valueCandidate -> !blank(valueCandidate))
+                    .findFirst()
+                    .orElse(null);
+        }
+        if (node.isArray()) {
+            return StreamSupport.stream(node.spliterator(), false)
+                    .map(child -> findText(child, objectMapper, names))
+                    .filter(value -> !blank(value))
+                    .findFirst()
+                    .orElse(null);
+        }
+        return null;
     }
 
     private static ObjectNode objectNode(ObjectNode parent, String field, ObjectMapper objectMapper) {
@@ -427,6 +501,13 @@ final class NotificationBriefingPayloadFactory {
             }
         }
         return hasWorknet ? "공공채용, 워크넷" : "공공채용";
+    }
+
+    private static String recruitmentFallbackSourceLabel(String toolName) {
+        if ("search_worknet_job".equals(toolName)) {
+            return "워크넷 채용정보";
+        }
+        return "공공채용";
     }
 
     private static String recruitmentSummary(JsonNode structured, String keyword) {
@@ -529,6 +610,8 @@ final class NotificationBriefingPayloadFactory {
                 || name.contains("search_offi_rent")
                 || name.contains("search_rh_trade")
                 || name.contains("search_rh_rent")
+                || name.contains("search_public_job")
+                || name.contains("search_worknet_job")
                 || name.contains("get_cached_data");
     }
 
@@ -634,10 +717,10 @@ final class NotificationBriefingPayloadFactory {
         }
     }
 
-    private record DataEvidence(String region, String dealPeriod, String toolName) {
+    private record DataEvidence(String region, String dealPeriod, String toolName, String sourceUrl) {
 
         static DataEvidence empty() {
-            return new DataEvidence(null, null, null);
+            return new DataEvidence(null, null, null, null);
         }
     }
 }
