@@ -140,6 +140,34 @@ def test_recruitment_new_job_request_returns_job_posting_change_contract() -> No
     assert result.missing_fields == []
 
 
+@pytest.mark.parametrize(
+    ("query", "expected_keyword"),
+    [
+        ("백엔드 직무 채용 새 공고", "백엔드"),
+        ("백엔드 직군 채용 새 공고", "백엔드"),
+        ("전산직군 채용 새 공고", "전산직"),
+        ("전산직 채용 새 공고", "전산직"),
+    ],
+)
+def test_recruitment_keyword_removes_job_descriptor_suffixes(query: str, expected_keyword: str) -> None:
+    result = normalize_subscription_draft(
+        SubscriptionDraftNormalizationInput(
+            userMessage=f"{query} 뜨면 알려줘",
+            task=ParsedTaskDraft(
+                intent="create",
+                domainName="채용",
+                query=query,
+                condition="새 공고 등록",
+                target=f"{query} 공고",
+                confidence=0.9,
+            ),
+        )
+    )
+
+    assert result.parameters["keyword"] == expected_keyword
+    assert result.parameters["recrut_pbanc_ttl"] == expected_keyword
+
+
 def test_recruitment_time_number_does_not_override_default_count_threshold() -> None:
     result = normalize_subscription_draft(
         SubscriptionDraftNormalizationInput(

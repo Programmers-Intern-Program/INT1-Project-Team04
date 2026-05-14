@@ -645,6 +645,50 @@ class SubscriptionConversationServiceTest {
     }
 
     @Test
+    @DisplayName("채용 대상 답변의 직무/직군 설명어는 검색 키워드에서 제거한다")
+    void recruitmentKeywordAnswerRemovesJobDescriptorSuffixes() {
+        SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);
+        conversation.updateParsedDraft(
+                "parse-1",
+                "채용 알림",
+                3L,
+                "recruitment",
+                "job_posting_change",
+                "search_public_job",
+                "{" +
+                        "\"dataToolName\":\"search_public_job\"," +
+                        "\"page_no\":\"1\"," +
+                        "\"num_of_rows\":\"20\"," +
+                        "\"ongoing_yn\":\"Y\"" +
+                        "}",
+                "0 0 * * * *",
+                null,
+                null,
+                "어떤 종류의 채용 공고를 모니터링하시겠어요? 그리고 어떤 조건일 때 알림을 받으시겠어요?",
+                SubscriptionConversationStatus.COLLECTING
+        );
+        when(conversationRepository.findByIdAndUserId(conversation.getId(), 1L))
+                .thenReturn(Optional.of(conversation));
+        when(conversationRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        SubscriptionConversationService service = service(loadNotificationEndpointPort);
+
+        SubscriptionConversationService.Response response = service.handle(
+                1L,
+                conversation.getId(),
+                "전산직군 새 공고가 1건 이상 등록되면",
+                null
+        );
+
+        assertThat(parseTaskUseCase.continueCallCount).isZero();
+        assertThat(response.status()).isEqualTo("NEEDS_INPUT");
+        assertThat(conversation.getDraftMonitoringParams())
+                .contains("\"keyword\":\"전산직\"")
+                .contains("\"recrut_pbanc_ttl\":\"전산직\"")
+                .contains("\"conditionMetric\":\"COUNT\"")
+                .doesNotContain("전산직군");
+    }
+
+    @Test
     @DisplayName("채용 조건 질문 뒤 키워드만 답하면 기본 조건을 확정하지 않고 조건을 다시 질문한다")
     void recruitmentKeywordOnlyAnswerAfterConditionQuestionAsksConditionAgain() {
         SubscriptionConversationJpaEntity conversation = new SubscriptionConversationJpaEntity(1L);

@@ -32,6 +32,14 @@ final class McpToolExecutionRecorder {
         }
     }
 
+    static List<Execution> snapshot() {
+        List<Execution> executions = EXECUTIONS.get();
+        if (executions == null) {
+            return List.of();
+        }
+        return List.copyOf(executions);
+    }
+
     record Execution(String toolName, String input, String output, boolean failed) {
     }
 }

@@ -172,6 +172,44 @@ def test_real_estate_briefing_accepts_ai_payload_without_watch_target_and_numeri
     assert "평균 보증금: 1억 3,400만원 → 1억 3,709만원 (2.31%)" in rendered.message
 
 
+def test_real_estate_briefing_repairs_ai_changes_missing_value_fields() -> None:
+    payload = _real_estate_briefing().model_dump(mode="json", by_alias=True)
+    payload["title"] = "강남구 아파트 매매가격 변동 알림"
+    payload["summary"] = "강남구 아파트 평균 매매가가 29억원에서 29억 4,209만원으로 1.45% 상승했습니다."
+    payload["changes"] = [
+        {
+            "label": "평균 매매가",
+            "baseline": "29억원",
+            "current": "29억 4,209만원",
+            "change_rate": "1.45% 상승",
+        },
+        {
+            "label": "거래 건수",
+            "current": "100건",
+        },
+        {
+            "label": "데이터 출처",
+            "data_source": "국토교통부 아파트 매매 실거래가",
+        },
+    ]
+    payload["watchInfo"] = {
+        "target": "강남구 아파트 매매가",
+        "condition": "가격 변화 발생 시",
+        "region": "강남구",
+        "dealPeriod": "202604",
+        "dataSource": "국토교통부 아파트 매매 실거래가",
+    }
+    payload["interpretation"] = "표본 수와 거래 구성을 함께 확인하는 것이 좋습니다."
+
+    briefing = NotificationBriefing.model_validate(payload)
+    rendered = render_for_channel(briefing, NotificationChannel.DISCORD_DM)
+
+    assert "- 평균 매매가: 29억원 → 29억 4,209만원 (1.45% 상승)" in rendered.message
+    assert "- 변화율: 1.45% 상승" in rendered.message
+    assert "- 거래 건수: 100건" in rendered.message
+    assert "데이터 출처: 국토교통부 아파트 매매 실거래가" in rendered.message
+
+
 def test_recruitment_telegram_golden_message() -> None:
     rendered = render_for_channel(_recruitment_briefing(), NotificationChannel.TELEGRAM_DM)
 
