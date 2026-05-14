@@ -231,12 +231,24 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
             if (isRateLimitException(failure)) {
                 throw new ApiException(ErrorCode.RATE_LIMIT_EXCEEDED);
             }
+            if (isTimeoutException(failure)) {
+                log.warn("[SpringAiMonitorAdapter] MCP 응답 타임아웃 — 구독 스킵. subscriptionId 확인은 호출부 로그 참조");
+            }
             throw failure;
         }
     }
 
     // 예외 체인 전체를 탐색 — 원인이 깊이 래핑될 수 있음
     // 실제 Vertex AI 429 예외 타입은 첫 발생 시 로그로 확인 후 보정 필요
+    private boolean isTimeoutException(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof java.util.concurrent.TimeoutException) return true;
+            String msg = t.getMessage() == null ? "" : t.getMessage();
+            if (msg.contains("TimeoutException") || msg.contains("Did not observe any item")) return true;
+        }
+        return false;
+    }
+
     private boolean isRateLimitException(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause()) {
             String name = t.getClass().getName();

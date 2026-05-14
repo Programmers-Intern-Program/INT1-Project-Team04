@@ -11,8 +11,8 @@ import org.springframework.core.io.ClassPathResource;
 class ApplicationMcpClientPropertiesTest {
 
     @Test
-    @DisplayName("MCP client request timeout은 실제 외부 API/알림 발송 지연을 감당하도록 60초 기본값을 둔다")
-    void mcpClientRequestTimeoutDefaultsToSixtySeconds() {
+    @DisplayName("MCP client request timeout은 실제 외부 API/알림 발송 지연을 감당하도록 300초 기본값을 둔다")
+    void mcpClientRequestTimeoutDefaultsToFiveMinutes() {
         YamlPropertiesFactoryBean factory = new YamlPropertiesFactoryBean();
         factory.setResources(new ClassPathResource("application.yml"));
 
@@ -20,6 +20,6 @@ class ApplicationMcpClientPropertiesTest {
 
         assertThat(properties)
                 .isNotNull()
-                .containsEntry("spring.ai.mcp.client.request-timeout", "${MCP_CLIENT_REQUEST_TIMEOUT:60s}");
+                .containsEntry("spring.ai.mcp.client.request-timeout", "${MCP_CLIENT_REQUEST_TIMEOUT:300s}");
     }
 }
