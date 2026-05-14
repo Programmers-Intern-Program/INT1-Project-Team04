@@ -7,10 +7,13 @@ normalize_subscription_draft 자체는 문장 구조화가 책임이다. 이 모
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Iterable
+
+_log = logging.getLogger(__name__)
 
 from mcp_server.config import get_settings
 from mcp_server.domains.jobs.normalizer import PublicJobPosting, normalize_public_job
@@ -101,7 +104,8 @@ async def validate_public_job_keyword(
             },
         )
         postings = normalize_public_job(raw.content)
-    except Exception:
+    except Exception as exc:
+        _log.warning("채용 키워드 검증 실패 - keyword=%r: %s", keyword, exc)
         return None
 
     matched = [

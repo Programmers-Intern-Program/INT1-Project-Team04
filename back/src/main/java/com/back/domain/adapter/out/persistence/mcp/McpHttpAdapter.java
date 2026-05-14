@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
@@ -24,6 +25,7 @@ import org.springframework.stereotype.Component;
  * * 비즈니스 로직에서 정의한 'ExecuteMcpToolPort' 인터페이스를 구현하며
  * 실제 외부 도구(Tool)를 실행하고 그 결과를 받아오는 역할을 함
  */
+@Slf4j
 @Component
 public class McpHttpAdapter implements ExecuteMcpToolPort {
 
@@ -48,6 +50,7 @@ public class McpHttpAdapter implements ExecuteMcpToolPort {
         try {
             result = clientFor(tool.name()).callTool(new McpSchema.CallToolRequest(tool.name(), arguments));
         } catch (RuntimeException exception) {
+            log.error("[McpHttpAdapter] MCP 도구 실행 실패 - tool={}", tool.name(), exception);
             throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
         }
 
@@ -89,7 +92,13 @@ public class McpHttpAdapter implements ExecuteMcpToolPort {
                 return;
             }
             for (McpSyncClient client : clients) {
-                McpSchema.ListToolsResult tools = client.listTools();
+                McpSchema.ListToolsResult tools;
+                try {
+                    tools = client.listTools();
+                } catch (RuntimeException e) {
+                    log.error("[McpHttpAdapter] MCP 카탈로그 로드 실패 - client={}", client, e);
+                    throw e;
+                }
                 if (tools == null || tools.tools() == null) {
                     continue;
                 }

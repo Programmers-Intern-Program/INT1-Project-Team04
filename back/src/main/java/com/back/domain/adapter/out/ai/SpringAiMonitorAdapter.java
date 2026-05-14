@@ -100,7 +100,7 @@ public class SpringAiMonitorAdapter implements RunAiMonitorPort, RunSubscription
     public void execute(SubscriptionContext subscription) {
         if (monitorChatClient == null) {
             log.warn("[SpringAiMonitorAdapter] ChatClient 미구성 — 구독 실행 스킵. subscriptionId={}", subscription.subscriptionId());
-            throw new ApiException(ErrorCode.MCP_REQUEST_FAILED);
+            return;
         }
         // acquireUninterruptibly: 서비스 VT의 Runnable 람다는 checked exception 불가
         semaphore.acquireUninterruptibly();
