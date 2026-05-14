@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -11,6 +12,8 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+
+_log = logging.getLogger(__name__)
 
 from mcp_server.db.models import SubscriptionSnapshotState
 from mcp_server.db.session import get_session
@@ -373,6 +376,12 @@ class SubscriptionChangeService:
             row = result.scalar_one_or_none()
 
             if row is None:
+                _log.info(
+                    "baseline 초기화 - subscription_id=%s domain=%s params_hash=%s",
+                    input_model.subscription_id,
+                    input_model.domain,
+                    params_hash,
+                )
                 row = SubscriptionSnapshotState(
                     subscription_id=input_model.subscription_id,
                     domain=input_model.domain,
@@ -419,6 +428,11 @@ class SubscriptionChangeService:
                 row.baseline_summary,
                 current_summary,
             ):
+                _log.info(
+                    "부동산 baseline 재초기화 - subscription_id=%s reason=%s",
+                    input_model.subscription_id,
+                    INVALID_REAL_ESTATE_MONEY_BASELINE_REASON,
+                )
                 row.baseline_summary = current_summary
                 row.baseline_content = current_content
                 row.baseline_captured_at = now
@@ -452,6 +466,14 @@ class SubscriptionChangeService:
             condition_satisfied, requires_ai_analysis, condition_reason = ai_analysis_gate(
                 input_model.params,
                 diffs,
+            )
+            _log.info(
+                "비교 완료 - subscription_id=%s changed=%s diffs=%d condition_satisfied=%s requires_ai_analysis=%s",
+                input_model.subscription_id,
+                bool(diffs),
+                len(diffs),
+                condition_satisfied,
+                requires_ai_analysis,
             )
             row.latest_summary = current_summary
             row.latest_content = current_content

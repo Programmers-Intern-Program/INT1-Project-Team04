@@ -10,10 +10,13 @@
 와 순환하므로 함수 안 lazy import 로 한다.)
 """
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from mcp.server.fastmcp import FastMCP
+
+_log = logging.getLogger(__name__)
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -25,15 +28,23 @@ from mcp_server.sources.api_source_service import aclose_http_client
 
 @asynccontextmanager
 async def server_lifespan(_: FastMCP) -> AsyncIterator[None]:
-    # startup: Langfuse 클라이언트 워밍업 (비활성이면 None 반환, 무영향)
-    get_langfuse()
+    s = get_settings()
+    langfuse = get_langfuse()
+    _log.info(
+        "MCP 서버 시작 - transport=%s host=%s port=%s langfuse=%s",
+        s.mcp_transport,
+        s.mcp_sse_host,
+        s.mcp_sse_port,
+        "enabled" if langfuse is not None else "disabled",
+    )
     try:
         yield
     finally:
-        # shutdown: trace 손실 방지 + 공유 HTTP 클라이언트 / DB 풀 정리
+        _log.info("MCP 서버 종료 중 - trace flush / HTTP client / DB 풀 정리")
         flush_langfuse()
         await aclose_http_client()
         await reset_engine()
+        _log.info("MCP 서버 종료 완료")
 
 
 _settings = get_settings()

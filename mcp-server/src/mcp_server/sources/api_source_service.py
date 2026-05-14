@@ -89,6 +89,7 @@ async def fetch(
             "params": params,
         }
         if cached is not None:
+            _log.info("fetch 실패 → 캐시 폴백 - tool=%s cached_at=%s", source.tool_name, cached.cached_at)
             return RawResult(
                 source_type="api",
                 source_id=source.id,
@@ -111,6 +112,7 @@ async def fetch(
         content=response_text,
         cached_at=fetched_at,
     )
+    _log.info("fetch 성공 - tool=%s bytes=%d", source.tool_name, len(response_text))
 
     return RawResult(
         source_type="api",
