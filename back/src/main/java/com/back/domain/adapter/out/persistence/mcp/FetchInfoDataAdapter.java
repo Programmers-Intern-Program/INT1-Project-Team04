@@ -171,7 +171,28 @@ public class FetchInfoDataAdapter implements FetchInfoDataPort {
             cleaned = cleaned.replace(stop, "");
         }
         cleaned = cleaned.replaceAll("\\s+", " ").strip();
+        cleaned = removeRecruitmentDescriptorSuffix(cleaned);
         return isBlank(cleaned) ? null : cleaned;
+    }
+
+    private String removeRecruitmentDescriptorSuffix(String keyword) {
+        if (isBlank(keyword)) {
+            return "";
+        }
+        String normalized = keyword.replaceAll("\\s+", " ").strip();
+        for (String suffix : List.of(" 직무", " 직군")) {
+            if (normalized.endsWith(suffix)) {
+                return normalized.substring(0, normalized.length() - suffix.length()).strip();
+            }
+        }
+        if (normalized.endsWith("직군") && normalized.length() > "직군".length()) {
+            String stem = normalized.substring(0, normalized.length() - "직군".length()).strip();
+            if (stem.length() <= 2) {
+                return normalized.substring(0, normalized.length() - "군".length()).strip();
+            }
+            return stem;
+        }
+        return normalized;
     }
 
     private String buildSummary(String domainName, String content, String query) {

@@ -113,6 +113,9 @@ class NotificationBriefing(BaseModel):
             for source in sources:
                 flattened.extend(_normalize_source_entry(source))
             normalized["sources"] = flattened
+        changes = normalized.get("changes")
+        if isinstance(changes, list):
+            normalized["changes"] = _normalize_change_entries(changes)
         return normalized
 
     @model_validator(mode="after")
@@ -183,3 +186,94 @@ def _normalize_source_entry(source: Any) -> list[dict[str, Any]]:
         normalized["url"] = value
     normalized.pop("value", None)
     return [normalized]
+
+
+def _normalize_change_entries(changes: list[Any]) -> list[Any]:
+    normalized: list[Any] = []
+    first_rate: str | None = None
+    has_rate_entry = False
+
+    for change in changes:
+        if not isinstance(change, dict):
+            normalized.append(change)
+            continue
+
+        item = dict(change)
+        field = _string_or_none(item.get("field"))
+        if not _string_or_none(item.get("label")) and field:
+            item["label"] = _change_field_label(field)
+
+        previous = _first_present_string(item, "previous", "baseline", "baseline_value")
+        current = _first_present_string(item, "current", "current_value", "latest", "latest_value")
+        rate = _first_present_string(item, "change_rate", "changeRate", "rate")
+        data_source = _first_present_string(item, "data_source", "dataSource")
+
+        if previous is not None and "previous" not in item:
+            item["previous"] = previous
+        if current is not None and "current" not in item:
+            item["current"] = current
+        if not _string_or_none(item.get("value")):
+            value = _change_value(previous, current, rate, data_source)
+            if value:
+                item["value"] = value
+
+        label = _string_or_none(item.get("label")) or ""
+        if rate and first_rate is None:
+            first_rate = rate
+        if "변화율" in label or "증감률" in label:
+            has_rate_entry = True
+        normalized.append(item)
+
+    if first_rate and not has_rate_entry:
+        insert_at = 1 if normalized else 0
+        normalized.insert(insert_at, {"label": "변화율", "value": first_rate})
+
+    return normalized
+
+
+def _change_field_label(field: str) -> str:
+    return {
+        "avg_deal_amount": "평균 매매가",
+        "avg_deposit": "평균 보증금",
+        "avg_monthly_rent": "평균 월세",
+        "count": "거래 건수",
+    }.get(field, field)
+
+
+def _change_value(
+    previous: str | None,
+    current: str | None,
+    rate: str | None,
+    data_source: str | None,
+) -> str | None:
+    if previous and current:
+        value = f"{previous} → {current}"
+        if rate:
+            value = f"{value} ({rate})"
+        return value
+    if current:
+        return current
+    if data_source:
+        return data_source
+    if rate:
+        return rate
+    return None
+
+
+def _first_present_string(source: dict[str, Any], *keys: str) -> str | None:
+    for key in keys:
+        value = _string_or_none(source.get(key))
+        if value:
+            return value
+    return None
+
+
+def _string_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
