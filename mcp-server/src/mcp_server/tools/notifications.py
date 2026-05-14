@@ -10,9 +10,12 @@
 - provider token / SMTP password 같은 비밀값은 도구 인자로 받지 않고 settings 에서 읽는다.
 """
 
+import logging
 from typing import Any
 
 from pydantic import ValidationError
+
+_log = logging.getLogger(__name__)
 
 from mcp_server.config import get_settings
 from mcp_server.notifications.briefing_models import NotificationBriefing
@@ -44,9 +47,18 @@ async def send_notification(input: NotificationRequest) -> dict[str, Any]:
     자연어 최종 응답을 발송으로 간주하지 말고, 구독 실행 알림은 channel-v1
     브리핑 렌더링 결과까지 발송 성공 증빙으로 판단한다.
     """
+    _log.info(
+        "send_notification 시작 - subscription_id=%s channel=%s",
+        input.subscription_id,
+        input.channel,
+    )
     briefing_rendered = False
     briefing_contract_version = input.metadata.get("briefingContractVersion")
     if briefing_contract_version != _BRIEFING_CONTRACT_VERSION and _requires_briefing_contract(input):
+        _log.warning(
+            "send_notification briefing 계약 누락 - subscription_id=%s",
+            input.subscription_id,
+        )
         return _briefing_contract_failure(
             input,
             "briefing_contract_required",
@@ -58,6 +70,11 @@ async def send_notification(input: NotificationRequest) -> dict[str, Any]:
             briefing = NotificationBriefing.model_validate(input.metadata.get("briefing"))
             rendered = render_for_channel(briefing, input.channel)
         except ValidationError as exc:
+            _log.warning(
+                "send_notification briefing 렌더링 실패 - subscription_id=%s error=%s",
+                input.subscription_id,
+                exc,
+            )
             return _briefing_contract_failure(input, "briefing_contract_invalid", str(exc))
         input = input.model_copy(update={
             "title": rendered.provider_title,
@@ -66,6 +83,22 @@ async def send_notification(input: NotificationRequest) -> dict[str, Any]:
         briefing_rendered = True
 
     result = await NotificationDeliveryService(get_settings()).send(input)
+    if result.sent:
+        _log.info(
+            "send_notification 성공 - subscription_id=%s channel=%s provider=%s",
+            input.subscription_id,
+            result.channel,
+            result.provider,
+        )
+    else:
+        _log.warning(
+            "send_notification 실패 - subscription_id=%s channel=%s provider=%s retryable=%s error=%s",
+            input.subscription_id,
+            result.channel,
+            result.provider,
+            result.retryable,
+            result.error,
+        )
     status_text = "sent" if result.sent else "failed"
     return {
         "text": f"{result.provider} notification {status_text}.",
