@@ -52,7 +52,7 @@ def flush_langfuse() -> None:
 def traced(name: str) -> Callable[[F], F]:
     """모든 @mcp.tool() 도구에 부착되는 표준 트레이싱 데코레이터.
 
-    Langfuse 비활성 시 원함수를 그대로 반환 (no-op).
+    Langfuse 비활성 시에도 INFO 로그(호출/완료/오류)는 항상 찍는다.
     활성 시 langfuse `@observe(name, as_type="tool")` 위임 — sync/async 자동 처리,
     입력/출력 자동 캡처, 예외 발생 시 status=ERROR.
 
@@ -61,8 +61,38 @@ def traced(name: str) -> Callable[[F], F]:
 
     시그니처 안정성: 향후 옵션 추가 시 keyword-only 만 허용.
     """
+    import asyncio
+    import functools
+    import time
+
     def decorator(func: F) -> F:
-        if get_langfuse() is None:
-            return func
-        return observe(name=name, as_type="tool")(func)  # type: ignore[return-value]
+        if get_langfuse() is not None:
+            return observe(name=name, as_type="tool")(func)  # type: ignore[return-value]
+
+        @functools.wraps(func)
+        async def async_wrapper(*args, **kwargs):
+            _log.info("tool[%s] 호출", name)
+            t0 = time.monotonic()
+            try:
+                result = await func(*args, **kwargs)
+                _log.info("tool[%s] 완료 (%.3fs)", name, time.monotonic() - t0)
+                return result
+            except Exception as exc:
+                _log.error("tool[%s] 오류 (%.3fs): %s", name, time.monotonic() - t0, exc)
+                raise
+
+        @functools.wraps(func)
+        def sync_wrapper(*args, **kwargs):
+            _log.info("tool[%s] 호출", name)
+            t0 = time.monotonic()
+            try:
+                result = func(*args, **kwargs)
+                _log.info("tool[%s] 완료 (%.3fs)", name, time.monotonic() - t0)
+                return result
+            except Exception as exc:
+                _log.error("tool[%s] 오류 (%.3fs): %s", name, time.monotonic() - t0, exc)
+                raise
+
+        return async_wrapper if asyncio.iscoroutinefunction(func) else sync_wrapper  # type: ignore[return-value]
+
     return decorator

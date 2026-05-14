@@ -59,7 +59,7 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
         LocalDateTime now = LocalDateTime.now();
         List<Schedule> dueSchedules = loadDueSchedulesPort.loadDueSchedules(now);
         if (dueSchedules.isEmpty()) {
-            log.debug("[SubscriptionMonitorService] 실행할 구독 없음");
+            log.info("[SubscriptionMonitorService] 실행할 구독 없음");
             return;
         }
         log.info("[SubscriptionMonitorService] 구독 실행 시작 - {}건", dueSchedules.size());
@@ -119,13 +119,16 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
 
     private void advanceSchedule(Schedule schedule, LocalDateTime now) {
         try {
-            saveSchedulePort.save(new Schedule(
+            Schedule advanced = new Schedule(
                     schedule.id(),
                     schedule.subscription(),
                     schedule.cronExpr(),
                     now,
                     CronScheduleCalculator.nextRun(schedule.cronExpr(), now)
-            ));
+            );
+            saveSchedulePort.save(advanced);
+            log.info("[SubscriptionMonitorService] 스케줄 갱신 완료 - scheduleId={}, nextRun={}",
+                    schedule.id(), advanced.nextRun());
         } catch (RuntimeException e) {
             log.warn("Failed to advance schedule. scheduleId={}", schedule.id(), e);
         }
