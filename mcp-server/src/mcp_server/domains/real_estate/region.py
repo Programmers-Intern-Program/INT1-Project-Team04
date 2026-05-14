@@ -111,7 +111,7 @@ def resolve_lawd_cd(query: str) -> str:
                 candidates=_candidates_label(same_sido),
             )
 
-    # (3) 시군구 단독
+    # (3) 시군구 단독 — 정확 일치
     matches = [r for r in rows if r["sigungu"] == normalized]
     if len(matches) == 1:
         return matches[0]["code"]
@@ -119,6 +119,19 @@ def resolve_lawd_cd(query: str) -> str:
         raise RealEstateRegionNotFoundError(
             f"'{normalized}' 동음이의: 시도와 함께 다시 입력하세요 (예: '서울 {normalized}')",
             candidates=_candidates_label(matches),
+        )
+
+    # (3-b) 행정구 endswith 폴백 — 데이터의 sigungu 는 "성남시 분당구" 처럼 한 문자열로
+    # 저장되어 있어 "분당구" 단독 입력은 (3) 의 정확 일치로 잡히지 않는다. 행정구 단독
+    # 입력을 자주 쓰므로 끝일치(공백 경계) 로 후보를 모은다. 1건이면 채택, 2건+ 이면
+    # 동음이의로 후보 안내.
+    tail_matches = [r for r in rows if r["sigungu"].endswith(" " + normalized)]
+    if len(tail_matches) == 1:
+        return tail_matches[0]["code"]
+    if len(tail_matches) > 1:
+        raise RealEstateRegionNotFoundError(
+            f"'{normalized}' 동음이의: 시·도와 함께 다시 입력하세요",
+            candidates=_candidates_label(tail_matches),
         )
 
     raise RealEstateRegionNotFoundError(
