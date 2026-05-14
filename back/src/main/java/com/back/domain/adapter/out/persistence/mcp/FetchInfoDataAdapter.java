@@ -11,6 +11,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -258,8 +259,44 @@ public class FetchInfoDataAdapter implements FetchInfoDataPort {
     }
 
     private String extractRegion(String query) {
+        // 입력 예: "성남시 분당구 아파트 매매 …" → "성남시 분당구" (행정구 포함 다중 토큰)
+        // REGION 정규식은 "OO시/군/구" 단일 토큰만 잡으므로 모든 매치를 모은 뒤
+        // 공백으로만 인접한 매치들을 하나의 region 묶음으로 결합해 최장 묶음을 반환한다.
+        if (query == null || query.isBlank()) {
+            return null;
+        }
         Matcher matcher = REGION.matcher(query);
-        return matcher.find() ? matcher.group(1) : null;
+        List<int[]> matches = new ArrayList<>();
+        while (matcher.find()) {
+            matches.add(new int[]{matcher.start(), matcher.end()});
+        }
+        if (matches.isEmpty()) {
+            return null;
+        }
+        int bestStart = matches.get(0)[0];
+        int bestEnd = matches.get(0)[1];
+        int bestCount = 1;
+        int curStart = bestStart;
+        int curEnd = bestEnd;
+        int curCount = 1;
+        for (int i = 1; i < matches.size(); i++) {
+            int s = matches.get(i)[0];
+            int e = matches.get(i)[1];
+            if (query.substring(curEnd, s).chars().allMatch(Character::isWhitespace)) {
+                curEnd = e;
+                curCount++;
+            } else {
+                curStart = s;
+                curEnd = e;
+                curCount = 1;
+            }
+            if (curCount > bestCount) {
+                bestStart = curStart;
+                bestEnd = curEnd;
+                bestCount = curCount;
+            }
+        }
+        return query.substring(bestStart, bestEnd).replaceAll("\\s+", " ").strip();
     }
 
     private boolean isMolitTool(String toolName) {
