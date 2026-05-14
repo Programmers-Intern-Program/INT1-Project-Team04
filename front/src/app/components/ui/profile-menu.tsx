@@ -9,6 +9,7 @@ import {
   withdrawMember,
   type Member,
 } from "../../lib/auth";
+import { clearChatStorage } from "../../lib/subscription-chat-session";
 
 type ActionState = "idle" | "saving" | "withdrawing";
 
@@ -60,6 +61,7 @@ export function ProfileMenu({
   }
 
   async function handleLogout() {
+    clearChatStorage();
     await logout();
     setOpen(false);
     onSignedOut();

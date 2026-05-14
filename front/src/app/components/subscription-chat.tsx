@@ -151,7 +151,13 @@ export function SubscriptionChat({
     const timer = window.setTimeout(() => {
       const snapshot = readChatSession();
       if (snapshot) {
-        setMessages(snapshot.messages);
+        setMessages(
+          snapshot.messages.map((m) =>
+            m.status === "pending"
+              ? { ...m, content: "요청이 완료되지 않았어요. 다시 시도해 주세요.", status: "error" }
+              : m,
+          ),
+        );
         setConversationId(snapshot.conversationId);
         setActions(snapshot.actions);
         setDraft(snapshot.draft);
