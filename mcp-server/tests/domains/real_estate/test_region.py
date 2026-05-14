@@ -70,3 +70,19 @@ def test_resolve_raises_when_no_match_at_all():
 def test_resolve_raises_for_empty_input():
     with pytest.raises(RealEstateRegionNotFoundError):
         resolve_lawd_cd("   ")
+
+
+def test_resolve_endswith_fallback_for_administrative_district():
+    """행정구 단독 입력은 '시 행정구' 형태로 저장된 sigungu 에 endswith 매칭."""
+    # 성남시 분당구 → 41135
+    assert resolve_lawd_cd("분당구") == "41135"
+    # 수원시 영통구 → 41117
+    assert resolve_lawd_cd("영통구") == "41117"
+    # 안양시 동안구 → 41173
+    assert resolve_lawd_cd("동안구") == "41173"
+
+
+def test_resolve_exact_match_takes_precedence_over_endswith():
+    """동일 sigungu 가 정확 일치로 잡히면 endswith 폴백을 거치지 않는다.
+    '강남구' 는 '서울특별시 강남구' 의 sigungu 가 '강남구' 단독이므로 (3) 에서 매칭."""
+    assert resolve_lawd_cd("강남구") == "11680"
