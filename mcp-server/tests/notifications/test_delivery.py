@@ -240,6 +240,45 @@ async def test_discord_channel_creation_failure_stops_before_message_send() -> N
     assert len(requests) == 1
 
 
+async def test_discord_dm_forbidden_explains_bot_invite_requirement() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            403,
+            json={
+                "code": 50007,
+                "message": "Cannot send messages to this user",
+            },
+        )
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        service = NotificationDeliveryService(
+            _settings(
+                notification_discord_enabled=True,
+                notification_discord_bot_token="discord-token",
+                notification_discord_bot_invite_url="https://discord.com/oauth2/authorize?client_id=bot",
+            ),
+            http_client=client,
+        )
+
+        result = await service.send(NotificationRequest(
+            channel=NotificationChannel.DISCORD_DM,
+            target="user-1",
+            message="발송 테스트",
+        ))
+
+    assert result.sent is False
+    assert result.retryable is False
+    assert result.status_code == 403
+    assert result.error == (
+        "Discord DM을 보낼 수 없습니다. 알림을 받을 Discord 서버에 알림 봇을 초대한 뒤 "
+        "다시 시도해 주세요. 봇 초대: https://discord.com/oauth2/authorize?client_id=bot"
+    )
+    assert len(requests) == 1
+
+
 async def test_email_disabled_returns_structured_failure() -> None:
     service = NotificationDeliveryService(_settings())
 

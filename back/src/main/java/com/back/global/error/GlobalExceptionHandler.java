@@ -16,6 +16,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ApiException.class)
     public ResponseEntity<ErrorResponse> handleApiException(ApiException exception) {
         ErrorCode errorCode = exception.getErrorCode();
+        log.warn("[ApiException] code={}", errorCode.name());
         return ResponseEntity
                 .status(errorCode.getStatus())
                 .body(ErrorResponse.of(errorCode.name(), errorCode.getMessage()));

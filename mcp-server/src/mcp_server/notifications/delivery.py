@@ -128,7 +128,11 @@ class NotificationDeliveryService:
             return self._failure(
                 request,
                 provider,
-                _provider_error(channel_response, channel_payload),
+                _discord_dm_channel_error(
+                    channel_response,
+                    channel_payload,
+                    self._settings.notification_discord_bot_invite_url,
+                ),
                 retryable=_is_retryable_status(channel_response.status_code),
                 status_code=channel_response.status_code,
             )
@@ -504,6 +508,42 @@ def _provider_error(response: httpx.Response, payload: dict[str, Any]) -> str:
         if value:
             return str(value)
     return response.text or f"provider returned HTTP {response.status_code}"
+
+
+def _discord_dm_channel_error(
+    response: httpx.Response,
+    payload: dict[str, Any],
+    bot_invite_url: str,
+) -> str:
+    """Discord DM 설정 문제는 사용자가 바로 조치할 수 있는 안내로 바꾼다."""
+    if not _looks_like_discord_dm_setup_error(response, payload):
+        return _provider_error(response, payload)
+
+    message = (
+        "Discord DM을 보낼 수 없습니다. 알림을 받을 Discord 서버에 알림 봇을 초대한 뒤 "
+        "다시 시도해 주세요."
+    )
+    invite_url = bot_invite_url.strip()
+    if invite_url:
+        return f"{message} 봇 초대: {invite_url}"
+    return message
+
+
+def _looks_like_discord_dm_setup_error(response: httpx.Response, payload: dict[str, Any]) -> bool:
+    """Discord DM 차단/권한 오류 중 봇 초대로 해결 가능한 응답을 식별한다."""
+    code = payload.get("code")
+    message = str(payload.get("message", "")).lower()
+    return (
+        code == 50007
+        or (
+            response.status_code == 403
+            and (
+                "cannot send messages" in message
+                or "missing access" in message
+                or "missing permissions" in message
+            )
+        )
+    )
 
 
 def _is_retryable_status(status_code: int) -> bool:

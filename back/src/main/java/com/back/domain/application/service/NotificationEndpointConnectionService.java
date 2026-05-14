@@ -1,5 +1,6 @@
 package com.back.domain.application.service;
 
+import com.back.domain.adapter.out.oauth.OAuthClientProperties;
 import com.back.domain.adapter.out.notification.NotificationClientProperties;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaEntity;
 import com.back.domain.adapter.out.persistence.notification.NotificationConnectionTokenJpaRepository;
@@ -25,6 +26,7 @@ import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.util.UriComponentsBuilder;
 
 @Service
 @RequiredArgsConstructor
@@ -39,6 +41,7 @@ public class NotificationEndpointConnectionService {
     private final UserOAuthConnectionJpaRepository oauthConnectionRepository;
     private final NotificationConnectionTokenJpaRepository connectionTokenRepository;
     private final NotificationClientProperties notificationClientProperties;
+    private final OAuthClientProperties oauthClientProperties;
 
     @Transactional(readOnly = true)
     public List<NotificationEndpointStatusResult> loadStatuses(Long userId) {
@@ -47,9 +50,15 @@ public class NotificationEndpointConnectionService {
                         .map(endpoint -> new NotificationEndpointStatusResult(
                                 channel,
                                 true,
-                                targetLabel(channel, endpoint.targetAddress())
+                                targetLabel(channel, endpoint.targetAddress()),
+                                statusConnectUrl(channel)
                         ))
-                        .orElseGet(() -> new NotificationEndpointStatusResult(channel, false, null)))
+                        .orElseGet(() -> new NotificationEndpointStatusResult(
+                                channel,
+                                false,
+                                null,
+                                statusConnectUrl(channel)
+                        )))
                 .toList();
     }
 
@@ -60,10 +69,10 @@ public class NotificationEndpointConnectionService {
                     return new NotificationEndpointConnectionResult(
                             NotificationChannel.DISCORD_DM,
                             true,
-                            "연결됨",
+                            targetLabel(NotificationChannel.DISCORD_DM, connection.getProviderUserId()),
+                            discordBotInviteUrl(),
                             null,
-                            null,
-                            "Discord DM 연결이 완료되었습니다."
+                            "Discord 계정 확인이 완료되었습니다. 알림을 받으려면 Discord 서버에 알림 봇을 초대해 주세요."
                     );
                 })
                 .orElseGet(() -> new NotificationEndpointConnectionResult(
@@ -104,10 +113,10 @@ public class NotificationEndpointConnectionService {
         return new NotificationEndpointConnectionResult(
                 NotificationChannel.DISCORD_DM,
                 true,
-                "연결됨",
+                targetLabel(NotificationChannel.DISCORD_DM, profile.providerUserId()),
+                discordBotInviteUrl(),
                 null,
-                null,
-                "Discord DM 연결이 완료되었습니다."
+                "Discord 계정 확인이 완료되었습니다. 알림을 받으려면 Discord 서버에 알림 봇을 초대해 주세요."
         );
     }
 
@@ -263,8 +272,40 @@ public class NotificationEndpointConnectionService {
         if (channel == NotificationChannel.EMAIL) {
             return maskedEmail(targetAddress);
         }
+        if (channel == NotificationChannel.DISCORD_DM) {
+            return "연결됨";
+        }
 
         return "연결됨";
+    }
+
+    private String statusConnectUrl(NotificationChannel channel) {
+        // 프론트가 OAuth 복귀 직후 Discord 봇 초대 링크를 한 번 열 수 있도록 보조 URL만 함께 제공한다.
+        if (channel == NotificationChannel.DISCORD_DM) {
+            return discordBotInviteUrl();
+        }
+
+        return null;
+    }
+
+    private String discordBotInviteUrl() {
+        String configured = notificationClientProperties.getDiscord().getBotInviteUrl();
+        if (!isBlank(configured)) {
+            return configured.trim();
+        }
+
+        String clientId = oauthClientProperties.getOauth().getDiscord().getClientId();
+        if (isBlank(clientId)) {
+            return null;
+        }
+
+        // 별도 설치 URL이 없으면 같은 Discord 앱의 client id로 최소 권한 봇 설치 URL을 만든다.
+        return UriComponentsBuilder.fromUriString("https://discord.com/oauth2/authorize")
+                .queryParam("client_id", clientId.trim())
+                .queryParam("scope", "bot")
+                .queryParam("permissions", "0")
+                .build()
+                .toUriString();
     }
 
     private String maskedEmail(String email) {
@@ -275,6 +316,10 @@ public class NotificationEndpointConnectionService {
         int atIndex = email.indexOf('@');
         String firstCharacter = email.substring(0, 1);
         return firstCharacter + "***" + email.substring(atIndex);
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     private String channelLabel(NotificationChannel channel) {

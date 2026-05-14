@@ -98,7 +98,10 @@ describe("subscription form helpers", () => {
   });
 
   it("uses the chat subscription experience on the authenticated home screen", () => {
-    const pageSource = readFileSync(new URL("../page.tsx", import.meta.url), "utf8");
+    const pageSource = readFileSync(
+      new URL("../(app)/page.tsx", import.meta.url),
+      "utf8",
+    );
 
     assert.equal(pageSource.includes("SubscriptionChat"), true);
     assert.equal(pageSource.includes("SubscriptionMvp"), false);
@@ -164,14 +167,60 @@ describe("subscription form helpers", () => {
   });
 
   it("renders delete controls for active subscription summaries", () => {
-    const source = readFileSync(
-      new URL("../components/subscription-chat.tsx", import.meta.url),
+    const pageSource = readFileSync(
+      new URL("../(app)/subscriptions/page.tsx", import.meta.url),
+      "utf8",
+    );
+    const cardSource = readFileSync(
+      new URL("../components/ui/subscription-card.tsx", import.meta.url),
       "utf8",
     );
 
-    assert.equal(source.includes("deleteSubscriptionSummary"), true);
-    assert.equal(source.includes("handleDeleteSubscription"), true);
-    assert.equal(source.includes("삭제"), true);
+    assert.equal(pageSource.includes("deleteSubscriptionSummary"), true);
+    assert.equal(pageSource.includes("handleDelete"), true);
+    assert.equal(cardSource.includes("삭제"), true);
+  });
+
+  it("does not show Discord login or bot install as persistent channel status", () => {
+    const source = readFileSync(
+      new URL("../components/ui/notification-channels-card.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(
+      source.includes("Discord 서버에 알림 봇을 초대한 뒤 다시 시도해 주세요."),
+      false,
+    );
+    assert.equal(source.includes('statusBadge="서버 추가 필요"'), false);
+    assert.equal(source.includes('primaryActionLabel="서버에 봇 추가"'), false);
+    assert.equal(
+      source.includes('actionLabelFor(endpoints, "DISCORD_DM")'),
+      true,
+    );
+  });
+
+  it("uses only connect or disconnect actions for linked notification channels", () => {
+    const source = readFileSync(
+      new URL("../components/ui/notification-channels-card.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("reconnectDiscordNotification"), false);
+    assert.equal(source.includes("disconnectNotificationEndpoint"), true);
+    assert.equal(source.includes("STORAGE_KEYS.pendingEndpointChannel"), true);
+    assert.equal(source.includes('return endpoint?.connected ? "연동 해제" : "연결";'), true);
+    assert.equal(source.includes('"변경"'), false);
+  });
+
+  it("opens the Discord bot install URL during the connection flow instead of the persistent channel row", () => {
+    const source = readFileSync(
+      new URL("../components/ui/notification-channels-card.tsx", import.meta.url),
+      "utf8",
+    );
+
+    assert.equal(source.includes("function openConnectionUrl"), true);
+    assert.equal(source.includes("openConnectionUrl(response.data.connectUrl);"), true);
+    assert.equal(source.includes("openConnectionUrl(connected.connectUrl);"), true);
   });
 
   it("does not render dev-only test controls for active subscription summaries", () => {
@@ -429,7 +478,12 @@ describe("subscription API client", () => {
 
       return new Response(
         JSON.stringify([
-          { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
+          {
+            channel: "DISCORD_DM",
+            connected: true,
+            targetLabel: "연결됨",
+            connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+          },
           { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
           { channel: "EMAIL", connected: false, targetLabel: null },
         ]),
@@ -445,9 +499,14 @@ describe("subscription API client", () => {
     assert.deepEqual(result, {
       ok: true,
       data: [
-        { channel: "DISCORD_DM", connected: true, targetLabel: "연결됨" },
-        { channel: "TELEGRAM_DM", connected: false, targetLabel: null },
-        { channel: "EMAIL", connected: false, targetLabel: null },
+        {
+          channel: "DISCORD_DM",
+          connected: true,
+          targetLabel: "연결됨",
+          connectUrl: "https://discord.com/oauth2/authorize?client_id=bot&scope=bot&permissions=0",
+        },
+        { channel: "TELEGRAM_DM", connected: false, targetLabel: null, connectUrl: null },
+        { channel: "EMAIL", connected: false, targetLabel: null, connectUrl: null },
       ],
     });
   });

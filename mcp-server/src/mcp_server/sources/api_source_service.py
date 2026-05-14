@@ -11,10 +11,13 @@
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 import httpx
+
+_log = logging.getLogger(__name__)
 from sqlalchemy import select
 
 from mcp_server.db.models import ApiCache, ApiSource
@@ -78,6 +81,7 @@ async def fetch(
             http_client=_test_http_client,
         )
     except SourceFetchError as exc:
+        _log.warning("fetch 실패, 캐시 폴백 시도: source_id=%s error=%s", source_id, exc)
         cached = await _load_cache_by_site_url(cache_site_url)
         base_meta = {
             "tool_name": source.tool_name,
@@ -275,6 +279,7 @@ async def _call_external_api(
         response = await client.get(endpoint, params=params)
         response.raise_for_status()
     except httpx.HTTPError as exc:
+        _log.error("외부 API 호출 실패: endpoint=%s error=%s", endpoint, exc)
         raise SourceFetchError(f"API 호출 실패: {endpoint} ({exc})") from exc
 
     content_type = response.headers.get("content-type", "")
