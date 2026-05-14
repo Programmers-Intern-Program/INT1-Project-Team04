@@ -17,6 +17,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,7 +59,7 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
         LocalDateTime now = LocalDateTime.now();
         List<Schedule> dueSchedules = loadDueSchedulesPort.loadDueSchedules(now);
         if (dueSchedules.isEmpty()) {
-            log.debug("[SubscriptionMonitorService] 실행할 구독 없음");
+            log.info("[SubscriptionMonitorService] 실행할 구독 없음");
             return;
         }
         log.info("[SubscriptionMonitorService] 구독 실행 시작 - {}건", dueSchedules.size());
@@ -118,13 +119,16 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
 
     private void advanceSchedule(Schedule schedule, LocalDateTime now) {
         try {
-            saveSchedulePort.save(new Schedule(
+            Schedule advanced = new Schedule(
                     schedule.id(),
                     schedule.subscription(),
                     schedule.cronExpr(),
                     now,
                     CronScheduleCalculator.nextRun(schedule.cronExpr(), now)
-            ));
+            );
+            saveSchedulePort.save(advanced);
+            log.info("[SubscriptionMonitorService] 스케줄 갱신 완료 - scheduleId={}, nextRun={}",
+                    schedule.id(), advanced.nextRun());
         } catch (RuntimeException e) {
             log.warn("Failed to advance schedule. scheduleId={}", schedule.id(), e);
         }
@@ -174,8 +178,44 @@ public class SubscriptionMonitorService implements RunSubscriptionMonitorUseCase
     }
 
     private String extractRegion(String query) {
-        Matcher matcher = REGION.matcher(query == null ? "" : query);
-        return matcher.find() ? matcher.group(1) : null;
+        // 입력 예: "성남시 분당구 아파트 매매 …" → "성남시 분당구" (행정구 포함 다중 토큰)
+        // REGION 정규식은 "OO시/군/구" 단일 토큰만 잡으므로 모든 매치를 모은 뒤
+        // 공백으로만 인접한 매치들을 하나의 region 묶음으로 결합해 최장 묶음을 반환한다.
+        if (query == null || query.isBlank()) {
+            return null;
+        }
+        Matcher matcher = REGION.matcher(query);
+        List<int[]> matches = new ArrayList<>();
+        while (matcher.find()) {
+            matches.add(new int[]{matcher.start(), matcher.end()});
+        }
+        if (matches.isEmpty()) {
+            return null;
+        }
+        int bestStart = matches.get(0)[0];
+        int bestEnd = matches.get(0)[1];
+        int bestCount = 1;
+        int curStart = bestStart;
+        int curEnd = bestEnd;
+        int curCount = 1;
+        for (int i = 1; i < matches.size(); i++) {
+            int s = matches.get(i)[0];
+            int e = matches.get(i)[1];
+            if (query.substring(curEnd, s).chars().allMatch(Character::isWhitespace)) {
+                curEnd = e;
+                curCount++;
+            } else {
+                curStart = s;
+                curEnd = e;
+                curCount = 1;
+            }
+            if (curCount > bestCount) {
+                bestStart = curStart;
+                bestEnd = curEnd;
+                bestCount = curCount;
+            }
+        }
+        return query.substring(bestStart, bestEnd).replaceAll("\\s+", " ").strip();
     }
 
     private NotificationChannel notificationChannel(String subscriptionId) {
